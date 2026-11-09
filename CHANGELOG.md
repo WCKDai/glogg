@@ -22,6 +22,7 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - Test suites for quality goldens, research, the search pipeline, security, plugins, plugin tools, client logic, UI flows in jsdom, and speed budgets (`npm run test:perf`); a bundle-size budget in CI (`npm run check:bundle`).
 
 ### Changed
+- **18+ mode is switched on in Settings only, after a confirmation.** The one-click flame button in the header and the switch in the Advanced rail are gone, so a stray click can't turn it on. While it's on, an **18+** pill in the header turns it off with one click; the command palette offers "Turn 18+ off", or opens Settings to turn it on.
 - **Requires Node 22.13+** (was 20): the deep index uses Node's built-in SQLite. Node 20 reached end of life in April 2026; CI already runs 22.
 - **Outgoing connections are IPv4-first with the normal connect timeout.** Node's default gives each address a few hundred milliseconds and failed many parallel requests on networks without IPv6 (measured: 6–31 of 40); with this, 0–3. `GLOGG_HAPPY_EYEBALLS=1` restores Node's default.
 - **New look ("Stein")**: colours sampled from the icon, tighter and denser layout, quicker motion, honours reduced motion.

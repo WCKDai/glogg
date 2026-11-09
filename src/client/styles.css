@@ -2592,6 +2592,44 @@ button.sb-item:hover {
   transform: translateX(15px);
 }
 
+/* Sections opened by link (the palette's "18+ mode") clear the sticky header. */
+.section[id] {
+  scroll-margin-top: 72px;
+}
+
+.switch-danger.on {
+  background: var(--danger);
+}
+
+.adult-confirm {
+  background: var(--danger-soft);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--danger) 88%, #000);
+}
+
+/* Shown only while 18+ is on; one click turns it off. */
+.adult-pill {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 99px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font: 600 11px/1.4 var(--mono);
+  letter-spacing: 0.02em;
+}
+
+.adult-pill:hover {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
 .segmented {
   display: inline-flex;
   padding: 3px;

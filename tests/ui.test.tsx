@@ -435,6 +435,61 @@ describe('atlas', () => {
   });
 });
 
+describe('18+ mode', () => {
+  const stored = () => localStorage.getItem('glogg.uncensored');
+
+  it('has no one-click switch anywhere, so a stray click cannot turn it on', async () => {
+    expect($('.adult-pill')).toBeNull();
+    expect($$('button').some((b) => /18\+/.test(b.textContent || '') || /18\+/.test(b.getAttribute('aria-label') || ''))).toBe(false);
+  });
+
+  it('turns on only after confirming in Settings, and off again with one click', async () => {
+    await click($('button[aria-label="Settings"]'));
+    // Matched in code: jsdom's selector engine misreads the "+" inside [aria-label="18+ mode"].
+    const toggle = () => $$('button[role="switch"]').find((b) => b.getAttribute('aria-label') === '18+ mode');
+    await until(toggle);
+
+    await click(toggle());
+    expect($('.adult-confirm')).toBeTruthy();
+    expect(stored()).toBe('false');
+    await click(byText('.adult-confirm button', 'Cancel'));
+    expect($('.adult-confirm')).toBeNull();
+    expect(toggle()!.getAttribute('aria-checked')).toBe('false');
+
+    await click(toggle());
+    await click(byText('.adult-confirm button', "I'm 18 or older"));
+    expect(stored()).toBe('true');
+    expect(toggle()!.getAttribute('aria-checked')).toBe('true');
+    expect($('.adult-pill')).toBeTruthy();
+
+    await click($('.adult-pill'));
+    expect(stored()).toBe('false');
+    expect($('.adult-pill')).toBeNull();
+  });
+
+  it('is reached from the command palette through Settings, never switched on directly', async () => {
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+    });
+    await flush();
+    await type($<HTMLInputElement>('.palette input')!, '18+');
+    const options = $$('.palette-list li[role="option"]');
+    const target = options.findIndex((li) => li.textContent?.includes('18+ mode (in Settings)'));
+    expect(target).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < target; i++) {
+      await act(async () => {
+        document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      });
+    }
+    await act(async () => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await until(() => $('#settings-adult'));
+    expect(stored()).toBe('false');
+    expect($('.adult-pill')).toBeNull();
+  });
+});
+
 describe('tools page', () => {
   it('opens on a tool that works without setup', async () => {
     await click($('button[aria-label="Tools"]'));

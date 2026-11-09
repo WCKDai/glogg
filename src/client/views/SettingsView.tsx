@@ -27,6 +27,10 @@ interface Props {
   setBoosted: (d: string[]) => void;
   customBangs: BangDefinition[];
   setCustomBangs: (b: BangDefinition[]) => void;
+  adultMode: boolean;
+  setAdultMode: (on: boolean) => void;
+  /** A section to scroll to on open, e.g. 'adult' from the command palette. */
+  focus?: string | null;
   onToast: (t: string, tone?: 'ok' | 'error' | 'info') => void;
 }
 
@@ -87,13 +91,17 @@ const FIELDS: { group: string; note?: string; fields: { key: keyof CustomEndpoin
 ];
 
 export function SettingsView(props: Props) {
-  const { prefs, setPrefs, blocked, setBlocked, boosted, setBoosted, customBangs, setCustomBangs, onToast } = props;
+  const { prefs, setPrefs, blocked, setBlocked, boosted, setBoosted, customBangs, setCustomBangs, adultMode, setAdultMode, focus, onToast } = props;
   const [cfg, setCfg] = useState<CustomEndpointsConfig>({});
   const [dirty, setDirty] = useState(false);
   const [newBang, setNewBang] = useState({ trigger: '', name: '', url: '' });
   const [domainInput, setDomainInput] = useState('');
   const [ruleText, setRuleText] = useState('');
   const [showBuiltins, setShowBuiltins] = useState(false);
+
+  useEffect(() => {
+    if (focus) document.getElementById(`settings-${focus}`)?.scrollIntoView({ block: 'start' });
+  }, [focus]);
 
   useEffect(() => {
     api<{ config: CustomEndpointsConfig }>('/api/integrations')
@@ -170,6 +178,8 @@ export function SettingsView(props: Props) {
           </div>
         </div>
       </section>
+
+      <AdultMode on={adultMode} set={setAdultMode} />
 
       <section className="section">
         <div className="section-title-row">
@@ -307,6 +317,65 @@ export function SettingsView(props: Props) {
         </details>
       </section>
     </div>
+  );
+}
+
+/**
+ * 18+ mode. Kept out of the top bar and the rail so a stray click can't turn it on:
+ * the switch only asks, and nothing changes until the confirmation. Turning it off is immediate.
+ * The row is not a <label>, so only the switch itself responds.
+ */
+function AdultMode({ on, set }: { on: boolean; set: (v: boolean) => void }) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <section className="section" id="settings-adult">
+      <h2 className="section-title">18+ mode</h2>
+      <div className="settings-list">
+        <div className="setting">
+          <div>
+            <div className="setting-label">Unfiltered results</div>
+            <div className="setting-hint">
+              Turns SafeSearch off for the engines glogg asks, and shows 18+ boards, forums, torrents and archive posts. Off unless you turn it on here.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-label="18+ mode"
+            className={`switch switch-danger ${on ? 'on' : ''}`}
+            onClick={() => (on ? set(false) : setAsking(true))}
+          >
+            <span />
+          </button>
+        </div>
+        {asking && !on && (
+          <div className="setting adult-confirm" role="alertdialog" aria-labelledby="adult-confirm-title">
+            <div>
+              <div className="setting-label" id="adult-confirm-title">
+                Turn on 18+ mode?
+              </div>
+              <div className="setting-hint">Results can include explicit adult content. Only for people 18 or older.</div>
+            </div>
+            <div className="row-gap">
+              <button type="button" className="btn btn-sm" onClick={() => setAsking(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => {
+                  set(true);
+                  setAsking(false);
+                }}
+              >
+                I'm 18 or older, turn it on
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

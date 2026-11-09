@@ -24,8 +24,6 @@ export function AdvancedRail({
   onSourceFilter,
   prefs,
   onPrefs,
-  uncensored,
-  onToggleUncensored,
   researchAuto,
   onResearchAuto,
   researchDepth,
@@ -43,8 +41,6 @@ export function AdvancedRail({
   onSourceFilter: (s: string | null) => void;
   prefs: SearchPrefs;
   onPrefs: (p: SearchPrefs) => void;
-  uncensored: boolean;
-  onToggleUncensored: () => void;
   researchAuto: boolean;
   onResearchAuto: (v: boolean) => void;
   researchDepth: ResearchDepth;
@@ -121,7 +117,6 @@ export function AdvancedRail({
         <RailToggle label="Hide sponsored" on={prefs.stripSponsored} set={(v) => onPrefs({ ...prefs, stripSponsored: v })} />
         <RailToggle label="Independent only" hint="Skip big platforms" on={prefs.obscureWebOnly} set={(v) => onPrefs({ ...prefs, obscureWebOnly: v })} />
         <RailToggle label="Before ChatGPT" hint="Pages from before Nov 2022" on={prefs.preLlmOnly} set={(v) => onPrefs({ ...prefs, preLlmOnly: v })} />
-        <RailToggle label="18+ unfiltered" on={uncensored} set={onToggleUncensored} />
       </section>
 
       <section className="rail-section">

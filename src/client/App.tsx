@@ -5,7 +5,6 @@ import {
   Command,
   Compass,
   Download,
-  Flame,
   History,
   Magnet,
   Moon,
@@ -541,14 +540,24 @@ export function App() {
     [setBlocked, toast]
   );
 
-  const toggleUncensored = useCallback(() => {
-    const next = !live.current.uncensored;
-    setUncensored(next);
-    toast(next ? '18+ on: unfiltered, SafeSearch off' : '18+ off', 'info');
-    if (live.current.submitted && !parseToolTrigger(live.current.submitted)) {
-      void runSearch(live.current.submitted, { uncensored: next, push: false, keepResearch: true });
-    }
-  }, [setUncensored, toast, runSearch]);
+  /** 18+ mode turns on only in Settings, after a confirmation; turning it off works from anywhere. */
+  const setAdultMode = useCallback(
+    (next: boolean) => {
+      if (next === live.current.uncensored) return;
+      setUncensored(next);
+      toast(next ? '18+ on: unfiltered, SafeSearch off' : '18+ off', 'info');
+      if (live.current.submitted && !parseToolTrigger(live.current.submitted)) {
+        void runSearch(live.current.submitted, { uncensored: next, push: false, keepResearch: true });
+      }
+    },
+    [setUncensored, toast, runSearch]
+  );
+
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
+  const openSettings = useCallback((section: string | null = null) => {
+    setSettingsFocus(section);
+    setView('settings');
+  }, []);
 
   const switchScope = useCallback(
     (id: SearchLensId) => {
@@ -681,7 +690,9 @@ export function App() {
       })
     );
     c.push(
-      { id: 't-18', label: uncensored ? 'Turn 18+ off' : 'Turn 18+ on (unfiltered)', group: 'Toggle', keywords: 'nsfw uncensored safesearch', run: toggleUncensored },
+      uncensored
+        ? { id: 't-18', label: 'Turn 18+ off', group: 'Toggle', keywords: 'nsfw uncensored safesearch adult', run: () => setAdultMode(false) }
+        : { id: 't-18', label: '18+ mode (in Settings)', group: 'Go to', keywords: 'nsfw uncensored safesearch adult', run: () => openSettings('adult') },
       { id: 't-theme', label: isDark ? 'Light theme' : 'Dark theme', group: 'Toggle', run: toggleTheme },
       { id: 't-sys', label: 'Follow system theme', group: 'Toggle', run: () => setThemePref('system') },
       {
@@ -725,7 +736,7 @@ export function App() {
       c.push({ id: `e-${e.id}`, label: `Search on ${e.name}`, group: 'Elsewhere', hint: e.description, run: () => openUrl(e.url) })
     );
     return c;
-  }, [goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, toggleUncensored, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, muteDomain, openUrl]);
+  }, [goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, muteDomain, openUrl]);
 
   // ── Render ────────────────────────────────────────────────────────────
   const isHome = view === 'search' && !submitted;
@@ -893,19 +904,14 @@ export function App() {
             <button type="button" className={`icon-btn ghost hide-sm hide-md ${view === 'services' ? 'active' : ''}`} onClick={() => setView('services')} title="Services" aria-label="Services">
               <Server size={16} />
             </button>
-            <button type="button" className={`icon-btn ghost ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')} title="Settings" aria-label="Settings">
+            <button type="button" className={`icon-btn ghost ${view === 'settings' ? 'active' : ''}`} onClick={() => openSettings()} title="Settings" aria-label="Settings">
               <Settings size={16} />
             </button>
-            <button
-              type="button"
-              className={`icon-btn ghost ${uncensored ? 'danger-on' : ''}`}
-              onClick={toggleUncensored}
-              title={uncensored ? '18+ on — unfiltered' : '18+ off'}
-              aria-pressed={uncensored}
-              aria-label="Toggle 18+"
-            >
-              <Flame size={16} />
-            </button>
+            {uncensored && (
+              <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">
+                18+
+              </button>
+            )}
             <button type="button" className="icon-btn ghost" onClick={toggleTheme} title={isDark ? 'Light theme' : 'Dark theme'} aria-label="Toggle theme">
               {isDark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
@@ -1070,8 +1076,6 @@ export function App() {
                 }}
                 prefs={prefs}
                 onPrefs={applyPrefs}
-                uncensored={uncensored}
-                onToggleUncensored={toggleUncensored}
                 researchAuto={researchAuto}
                 onResearchAuto={setResearchAuto}
                 researchDepth={researchDepth}
@@ -1126,6 +1130,9 @@ export function App() {
               setBoosted={setBoosted}
               customBangs={customBangs}
               setCustomBangs={setCustomBangs}
+              adultMode={uncensored}
+              setAdultMode={setAdultMode}
+              focus={settingsFocus}
               onToast={toast}
             />
           )}
