@@ -303,11 +303,13 @@ function buildExtractiveTakeaways(
   for (const res of topCandidates) {
     const cleanSnippet = res.snippet
       .replace(/^(?:Surfaced via Hacker News|Shared on Fediverse|GDELT Unfiltered Global News Wire)[^.]*\.\s*/i, '')
+      .replace(/\bDiscussion: https?:\/\/\S+/gi, '')
       .replace(/\s*\[SearXNG via [^\]]+\]\s*/g, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    if (cleanSnippet.length < 35) continue;
+    // A link or a vote count says nothing about the question.
+    if (cleanSnippet.length < 35 || (cleanSnippet.match(/\p{L}{3,}/gu) || []).length < 6) continue;
 
     const citationIdx = citations.length + 1;
     citations.push({
@@ -426,7 +428,7 @@ export async function buildInstantAnswer(
     return {
       kind: 'technical-answer',
       title: techCandidate.questionTitle,
-      subtitle: `Verified Practitioner Answer · ${techCandidate.siteName} (${techCandidate.score} votes)`,
+      subtitle: `${techCandidate.siteName} · ${techCandidate.score} votes`,
       directAnswer: wikiCandidate
         ? `${wikiCandidate.extract.split(/(?<=[.!?])\s+/).slice(0, 2).join(' ')} — ${techCandidate.answerText}`
         : techCandidate.answerText,
@@ -451,7 +453,7 @@ export async function buildInstantAnswer(
 
     const primaryCitation: InstantCitation = {
       index: 1,
-      title: `${bestTitle} — Primary Reference`,
+      title: bestTitle,
       url: bestUrl,
       domain: new URL(bestUrl).hostname.replace(/^www\./, ''),
       source: 'wikipedia',
@@ -467,9 +469,7 @@ export async function buildInstantAnswer(
     return {
       kind: 'direct-fact',
       title: bestTitle,
-      subtitle: analysis.questionAttribute
-        ? `Direct Fact Resolution · ${analysis.questionAttribute.toUpperCase()} of ${analysis.entitySubject}`
-        : 'Verified Encyclopedic & Primary Synthesis',
+      subtitle: analysis.questionAttribute ? `${analysis.questionAttribute} of ${analysis.entitySubject}` : undefined,
       directAnswer: bestAnswer,
       confidence: 'verified',
       codeBlock: techCandidate?.codeBlock,
@@ -489,7 +489,7 @@ export async function buildInstantAnswer(
     return {
       kind: 'knowledge-synthesis',
       title: leadCit.title,
-      subtitle: `Synthesized Answer across ${citations.length} Verified Sources`,
+      subtitle: undefined,
       directAnswer: lead.text,
       confidence: 'Synthesized'.toLowerCase() as 'synthesized',
       takeaways: takeaways.slice(1, 4),

@@ -267,7 +267,7 @@ async function searchSearxngNode(
       id: `searxng-${idx}-${r.url}`,
       title: r.title,
       url: r.magnetlink || r.url,
-      snippet: `${r.content || r.title} [SearXNG via ${r.engine || 'federated'}]`,
+      snippet: r.content || '',
       source: 'web' as const,
       publishedAt: r.publishedDate,
     }));
@@ -321,9 +321,9 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
           id: `lemmy-ext-${p.id}`,
           title: p.name,
           url: p.url,
-          snippet: `Shared on Fediverse c/${entry.community?.name || 'lemmy'} (${
-            entry.counts?.score ?? 0
-          } pts, ${entry.counts?.comments ?? 0} comments). ${p.body?.slice(0, 180) || ''}`,
+          snippet:
+            p.body?.slice(0, 200) ||
+            `${entry.counts?.score ?? 0} points · ${entry.counts?.comments ?? 0} comments in c/${entry.community?.name || 'lemmy'}`,
           source: 'lemmy',
           publishedAt: p.published,
           points: entry.counts?.score,
@@ -332,13 +332,11 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
       }
       results.push({
         id: `lemmy-post-${p.id}`,
-        title: `[Fediverse c/${entry.community?.name || 'community'}] ${p.name}`,
+        title: `Discussion: ${p.name}`,
         url: p.ap_id || `https://lemmy.world/post/${p.id}`,
         snippet:
           p.body?.slice(0, 240) ||
-          `Fediverse discussion in ${entry.community?.title || 'Lemmy'} (${
-            entry.counts?.comments ?? 0
-          } comments).`,
+          `${entry.counts?.comments ?? 0} comments in c/${entry.community?.name || 'lemmy'}`,
         source: 'lemmy',
         publishedAt: p.published,
         points: entry.counts?.score,
@@ -435,7 +433,7 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
           id: `hn-ext-${hit.objectID}`,
           title: hit.title,
           url: hit.url,
-          snippet: `Surfaced via Hacker News (${hit.points ?? 0} pts, ${hit.num_comments ?? 0} comments by @${hit.author ?? 'anon'}). Discussion: ${hnThreadUrl}`,
+          snippet: `${hit.points ?? 0} points · ${hit.num_comments ?? 0} comments on Hacker News`,
           source: 'web',
           publishedAt: hit.created_at,
           author: hit.author,

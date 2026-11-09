@@ -49,6 +49,9 @@ function absolute(href: string | undefined, base: string): string | undefined {
   }
 }
 
+/** Lemmy's feeds open every item with "submitted by X to Y · N points | N comments · link"; the post is what follows. */
+const LEMMY_ITEM_HEADER = /^submitted by \S+ to \S+\s+-?\d+ points? \| \d+ comments?\s*(?:https?:\/\/\S+\s*)?/i;
+
 /** RSS 2.0, RSS 1.0 (RDF) and Atom. Items without a link are skipped. */
 export function parseFeed(xml: string, feedUrl: string): ParsedFeed {
   const $ = cheerio.load(xml, { xmlMode: true });
@@ -88,7 +91,7 @@ export function parseFeed(xml: string, feedUrl: string): ParsedFeed {
     push({
       url,
       title: htmlToText(i.children('title').first().text(), 300) || url,
-      summary: htmlToText(i.children('description').first().text() || i.children('content\\:encoded').first().text()),
+      summary: htmlToText(i.children('description').first().text() || i.children('content\\:encoded').first().text()).replace(LEMMY_ITEM_HEADER, ''),
       published: toTime(i.children('pubDate').first().text() || i.children('dc\\:date').first().text()),
     });
   });

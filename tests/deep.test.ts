@@ -121,6 +121,16 @@ describe('parsers', () => {
     expect(parse.parseFeed(RDF, 'https://old.example/rss').posts[0]).toMatchObject({ url: 'https://old.example/1', title: 'BBS door games' });
   });
 
+  it("drops the header Lemmy puts on every item, keeping the post", () => {
+    const item = (body: string) =>
+      `<rss version="2.0"><channel><title>c</title><link>https://lemmy.example/c/keyboards</link><item><title>Post</title><link>https://lemmy.example/post/1</link><description><![CDATA[${body}]]></description></item></channel></rss>`;
+    const header = 'submitted by <a href="https://lemmy.example/u/cm0002">cm0002</a> to <a href="https://lemmy.example/c/keyboards">keyboards</a><br>5 points | <a href="https://lemmy.example/post/1">1 comments</a><br>';
+    expect(parse.parseFeed(item(`${header}<a href="https://www.engadget.com/kb.html">https://www.engadget.com/kb.html</a>`), 'https://lemmy.example/feeds/c/keyboards.xml').posts[0].summary).toBe('');
+    expect(parse.parseFeed(item(`${header}<p>Lubing stabilisers fixed the rattle.</p>`), 'https://lemmy.example/feeds/c/keyboards.xml').posts[0].summary).toBe(
+      'Lubing stabilisers fixed the rattle.'
+    );
+  });
+
   it('reads JSON Feed', () => {
     const f = parse.parseJsonFeed(
       { version: 'https://jsonfeed.org/version/1.1', title: 'J', home_page_url: 'https://j.example/', items: [{ url: '/a', title: 'A', content_text: 'Body' }] },
