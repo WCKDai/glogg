@@ -92,6 +92,7 @@ const RESEARCH_STREAM = [
 
 let calls: { method: string; path: string; search: string; body?: unknown }[] = [];
 let deepCrawling = false;
+let passwordProtected = false;
 
 function installApi() {
   calls = [];
@@ -140,6 +141,10 @@ function installApi() {
         });
       case 'POST /api/deep/sources':
         return json({ source: { kind: 'blog', url: body.url } });
+      case 'GET /api/auth':
+        return json({ required: passwordProtected, authenticated: false });
+      case 'POST /api/auth/login':
+        return json({ error: 'Wrong password.' }, 401);
       case 'POST /api/research':
         return new Response(RESEARCH_STREAM.map((e) => JSON.stringify(e)).join('\n'), { headers: { 'Content-Type': 'application/x-ndjson' } });
       default:
@@ -495,6 +500,28 @@ describe('18+ mode', () => {
     await until(() => $('#settings-adult'));
     expect(stored()).toBe('false');
     expect($('.adult-pill')).toBeNull();
+  });
+});
+
+describe('password-protected glogg', () => {
+  afterEach(() => {
+    passwordProtected = false;
+  });
+
+  it('asks for the password over everything, and says when it is wrong', async () => {
+    expect($('.signin')).toBeNull();
+    await act(async () => root.unmount());
+    container.remove();
+    passwordProtected = true;
+    await render();
+    await until(() => $('.signin'));
+    expect($('.signin')!.getAttribute('aria-modal')).toBe('true');
+    await type($<HTMLInputElement>('.signin input[type="password"]')!, 'hunter2');
+    await submit($<HTMLInputElement>('.signin input[type="password"]')!);
+    await until(() => $('.signin-error'));
+    expect($('.signin-error')!.textContent).toBe('Wrong password.');
+    expect(calls.find((c) => c.path === '/api/auth/login')!.body).toEqual({ password: 'hunter2' });
+    expect($('.signin')).toBeTruthy();
   });
 });
 

@@ -254,7 +254,13 @@ glogg listens on your machine and holds your keys, and any website you visit can
 
 - Serving glogg under a custom domain or behind a proxy: set `GLOGG_ALLOWED_HOSTS=glogg.example.com` (`*` turns the host check off).
 - Calling the API from another trusted origin: `GLOGG_ALLOWED_ORIGINS=https://glogg.example.com`.
-- glogg listens on all interfaces (`0.0.0.0`) so you can use it from your phone. On untrusted networks, put it behind a firewall or a reverse proxy with authentication.
+- glogg listens on all interfaces (`0.0.0.0`) so you can use it from your phone; `HOST=127.0.0.1` keeps it on this machine.
+- **On a network you don't trust, or a public address, set a password:** `GLOGG_PASSWORD` (or `GLOGG_PASSWORD_FILE` for a Docker secret).
+  - Every route except health and sign-in then needs a session, including the routes that are otherwise public.
+  - The session is an HttpOnly, SameSite=Strict cookie, Secure over HTTPS, valid for 30 days.
+  - Sign-ins are rate-limited per address (ten wrong passwords lock that address out for 15 minutes).
+  - Changing the password signs everyone out. If the password file can't be read, glogg refuses to start rather than run open.
+- Behind a reverse proxy, glogg believes `X-Forwarded-For`/`-Proto` only from private-network proxies by default. Use `GLOGG_TRUST_PROXY` (Express syntax: `1`, `true`, a subnet) to change that.
 
 ### Speed
 

@@ -167,6 +167,13 @@ export function runTool(pluginId: string, toolId: string, input: Record<string, 
   });
 }
 
+/** Fired when the server asks for a sign-in: this glogg has a password and the session is missing or expired. */
+export const SIGN_IN_EVENT = 'glogg:sign-in';
+
+function noteSignIn(res: Response): void {
+  if (res.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event(SIGN_IN_EVENT));
+}
+
 /** POSTs JSON and calls onEvent for each line of a newline-delimited JSON response. */
 export async function streamEvents<T>(path: string, json: unknown, signal: AbortSignal, onEvent: (e: T) => void): Promise<void> {
   const res = await fetch(path, {
@@ -175,6 +182,7 @@ export async function streamEvents<T>(path: string, json: unknown, signal: Abort
     body: JSON.stringify(json),
     signal,
   });
+  noteSignIn(res);
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -305,6 +313,7 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
     headers: { ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(rest.headers || {}) },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
+  if (path !== '/api/auth/login') noteSignIn(res);
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;

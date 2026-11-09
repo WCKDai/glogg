@@ -103,6 +103,17 @@ export function SettingsView(props: Props) {
     if (focus) document.getElementById(`settings-${focus}`)?.scrollIntoView({ block: 'start' });
   }, [focus]);
 
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    api<{ required: boolean; authenticated: boolean }>('/api/auth')
+      .then((a) => setSignedIn(a.required && a.authenticated))
+      .catch(() => undefined);
+  }, []);
+  const signOut = async () => {
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+    window.location.reload();
+  };
+
   useEffect(() => {
     api<{ config: CustomEndpointsConfig }>('/api/integrations')
       .then((r) => setCfg(r.config))
@@ -137,8 +148,15 @@ export function SettingsView(props: Props) {
   return (
     <div className="page">
       <header className="page-head">
-        <h1>Settings</h1>
-        <p>Everything here is optional. Keys are stored on this machine (~/.glogg), never in the browser.</p>
+        <div>
+          <h1>Settings</h1>
+          <p>Everything here is optional. Keys are stored on this machine (~/.glogg), never in the browser.</p>
+        </div>
+        {signedIn && (
+          <button type="button" className="btn btn-sm" onClick={() => void signOut()}>
+            Sign out
+          </button>
+        )}
       </header>
 
       <section className="section">

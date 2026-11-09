@@ -1,4 +1,5 @@
 import express from 'express';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -10,6 +11,7 @@ import {
   SearchFilterConfig,
 } from '../src/core/index.js';
 import { resolveAiConfig } from './ai.js';
+import { configuredPassword, createAuth, sessionSecret, trustProxySetting } from './auth.js';
 import {
   getContainerStackStatus,
   runContainerOrchestrationAction,
@@ -72,8 +74,17 @@ export async function createGloggServer() {
   // Only the exact lower-case "/api/…" routes exist. Express would otherwise also route "/API/…",
   // which the guard's prefix check never sees.
   app.set('case sensitive routing', true);
+  app.set('trust proxy', trustProxySetting(process.env.GLOGG_TRUST_PROXY));
   app.use(express.json({ limit: '5mb' }));
+  // A password, when set, comes first: without a session nothing else answers, not even the public routes.
+  const password = configuredPassword();
+  const auth = createAuth({
+    password,
+    secret: password ? sessionSecret(process.env.GLOGG_HOME || path.join(os.homedir(), '.glogg')) : Buffer.alloc(32),
+  });
+  app.use(auth.middleware);
   app.use(apiGuard);
+  auth.routes(app);
   await loadPlugins();
 
   app.get('/api/health', (_req, res) => {
@@ -536,11 +547,21 @@ export async function createGloggServer() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   configureNetwork();
   const port = Number(process.env.PORT || 4173);
-  createGloggServer().then((app) => {
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`glogg engine listening on http://localhost:${port}`);
-      // Pick up a deep-index crawl you started before the last restart.
-      resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
+  createGloggServer()
+    .then((app) => {
+      app.listen(port, process.env.HOST || '0.0.0.0', () => {
+        console.log(`glogg engine listening on http://localhost:${port}`);
+        const password = configuredPassword();
+        if (password) {
+          console.log('Password protection is on.');
+          if (password.length < 12) console.warn('GLOGG_PASSWORD is shorter than 12 characters; use a longer one on a public address.');
+        }
+        // Pick up a deep-index crawl you started before the last restart.
+        resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
+      });
+    })
+    .catch((e) => {
+      console.error(`glogg couldn't start: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
     });
-  });
 }

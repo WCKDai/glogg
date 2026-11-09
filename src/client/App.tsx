@@ -33,6 +33,7 @@ import type {
   SearchLensId,
 } from '../core/browser.js';
 import { SearchBox } from './components/SearchBox.js';
+import { SignIn } from './components/SignIn.js';
 import { AnswerCard, ReleaseList, ResultItem } from './components/Results.js';
 import { ReaderSheet } from './components/ReaderSheet.js';
 import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
@@ -61,6 +62,7 @@ import {
   runTool,
   SCOPES,
   sendToDownloads,
+  SIGN_IN_EVENT,
   SOURCE_LABELS,
   streamEvents,
   targetLabel,
@@ -144,6 +146,16 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [readerUrl, setReaderUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // A password-protected glogg asks for a sign-in on load, and again whenever a session runs out.
+  const [signInNeeded, setSignInNeeded] = useState(false);
+  useEffect(() => {
+    const ask = () => setSignInNeeded(true);
+    window.addEventListener(SIGN_IN_EVENT, ask);
+    api<{ required: boolean; authenticated: boolean }>('/api/auth')
+      .then((a) => setSignInNeeded(a.required && !a.authenticated))
+      .catch(() => undefined);
+    return () => window.removeEventListener(SIGN_IN_EVENT, ask);
+  }, []);
   const [showFiltered, setShowFiltered] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeDownloads, setActiveDownloads] = useState(0);
@@ -1129,6 +1141,8 @@ export function App() {
           onToggleMode={() => switchMode(mode === 'advanced' ? 'simple' : 'advanced')}
           onOpenPalette={() => setPaletteOpen(true)}
         />
+
+        {signInNeeded && <SignIn onDone={() => window.location.reload()} />}
 
         {readerUrl && (
           <ReaderSheet

@@ -46,6 +46,12 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - The client bundle no longer includes the server-side page cleaner (−26 KB gzipped).
 
 ### Security
+- **Password protection for glogg on a public address.**
+  - Set `GLOGG_PASSWORD` (or `GLOGG_PASSWORD_FILE`) and every route except health and sign-in needs a session.
+  - The session cookie is HttpOnly, SameSite=Strict, Secure over HTTPS and lasts 30 days. It's signed with a key derived from the password and a random secret in `$GLOGG_HOME/session.key`.
+  - Sign-ins are rate-limited per address. A sign-in screen covers the app until you're in, and Settings has Sign out.
+  - Off unless set: nothing changes for local use.
+- `GLOGG_TRUST_PROXY` (default: private-network proxies only) and `HOST` (default `0.0.0.0`).
 - Archive results from 4chan's adult boards (`/b/`, `/r9k/`, `/trash/` …, from 4chan's own `ws_board` flags) are now marked 18+ and hidden outside 18+ mode; before, only `/b/` and `/pol/` were.
 - The local API now refuses requests from other websites and DNS-rebinding hosts, except a few public read-only routes (search, OpenSearch, suggestions, Atlas, health, IPFS lookup). Previously any site could call every route, including ones that use stored keys or start containers. Use `GLOGG_ALLOWED_HOSTS` / `GLOGG_ALLOWED_ORIGINS` for custom domains.
 
