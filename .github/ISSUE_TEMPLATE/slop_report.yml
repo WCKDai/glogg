@@ -1,0 +1,19 @@
+name: Report Slop Domain or SEO Content Mill
+description: Report a commercial content farm, affiliate review mill, or AI-slop scraper domain to add to DEFAULT_SLOP_DOMAINS
+title: "[Slop Domain]: "
+labels: ["anti-slop", "rules"]
+body:
+  - type: input
+    id: domain
+    attributes:
+      label: Slop Domain
+      placeholder: "e.g. contentfarm-example.com"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Slop / Affiliate / Scraper Evidence
+      description: Example URLs or patterns showing SEO listicle spam, affiliate funnels, or scraped content.
+    validations:
+      required: true

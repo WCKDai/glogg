@@ -1,0 +1,33 @@
+use_default_settings: true
+
+general:
+  instance_name: "glogg // SearXNG Meta-Node"
+  enable_metrics: true
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "all"
+  formats:
+    - html
+    - json
+    - csv
+    - rss
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "glogg-local-searxng-unslop-secret-key"
+  limiter: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 2.4
+  max_request_timeout: 4.0
+
+# Engines that routinely time out from residential IPs; disabling keeps p95 latency low.
+engines:
+  - name: google cse
+    disabled: true
+  - name: wikidata
+    disabled: true

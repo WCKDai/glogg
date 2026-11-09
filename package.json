@@ -1,0 +1,77 @@
+{
+  "name": "glogg",
+  "version": "0.3.0",
+  "license": "MIT",
+  "author": "wckdboy <boy@wckd.cc>",
+  "description": "glogg.app — Unslop & deshittify the internet. Anti-slop meta-indexer, Fediverse (ATProto/ActivityPub/Matrix/Stoat) explorer, Bitmagnet DHT & Usenet NZB workbench, self-hosted Docker/Podman orchestrator, clean reader, and Manifest V3 browser extension.",
+  "homepage": "https://github.com/WCKDai/glogg",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WCKDai/glogg.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WCKDai/glogg/issues"
+  },
+  "keywords": [
+    "search-engine",
+    "meta-search",
+    "anti-slop",
+    "small-web",
+    "indieweb",
+    "marginalia",
+    "searxng",
+    "bitmagnet",
+    "bittorrent-dht",
+    "usenet",
+    "nzb",
+    "fediverse",
+    "atprotocol",
+    "activitypub",
+    "matrix",
+    "stoat",
+    "browser-extension",
+    "ublacklist"
+  ],
+  "type": "module",
+  "bin": {
+    "glogg": "./scripts/glogg-cli.ts"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "cli": "tsx scripts/glogg-cli.ts",
+    "build": "npm run build:client && npm run build:extension",
+    "build:client": "vite build",
+    "build:extension": "tsx scripts/build-extension.ts",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "check": "tsc --noEmit",
+    "check:bundle": "tsx scripts/check-bundle.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:perf": "GLOGG_PERF_REPORT=1 vitest run tests/perf.test.tsx",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "express": "^5.1.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "esbuild": "^0.25.2",
+    "jsdom": "^26.1.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0",
+    "vitest": "^3.1.1"
+  }
+}

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>glogg</title>
+    <style>
+      body {
+        width: 340px;
+        margin: 0;
+        padding: 14px;
+        background: #090a0d;
+        color: #f3f4f6;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 13px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 12px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #3b82f6;
+        box-shadow: 0 0 8px #3b82f6;
+      }
+      .tag {
+        font-family: monospace;
+        font-size: 11px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: rgba(59, 130, 246, 0.14);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+      }
+      .input-row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      input {
+        flex: 1;
+        height: 32px;
+        padding: 0 9px;
+        background: #0e1015;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        color: #f3f4f6;
+        outline: none;
+      }
+      input:focus {
+        border-color: #3b82f6;
+      }
+      .btn {
+        height: 32px;
+        padding: 0 12px;
+        background: #2563eb;
+        color: #fff;
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .links {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .link-card {
+        display: flex;
+        justify-content: space-between;
+        padding: 7px 10px;
+        background: #14171f;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        color: #60a5fa;
+        text-decoration: none;
+        font-size: 12px;
+      }
+      .link-card:hover {
+        border-color: #3b82f6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="logo">
+        <img src="icons/icon-32.png" alt="" width="20" height="20" />
+        <span>glogg</span>
+      </div>
+      <span class="tag">Anti-Slop Shield</span>
+    </div>
+    <form id="glogg-popup-form" class="input-row">
+      <input id="glogg-q" type="text" placeholder="Unslop search query..." required />
+      <button type="submit" class="btn">Go</button>
+    </form>
+    <div id="glogg-escape-links" class="links"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

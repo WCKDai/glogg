@@ -1,0 +1,43 @@
+name: Add New Real-Web Atlas Site / Protocol
+description: Propose an independent website, small-web search engine, Fediverse relay, FOIA archive, or P2P indexer for the Real-Web Atlas
+title: "[Atlas]: "
+labels: ["atlas", "enhancement"]
+body:
+  - type: input
+    id: domain
+    attributes:
+      label: Domain / Host
+      placeholder: "e.g. marginalia.nu or lwn.net"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Primary URL
+      placeholder: "https://..."
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - fediverse-protocols
+        - deep-archives-osint
+        - p2p-dht-usenet
+        - meta-indexers
+        - niche-forums
+        - systems-code
+        - science-hardware
+        - practical-nobs
+        - archives-reference
+        - essays-culture
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Why does this belong in the Real-Web Atlas?
+      description: Explain why this site is high-signal, independent, or a primary source.
+    validations:
+      required: true

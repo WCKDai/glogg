@@ -1,0 +1,539 @@
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  cleanAndAutopsyHtml,
+  CURATED_INDIE_INDEX,
+  CustomEndpointsConfig,
+  DownloadTargetId,
+  ResearchRequest,
+  SearchFilterConfig,
+} from '../src/core/index.js';
+import { resolveAiConfig } from './ai.js';
+import {
+  getContainerStackStatus,
+  runContainerOrchestrationAction,
+} from './containerManager.js';
+import {
+  clearFinishedDownloads,
+  enqueueDownload,
+  getDownloadManagerReport,
+  loadIntegrationConfig,
+  maskConfig,
+  removeDownload,
+  saveIntegrationConfig,
+} from './downloadManager.js';
+import { executeFederatedSearch } from './federatedSearch.js';
+import {
+  addUserSource,
+  deepStatus,
+  ensureSeeded,
+  getDeepStore,
+  pauseCrawl,
+  randomDeep,
+  resumeDeepCrawl,
+  startCrawl,
+} from './deep/index.js';
+import type { DeepKind } from './deep/parse.js';
+import {
+  getPluginSettings,
+  listPlugins,
+  loadPlugins,
+  maskPluginSettings,
+  pluginContainerAction,
+  pluginContainerStatus,
+  runPluginTool,
+  savePluginSettings,
+  USER_PLUGIN_DIR,
+} from './plugins/runtime.js';
+import { configureNetwork } from './net.js';
+import { runResearch } from './research.js';
+import { apiGuard } from './security.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 GloggReader/0.3';
+
+async function checkNodeReachable(url: string, timeoutMs = 1000): Promise<boolean> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: c.signal });
+    return r.status < 500;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function createGloggServer() {
+  const app = express();
+  app.use(express.json({ limit: '5mb' }));
+  app.use(apiGuard);
+  await loadPlugins();
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', service: 'glogg-engine', version: '0.3.0', connectors: 20 });
+  });
+
+  app.get('/api/containers', async (_req, res) => {
+    try {
+      const report = await getContainerStackStatus();
+      res.json(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to inspect container stack';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/containers/action', async (req, res) => {
+    try {
+      const { action, serviceId } = req.body as {
+        action?: 'up' | 'stop' | 'restart' | 'logs' | 'stack-up' | 'stack-down' | 'start-daemon';
+        serviceId?: string;
+      };
+      if (!action) {
+        res.status(400).json({ error: 'Action is required' });
+        return;
+      }
+      const result = await runContainerOrchestrationAction({ action, serviceId });
+      const stack = await getContainerStackStatus();
+      res.json({ ...result, stack });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Container action failed';
+      res.status(500).json({ ok: false, output: message });
+    }
+  });
+
+  app.get('/api/nodes', async (_req, res) => {
+    const [searxngLocal, bitmagnetLocal, ipfsLocal, nzbhydraLocal, prowlarrLocal, torProxyLocal] =
+      await Promise.all([
+        checkNodeReachable(process.env.SEARXNG_URL || 'http://localhost:8080'),
+        checkNodeReachable(process.env.BITMAGNET_URL || 'http://localhost:3333'),
+        checkNodeReachable(process.env.IPFS_GATEWAY_URL || 'http://localhost:8081'),
+        checkNodeReachable(process.env.NEWZNAB_URL || 'http://localhost:5076'),
+        checkNodeReachable(process.env.TORZNAB_URL || 'http://localhost:9696'),
+        checkNodeReachable('http://localhost:8118'),
+      ]);
+
+    res.json({
+      localDockerStack: {
+        searxng: { url: 'http://localhost:8080', online: searxngLocal },
+        bitmagnet: { url: 'http://localhost:3333', online: bitmagnetLocal },
+        ipfs: { url: 'http://localhost:8081', online: ipfsLocal },
+        nzbhydra2: { url: 'http://localhost:5076', online: nzbhydraLocal },
+        prowlarr: { url: 'http://localhost:9696', online: prowlarrLocal },
+        torProxy: { url: 'http://localhost:8118', online: torProxyLocal },
+      },
+      activeUpstreamConnectors: [
+        { id: 'marginalia', name: 'Marginalia Small-Web API', protocol: 'REST JSON', status: 'active' },
+        { id: 'wiby', name: 'Wiby Classic Handmade Web', protocol: 'REST JSON', status: 'active' },
+        { id: 'atproto', name: 'ATProtocol / Bluesky Firehose', protocol: 'XRPC / DID', status: 'active' },
+        { id: 'activitypub', name: 'ActivityPub / Mastodon Federation', protocol: 'ActivityPub v2', status: 'active' },
+        { id: 'matrix', name: 'Matrix Public Room Directory', protocol: 'Matrix CS v3', status: 'active' },
+        { id: 'stoat', name: 'Stoat / Revolt Federated Chat', protocol: 'Stoat Discovery', status: 'active' },
+        { id: 'lemmy', name: 'Lemmy Fediverse Index', protocol: 'ActivityPub / JSON', status: 'active' },
+        { id: 'bitmagnet-dht', name: 'Bitmagnet / Public DHT Swarm Index', protocol: 'GraphQL / BT-DHT', status: 'active' },
+        { id: 'archive-bt', name: 'Internet Archive BitTorrent Seedbox', protocol: 'BT / Metadata API', status: 'active' },
+        { id: 'usenet-nzb', name: 'NZBIndex / Newznab Usenet Binary Index', protocol: 'NZB / Newznab', status: 'active' },
+        { id: 'gdelt-news', name: 'GDELT Global Unfiltered News Wire', protocol: 'DOC v2 JSON', status: 'active' },
+        { id: 'archive-deep', name: 'Internet Archive Deep Texts & FOIA', protocol: 'AdvancedSearch API', status: 'active' },
+        { id: 'openalex', name: 'OpenAlex 250M+ Scholarly Works', protocol: 'REST JSON', status: 'active' },
+        { id: 'hn', name: 'Hacker News Algolia Index', protocol: 'REST JSON', status: 'active' },
+        { id: 'arxiv', name: 'arXiv Preprint Server', protocol: 'Atom XML', status: 'active' },
+        { id: 'github', name: 'GitHub Open-Source Index', protocol: 'REST v3', status: 'active' },
+        { id: 'stackexchange', name: 'StackExchange Network', protocol: 'REST v2.3', status: 'active' },
+        { id: 'wikipedia', name: 'MediaWiki Reference Index', protocol: 'OpenSearch JSON', status: 'active' },
+      ],
+    });
+  });
+
+  app.get('/api/directory', (req, res) => {
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const shuffle = req.query.shuffle === 'true';
+    let items = [...CURATED_INDIE_INDEX];
+    if (category && category !== 'all') {
+      items = items.filter((i) => i.category === category);
+    }
+    if (shuffle) {
+      items.sort(() => Math.random() - 0.5);
+    }
+    res.json({ items });
+  });
+
+  app.get('/api/downloads', async (_req, res) => {
+    try {
+      res.json(await getDownloadManagerReport());
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Download manager error' });
+    }
+  });
+
+  app.post('/api/downloads', async (req, res) => {
+    try {
+      const { url, title, target, sizeFormatted } = req.body as {
+        url?: string;
+        title?: string;
+        target?: DownloadTargetId;
+        sizeFormatted?: string;
+      };
+      if (!url || typeof url !== 'string') {
+        res.status(400).json({ error: 'url is required' });
+        return;
+      }
+      const job = await enqueueDownload({ url, title, target, sizeFormatted });
+      res.json({ job });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to enqueue' });
+    }
+  });
+
+  app.delete('/api/downloads/:id', (req, res) => {
+    res.json({ jobs: req.params.id === 'finished' ? clearFinishedDownloads() : removeDownload(req.params.id) });
+  });
+
+  app.get('/api/integrations', (_req, res) => {
+    res.json({ config: maskConfig(loadIntegrationConfig()) });
+  });
+
+  app.put('/api/integrations', (req, res) => {
+    const patch = (req.body?.config || {}) as CustomEndpointsConfig;
+    res.json({ config: maskConfig(saveIntegrationConfig(patch)) });
+  });
+
+  /** Client endpoints win, but secrets saved server-side fill in the gaps. */
+  const mergeEndpoints = (config?: Partial<SearchFilterConfig>): Partial<SearchFilterConfig> => {
+    const stored = loadIntegrationConfig();
+    const clientEndpoints = Object.fromEntries(
+      Object.entries(config?.endpoints || {}).filter(
+        ([, v]) => typeof v === 'string' && v.trim() !== '' && !v.startsWith('••••')
+      )
+    );
+    return { ...config, endpoints: { ...stored, ...clientEndpoints } };
+  };
+
+  app.post('/api/search', async (req, res) => {
+    try {
+      const { query, config } = req.body as {
+        query?: string;
+        config?: Partial<SearchFilterConfig>;
+      };
+      if (!query || typeof query !== 'string' || !query.trim()) {
+        res.status(400).json({ error: 'Query string is required' });
+        return;
+      }
+      const response = await executeFederatedSearch(query, mergeEndpoints(config));
+      res.json(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Search failed';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/search', async (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const uncensored = req.query.uncensored === 'true';
+      const lens = typeof req.query.lens === 'string' ? (req.query.lens as SearchFilterConfig['lens']) : 'all';
+      if (!q.trim()) {
+        res.status(400).json({ error: 'Query parameter q is required' });
+        return;
+      }
+      const response = await executeFederatedSearch(q, mergeEndpoints({ uncensoredMode: uncensored, lens }));
+      res.json(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Search failed';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ── Research (Advanced view): newline-delimited JSON events ────────────
+  app.post('/api/research', async (req, res) => {
+    const body = (req.body || {}) as ResearchRequest;
+    if (!body.query || typeof body.query !== 'string' || !body.query.trim()) {
+      res.status(400).json({ error: 'query is required' });
+      return;
+    }
+    const ctrl = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) ctrl.abort();
+    });
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const ai = resolveAiConfig(getPluginSettings('ai'));
+    const events = runResearch(
+      {
+        query: body.query.trim(),
+        candidates: Array.isArray(body.candidates) ? body.candidates.slice(0, 30) : undefined,
+        instantAnswer: body.instantAnswer,
+        depth: body.depth,
+        history: Array.isArray(body.history) ? body.history.slice(-3) : [],
+        config: mergeEndpoints(body.config),
+      },
+      { ai, signal: ctrl.signal }
+    );
+    for await (const event of events) {
+      if (ctrl.signal.aborted) break;
+      res.write(`${JSON.stringify(event)}\n`);
+    }
+    res.end();
+  });
+
+  // ── Deep index (Atlas) ────────────────────────────────────────────────
+  const deepKind = (v: unknown): DeepKind | 'all' =>
+    v === 'blog' || v === 'board' || v === 'forum' || v === 'site' ? v : 'all';
+
+  app.get('/api/deep', async (_req, res) => {
+    res.json(await deepStatus());
+  });
+
+  app.post('/api/deep/crawl', async (req, res) => {
+    const action = req.body?.action;
+    try {
+      if (action === 'start') await startCrawl();
+      else if (action === 'pause') await pauseCrawl();
+      else if (action === 'reseed') await ensureSeeded({ force: true });
+      else {
+        res.status(400).json({ error: 'action must be start, pause or reseed' });
+        return;
+      }
+      res.json(await deepStatus());
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Deep index error' });
+    }
+  });
+
+  /** The Atlas directory. The first call loads the open directories (no crawling). */
+  app.get('/api/deep/sites', async (req, res) => {
+    const store = await getDeepStore();
+    if (!store) {
+      res.json({ available: false, total: 0, items: [], counts: {}, errors: [(await deepStatus()).reason] });
+      return;
+    }
+    const { errors } = await ensureSeeded();
+    const q = (k: string) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : undefined);
+    const order = q('order');
+    const page = store.listSources({
+      kind: deepKind(q('kind')),
+      q: q('q'),
+      offset: Math.max(0, Number(q('offset')) || 0),
+      limit: Math.min(200, Math.max(1, Number(q('limit')) || 60)),
+      order: order === 'random' || order === 'name' ? order : 'posts',
+      nsfw: q('nsfw') === 'true',
+    });
+    const counts = Object.fromEntries(store.stats().byKind.map((k) => [k.kind, k.sources]));
+    res.json({ available: true, ...page, counts, errors });
+  });
+
+  app.post('/api/deep/sources', async (req, res) => {
+    const url = typeof req.body?.url === 'string' ? req.body.url : '';
+    if (!url.trim()) {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+    try {
+      res.json({ source: await addUserSource(url) });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not add that source' });
+    }
+  });
+
+  app.get('/api/deep/random', async (req, res) => {
+    const kind = deepKind(req.query.kind);
+    const pick = await randomDeep({ nsfw: req.query.nsfw === 'true', kinds: kind === 'all' ? undefined : [kind] });
+    if (!pick) {
+      res.status(404).json({ error: 'Nothing indexed yet' });
+      return;
+    }
+    res.json(pick);
+  });
+
+  // ── Plugins ────────────────────────────────────────────────────────────
+  const pluginsPayload = () => ({
+    plugins: listPlugins().map((p) => (p.error ? p : { ...p, values: maskPluginSettings(p.id) })),
+    userDir: USER_PLUGIN_DIR(),
+  });
+
+  app.get('/api/plugins', (_req, res) => {
+    res.json(pluginsPayload());
+  });
+
+  app.post('/api/plugins/reload', async (_req, res) => {
+    await loadPlugins({ force: true });
+    res.json(pluginsPayload());
+  });
+
+  app.put('/api/plugins/:id/settings', (req, res) => {
+    try {
+      const values = savePluginSettings(req.params.id, (req.body?.values || {}) as Record<string, unknown>);
+      const info = listPlugins().find((p) => p.id === req.params.id);
+      res.json({ values: maskPluginSettings(req.params.id, values), configured: Boolean(info?.configured) });
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : 'Unknown plugin' });
+    }
+  });
+
+  app.post('/api/plugins/:id/tools/:tool', async (req, res) => {
+    const ctrl = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) ctrl.abort();
+    });
+    const input = (req.body?.input || {}) as Record<string, unknown>;
+    res.json(await runPluginTool(req.params.id, req.params.tool, input, { signal: ctrl.signal }));
+  });
+
+  app.get('/api/plugins/:id/container', async (req, res) => {
+    res.json(await pluginContainerStatus(req.params.id));
+  });
+
+  app.post('/api/plugins/:id/container', async (req, res) => {
+    const action = req.body?.action as 'up' | 'down' | 'remove' | undefined;
+    if (action !== 'up' && action !== 'down' && action !== 'remove') {
+      res.status(400).json({ error: 'action must be up, down or remove' });
+      return;
+    }
+    try {
+      res.json(await pluginContainerAction(req.params.id, action));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Container action failed' });
+    }
+  });
+
+  app.get('/opensearch.xml', (req, res) => {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers.host || 'localhost:4173';
+    const baseUrl = `${proto}://${host}`;
+    res.setHeader('Content-Type', 'application/opensearchdescription+xml; charset=utf-8');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+  <ShortName>glogg.app</ShortName>
+  <Description>glogg — Anti-Slop Real-Web, Fediverse, P2P DHT &amp; Usenet Meta-Indexer</Description>
+  <InputEncoding>UTF-8</InputEncoding>
+  <Url type="text/html" method="get" template="${baseUrl}/?q={searchTerms}"/>
+  <Url type="application/json" rel="results" template="${baseUrl}/api/search?q={searchTerms}"/>
+  <Url type="application/x-suggestions+json" rel="suggestions" template="${baseUrl}/api/opensearch/suggest?q={searchTerms}"/>
+</OpenSearchDescription>`);
+  });
+
+  app.get('/api/opensearch/suggest', (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    if (!q) {
+      res.json([q, [], [], []]);
+      return;
+    }
+    const matches = CURATED_INDIE_INDEX.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.domain.toLowerCase().includes(q) ||
+        item.tags.some((t) => t.toLowerCase().includes(q))
+    ).slice(0, 8);
+
+    res.json([
+      q,
+      matches.map((m) => m.title),
+      matches.map((m) => m.description),
+      matches.map((m) => m.url),
+    ]);
+  });
+
+  app.get('/api/ipfs/:cid', async (req, res) => {
+    const cid = (req.params.cid || '').trim();
+    if (!cid || !/^[a-zA-Z0-9]+$/.test(cid)) {
+      res.status(400).json({ error: 'Valid IPFS CID is required' });
+      return;
+    }
+    const localGateway = process.env.IPFS_GATEWAY_URL || 'http://localhost:8081';
+    const localReachable = await checkNodeReachable(`${localGateway}/ipfs/${cid}`, 900);
+    const resolvedGatewayUrl = localReachable
+      ? `${localGateway}/ipfs/${cid}`
+      : `https://ipfs.io/ipfs/${cid}`;
+
+    res.json({
+      cid,
+      localNodeActive: localReachable,
+      gatewayUrl: resolvedGatewayUrl,
+      fallbackGateways: [
+        `http://localhost:8081/ipfs/${cid}`,
+        `https://ipfs.io/ipfs/${cid}`,
+        `https://dweb.link/ipfs/${cid}`,
+      ],
+    });
+  });
+
+  app.post('/api/inspect', async (req, res) => {
+    try {
+      const { url, rawHtml } = req.body as { url?: string; rawHtml?: string };
+      if (!url || typeof url !== 'string') {
+        res.status(400).json({ error: 'Target URL is required' });
+        return;
+      }
+
+      if (rawHtml && typeof rawHtml === 'string') {
+        const report = cleanAndAutopsyHtml(rawHtml, url);
+        res.json(report);
+        return;
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
+      } catch {
+        res.status(400).json({ error: 'Invalid URL format' });
+        return;
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 7500);
+      try {
+        const upstream = await fetch(parsedUrl.toString(), {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': USER_AGENT,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        });
+        const html = await upstream.text();
+        const report = cleanAndAutopsyHtml(html, parsedUrl.toString());
+        res.json(report);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch and clean URL';
+      res.status(502).json({ error: message });
+    }
+  });
+
+  const isProd = process.env.NODE_ENV === 'production';
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(__dirname, '../dist');
+    app.use(express.static(distPath));
+    app.get('/{*splat}', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  return app;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  configureNetwork();
+  const port = Number(process.env.PORT || 4173);
+  createGloggServer().then((app) => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`glogg engine listening on http://localhost:${port}`);
+      // Pick up a deep-index crawl you started before the last restart.
+      resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
+    });
+  });
+}

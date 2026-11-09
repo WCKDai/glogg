@@ -1,0 +1,13 @@
+dht_crawler:
+  scaling_factor: 10
+  save_files: true
+  save_pieces: false
+
+http_server:
+  host: "0.0.0.0"
+  port: 3333
+  cors_allowed_origins:
+    - "*"
+
+classifier:
+  delete_xxx: false
