@@ -126,26 +126,49 @@ interface ChanThread {
   replies?: number;
 }
 
+/** A thread in 2ch's catalog, which has its own field names. */
+interface DvachThread {
+  num?: number | string;
+  subject?: string;
+  comment?: string;
+  timestamp?: number;
+  sticky?: number;
+  posts_count?: number;
+}
+
+/** Threads from either catalog shape: 4chan's pages, or 2ch's `{board, threads}`. */
+function chanThreads(data: unknown): ChanThread[] {
+  if (Array.isArray(data)) return (data as { threads?: ChanThread[] }[]).flatMap((page) => page?.threads || []);
+  const threads = (data as { threads?: DvachThread[] } | null)?.threads;
+  if (!Array.isArray(threads)) return [];
+  return threads.map((t) => ({
+    no: Number(t?.num) || undefined,
+    sub: t?.subject,
+    com: t?.comment,
+    time: t?.timestamp,
+    sticky: t?.sticky,
+    // 2ch counts the opening post as one of the thread's posts.
+    replies: t?.posts_count ? t.posts_count - 1 : undefined,
+  }));
+}
+
 /**
- * 4chan-API catalogs (4chan, vichan, lainchan): `[{page, threads: [...]}]`.
- * Text only. Pinned rules threads are skipped.
+ * Imageboard catalogs: the 4chan API shape (4chan, vichan, lainchan) `[{page, threads: [...]}]`,
+ * and 2ch's `{board, threads: [...]}`. Text only. Pinned rules threads are skipped.
  */
 export function parseChanCatalog(data: unknown, threadUrl: (no: number) => string): DeepPost[] {
-  if (!Array.isArray(data)) return [];
   const out: DeepPost[] = [];
-  for (const page of data as { threads?: ChanThread[] }[]) {
-    for (const t of page?.threads || []) {
-      if (!t?.no || t.sticky) continue;
-      const body = htmlToText(t.com || '');
-      const subject = htmlToText(t.sub || '', 200);
-      const title = subject || body.slice(0, 90) || `Thread ${t.no}`;
-      out.push({
-        url: threadUrl(t.no),
-        title: subject ? title : `${title}${body.length > 90 ? '…' : ''}`,
-        summary: `${body}${t.replies ? ` · ${t.replies} replies` : ''}`.trim(),
-        published: t.time ? t.time * 1000 : undefined,
-      });
-    }
+  for (const t of chanThreads(data)) {
+    if (!t?.no || t.sticky) continue;
+    const body = htmlToText(t.com || '');
+    const subject = htmlToText(t.sub || '', 200);
+    const title = subject || body.slice(0, 90) || `Thread ${t.no}`;
+    out.push({
+      url: threadUrl(t.no),
+      title: subject ? title : `${title}${body.length > 90 ? '…' : ''}`,
+      summary: `${body}${t.replies ? ` · ${t.replies} replies` : ''}`.trim(),
+      published: t.time ? t.time * 1000 : undefined,
+    });
   }
   return out;
 }
@@ -194,4 +217,69 @@ export function parseFeedList(text: string): string[] {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => /^https?:\/\//i.test(l));
+}
+
+/** The XXIIVV webring's member list: `<ol id="icons"><li><a href=site>name</a> <a class="rss" href=feed>`. */
+export function parseWebring(html: string, pageUrl: string): { name: string; url: string; feed?: string }[] {
+  const $ = cheerio.load(html);
+  const out: { name: string; url: string; feed?: string }[] = [];
+  $('#icons li').each((_, el) => {
+    const li = $(el);
+    const link = li.find('a:not(.rss)').first();
+    const url = absolute(link.attr('href'), pageUrl);
+    if (!url) return;
+    out.push({ name: link.text().replace(/\s+/g, ' ').trim() || new URL(url).hostname, url, feed: absolute(li.find('a.rss').attr('href'), pageUrl) });
+  });
+  return out;
+}
+
+export interface LemmyCommunity {
+  instance: string;
+  name: string;
+  title: string;
+  nsfw: boolean;
+  subscribers: number;
+  suspicious: boolean;
+}
+
+/** Lemmyverse's community dump (data.lemmyverse.net). Entries without a home instance or name are dropped. */
+export function parseLemmyverse(data: unknown): LemmyCommunity[] {
+  if (!Array.isArray(data)) return [];
+  const out: LemmyCommunity[] = [];
+  for (const c of data as { baseurl?: string; name?: string; title?: string; nsfw?: boolean; isSuspicious?: boolean; counts?: { subscribers?: number } }[]) {
+    const instance = String(c?.baseurl || '').toLowerCase();
+    const name = String(c?.name || '');
+    if (!/^[a-z0-9.-]+(:\d+)?$/.test(instance) || !/^\w+$/.test(name)) continue;
+    out.push({
+      instance,
+      name,
+      title: String(c.title || '').replace(/\s+/g, ' ').trim().slice(0, 120) || name,
+      nsfw: Boolean(c.nsfw),
+      subscribers: Number(c.counts?.subscribers) || 0,
+      suspicious: Boolean(c.isSuspicious),
+    });
+  }
+  return out;
+}
+
+/**
+ * One page of Discourse Discover (discover.discourse.org/latest.json): each topic
+ * features a community. Returns the forums' base URLs and the next page, if any.
+ */
+export function parseDiscourseDirectory(data: unknown, pageUrl: string): { forums: { url: string; title: string; nsfw: boolean }[]; next?: string } {
+  const list = (data as { topic_list?: { topics?: { title?: string; featured_link?: string | null; tags?: (string | { name?: string })[] }[]; more_topics_url?: string } })
+    ?.topic_list;
+  const forums: { url: string; title: string; nsfw: boolean }[] = [];
+  for (const t of list?.topics || []) {
+    const link = absolute(t.featured_link || undefined, pageUrl);
+    if (!link) continue;
+    const u = new URL(link);
+    // A forum can live under a path (example.com/forum); cut off any page inside it.
+    const path = u.pathname.replace(/\/(t|c|u|latest|categories)(\/.*)?$/, '').replace(/\/+$/, '');
+    const tags = (t.tags || []).map((tag) => (typeof tag === 'string' ? tag : tag?.name || ''));
+    forums.push({ url: `${u.origin}${path}`, title: (t.title || '').replace(/\s+/g, ' ').trim(), nsfw: tags.some((tag) => /nsfw|adult/i.test(tag)) });
+  }
+  // more_topics_url is the HTML route; the same route answers JSON with .json.
+  const more = list?.more_topics_url;
+  return { forums, next: more ? absolute(more.replace(/^\/latest(?=\?|$)/, '/latest.json'), pageUrl) : undefined };
 }

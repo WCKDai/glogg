@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   BUILTIN_BANGS,
   compileSearchQuery,
@@ -85,6 +85,38 @@ describe('wild-west lens', () => {
     const order = ranked.surfaced.map((r) => r.source);
     expect(order.indexOf('web') === -1 || order.indexOf('web') > order.indexOf('wild-west')).toBe(true);
     expect(order).toContain('chanboards');
+  });
+});
+
+describe('chan archives', () => {
+  it("searches b4k and Palanq too, and marks posts from 4chan's adult boards 18+", async () => {
+    const post = (board: string, num: number) => ({
+      num: String(num),
+      thread_num: String(num),
+      board: { shortname: board },
+      title: null,
+      comment: `sound blaster thread on /${board}/`,
+      timestamp: 1_700_000_000,
+    });
+    const answer = (posts: unknown[]) => new Response(JSON.stringify({ 0: { posts } }), { headers: { 'Content-Type': 'application/json' } });
+    vi.stubGlobal('fetch', async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://arch.b4k.dev/')) return answer([post('v', 11)]);
+      if (url.startsWith('https://archive.palanq.win/')) return answer([post('vt', 21), post('bant', 22)]);
+      if (url.startsWith('https://desuarchive.org/')) return answer([post('r9k', 31), post('g', 32)]);
+      return new Response('', { status: 404 });
+    });
+    try {
+      const { searchChanArchives } = await import('../server/wildWestIndexer.js');
+      const byUrl = Object.fromEntries((await searchChanArchives('sound blaster')).map((r) => [r.url, r]));
+      expect(byUrl['https://arch.b4k.dev/v/thread/11/#11']).toMatchObject({ source: 'chanboards', isNsfw: false, title: '[b4k /v/] sound blaster thread on /v/' });
+      expect(byUrl['https://archive.palanq.win/vt/thread/21/#21'].isNsfw).toBe(false);
+      expect(byUrl['https://archive.palanq.win/bant/thread/22/#22'].isNsfw).toBe(true);
+      expect(byUrl['https://desuarchive.org/r9k/thread/31/#31'].isNsfw).toBe(true);
+      expect(byUrl['https://desuarchive.org/g/thread/32/#32'].isNsfw).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

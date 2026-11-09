@@ -12,6 +12,8 @@ const { openDeepStore, ftsQuery, KEEP_POSTS } = await import('../server/deep/sto
 const { DeepCrawler } = await import('../server/deep/crawler.js');
 const deep = await import('../server/deep/index.js');
 const sources = await import('../server/deep/sources.js');
+const { isBlockedPost, isBlockedSource } = await import('../server/deep/blocklist.js');
+const { politenessSlot } = await import('../server/deep/crawler.js');
 
 type Route = { status?: number; body?: string; headers?: Record<string, string>; delayMs?: number };
 
@@ -58,6 +60,43 @@ const CATALOG = JSON.stringify([
     ],
   },
 ]);
+
+/** 2ch's catalog shape, trimmed from a live /pr/ response. */
+const DVACH = JSON.stringify({
+  board: { id: 'pr', name: 'Программирование' },
+  threads: [
+    { num: 1, sticky: 1, subject: 'Правила', comment: 'Rules' },
+    { num: 3787886, subject: 'Rust thread', comment: 'Изучаем <b>Rust</b><br>borrow checker', timestamp: 1_793_420_054, posts_count: 36, sticky: 0 },
+  ],
+});
+
+const WEBRING = `<ol id="icons">
+  <li data-lang="en" id="a"><a href="https://wiki.example">wiki</a> <a href="https://wiki.example/links/img.xml" class="rss">rss</a> <img src="b.gif"></li>
+  <li data-lang="en" id="b"><a href="https://tiny.example">tiny site</a></li>
+  <li><span>no link</span></li>
+</ol>`;
+
+const LEMMY = [
+  { baseurl: 'lemmy.example', name: 'retrocomputing', title: 'Retro  Computing', nsfw: false, isSuspicious: false, counts: { subscribers: 5000 } },
+  { baseurl: 'lemmy.example', name: 'tiny', title: 'Tiny', counts: { subscribers: 12 } },
+  { baseurl: 'spam.example', name: 'buy', title: 'Buy now', isSuspicious: true, counts: { subscribers: 9000 } },
+  { baseurl: 'lemmy.example', name: 'figure_drawing', title: 'Figure drawing', nsfw: true, counts: { subscribers: 300 } },
+  { baseurl: 'lemmynsfw.example', name: 'pics', title: 'Pics', nsfw: false, counts: { subscribers: 800 } },
+  { baseurl: 'bad host/x', name: 'x', counts: { subscribers: 999 } },
+];
+
+const DISCOVER_1 = {
+  topic_list: {
+    topics: [
+      { title: 'Retro Club', featured_link: 'https://forum.retro.example/' },
+      { title: 'Sub Forum', featured_link: 'https://example.org/community/t/welcome/5' },
+      { title: 'No link' },
+      { title: 'After Dark', featured_link: 'https://late.example', tags: [{ name: 'nsfw' }] },
+    ],
+    more_topics_url: '/latest?no_definitions=true&page=1',
+  },
+};
+const DISCOVER_2 = { topic_list: { topics: [{ title: 'Retro Club again', featured_link: 'https://forum.retro.example' }, { title: 'Last', featured_link: 'https://last.example' }] } };
 
 describe('parsers', () => {
   it('reads RSS 2.0: HTML stripped, relative links resolved, duplicates and linkless items dropped', () => {
@@ -115,6 +154,95 @@ describe('parsers', () => {
       { domain: 'tiny.example', url: 'https://tiny.example/' },
     ]);
     expect(parse.parseFeedList('https://a.example/feed\n\n# comment\nhttp://b.example/rss.xml\n')).toEqual(['https://a.example/feed', 'http://b.example/rss.xml']);
+  });
+
+  it("reads 2ch's catalog shape: its own field names, the opening post not counted as a reply", () => {
+    const posts = parse.parseChanCatalog(JSON.parse(DVACH), (no) => `https://2ch.su/pr/res/${no}.html`);
+    expect(posts).toEqual([
+      { url: 'https://2ch.su/pr/res/3787886.html', title: 'Rust thread', summary: 'Изучаем Rust borrow checker · 35 replies', published: 1_793_420_054_000 },
+    ]);
+  });
+
+  it('reads the XXIIVV webring, with each member\'s feed when listed', () => {
+    expect(parse.parseWebring(WEBRING, 'https://webring.xxiivv.com/')).toEqual([
+      { name: 'wiki', url: 'https://wiki.example/', feed: 'https://wiki.example/links/img.xml' },
+      { name: 'tiny site', url: 'https://tiny.example/', feed: undefined },
+    ]);
+    expect(sources.sourcesFromWebring(WEBRING)).toEqual([
+      expect.objectContaining({ url: 'https://wiki.example/links/img.xml', kind: 'blog', site: 'wiki.example', origin: 'xxiivv', title: 'wiki' }),
+      expect.objectContaining({ url: 'https://tiny.example/', kind: 'site', site: 'tiny.example', origin: 'xxiivv', title: 'tiny site' }),
+    ]);
+  });
+
+  it('takes Lemmy communities with an audience, biggest first, leaving out flagged ones and gating 18+', () => {
+    const list = sources.sourcesFromLemmyverse(LEMMY);
+    expect(list.map((s) => s.url)).toEqual([
+      'https://lemmy.example/feeds/c/retrocomputing.xml?sort=New',
+      'https://lemmynsfw.example/feeds/c/pics.xml?sort=New',
+      'https://lemmy.example/feeds/c/figure_drawing.xml?sort=New',
+    ]);
+    expect(list[0]).toMatchObject({ kind: 'forum', site: 'lemmy.example', origin: 'lemmy', title: 'Retro Computing', nsfw: false });
+    expect(list.slice(1).every((s) => s.nsfw)).toBe(true);
+    expect(parse.parseLemmyverse({ not: 'a list' })).toEqual([]);
+  });
+
+  it('reads Discourse Discover pages: forum roots, 18+ tags and the next page', () => {
+    const page = parse.parseDiscourseDirectory(DISCOVER_1, 'https://discover.discourse.org/latest.json');
+    expect(page.forums).toEqual([
+      { url: 'https://forum.retro.example', title: 'Retro Club', nsfw: false },
+      { url: 'https://example.org/community', title: 'Sub Forum', nsfw: false },
+      { url: 'https://late.example', title: 'After Dark', nsfw: true },
+    ]);
+    expect(page.next).toBe('https://discover.discourse.org/latest.json?no_definitions=true&page=1');
+    expect(parse.parseDiscourseDirectory(DISCOVER_2, 'https://discover.discourse.org/latest.json').next).toBeUndefined();
+    expect(sources.sourcesFromDiscourseDirectory(page.forums).map((s) => s.url)).toEqual([
+      'https://forum.retro.example/latest.rss',
+      'https://example.org/community/latest.rss',
+      'https://late.example/latest.rss',
+    ]);
+  });
+});
+
+describe('blocklist', () => {
+  it.each([
+    [{ url: 'https://lemmy.example/feeds/c/jail_bait.xml?sort=New' }],
+    [{ url: 'https://x.example/feed', title: 'Loli art dump' }],
+    [{ url: 'https://pthc.example/' }],
+    [{ url: 'https://chan.example/cp-links/catalog.json' }],
+    [{ url: 'https://f.example/rss', site: 'f.example', title: 'Underage pics' }],
+  ])('never stores %j', (source) => {
+    expect(isBlockedSource(source)).toBe(true);
+  });
+
+  it.each([
+    [{ url: 'https://books.example/feed', title: 'Lolita (Nabokov) reading group' }],
+    [{ url: 'https://shota.dev/feed.xml', title: 'Shota Imanaga fan blog' }],
+    [{ url: 'https://unix.example/feed', title: 'cp, mv and rsync tips' }],
+    [{ url: 'https://run.example/rss', title: 'Pedometer reviews' }],
+  ])('keeps ordinary names like %j', (source) => {
+    expect(isBlockedSource(source)).toBe(false);
+  });
+
+  it('drops trading jargon from posts but keeps news about abuse searchable', () => {
+    expect(isBlockedPost({ title: 'pthc links inside', summary: '' })).toBe(true);
+    expect(isBlockedPost({ title: 'Man arrested over child abuse images', summary: 'Police said the investigation took two years.' })).toBe(false);
+  });
+
+  it('is enforced by the store, whatever adds the source or post', async () => {
+    const store = await openDeepStore(':memory:');
+    expect(
+      store.addSources([
+        { url: 'https://lemmy.example/feeds/c/jailbait.xml', kind: 'forum', site: 'lemmy.example', origin: 'lemmy', intervalMin: 720 },
+        { url: 'https://ok.example/rss', kind: 'blog', site: 'ok.example', origin: 't', intervalMin: 1440 },
+      ])
+    ).toBe(1);
+    const src = store.getSourceByUrl('https://ok.example/rss')!;
+    expect(
+      store.savePosts(src, [
+        { url: 'https://ok.example/1', title: 'hussyfan pack', summary: '' },
+        { url: 'https://ok.example/2', title: 'Restoring a Sound Blaster', summary: 'Recapping the board.' },
+      ])
+    ).toBe(1);
   });
 });
 
@@ -192,6 +320,27 @@ describe('store', () => {
     const store = await seeded();
     for (let i = 0; i < 20; i++) expect(store.randomPost({ nsfw: false })?.nsfw).toBe(false);
   });
+
+  it('skips sites the crawler is waiting on when picking due sources', async () => {
+    const store = await seeded();
+    expect(store.dueSources(Date.now(), 10, ['boards.example']).map((s) => s.site)).toEqual(['forum.example', 'tiny.example']);
+  });
+
+  it('filters the directory by where sources came from, and counts each origin', async () => {
+    const store = await openDeepStore(':memory:');
+    store.addSources([
+      { url: 'https://a.example/latest.rss', kind: 'forum', site: 'a.example', origin: 'discourse', intervalMin: 180 },
+      { url: 'https://l.example/feeds/c/x.xml', kind: 'forum', site: 'l.example', origin: 'lemmy', intervalMin: 720 },
+      { url: 'https://l.example/feeds/c/y.xml', kind: 'forum', site: 'l.example', origin: 'lemmy', intervalMin: 720 },
+      { url: 'https://l.example/feeds/c/z.xml', kind: 'forum', site: 'l.example', origin: 'lemmy', intervalMin: 720, nsfw: true },
+    ]);
+    expect(store.listSources({ kind: 'forum', origin: 'lemmy' }).total).toBe(2);
+    expect(store.originCounts('forum')).toEqual([
+      { origin: 'lemmy', sources: 2 },
+      { origin: 'discourse', sources: 1 },
+    ]);
+    expect(store.originCounts('forum', true)[0]).toEqual({ origin: 'lemmy', sources: 3 });
+  });
 });
 
 describe('crawler: one visit', () => {
@@ -229,6 +378,20 @@ describe('crawler: one visit', () => {
     expect(await new DeepCrawler(store, { fetch: impl }).visit(row())).toBe('ok');
     expect(store.search(['thinkpad'])[0].url).toBe('https://boards.4chan.org/g/thread/4242');
     expect(row().last_modified).toBe('Sat, 01 Jun 2024 10:00:00 GMT');
+  });
+
+  it('gives board catalogs more room than feeds: big catalogs still parse', async () => {
+    const { store, row } = await storeWith({ url: 'https://chan.example/pol/catalog.json', kind: 'board', site: 'chan.example', origin: 't', intervalMin: 60 });
+    const { impl } = fakeFetch({ 'https://chan.example/pol/catalog.json': { body: CATALOG } });
+    expect(await new DeepCrawler(store, { fetch: impl, maxBytes: 100 }).visit(row())).toBe('ok');
+    expect(row().posts).toBe(2);
+  });
+
+  it('keeps an 18+ source\'s discovered feed behind the 18+ switch', async () => {
+    const { store, row } = await storeWith({ url: 'https://late.example/', kind: 'site', site: 'late.example', origin: 'user', intervalMin: 43200, nsfw: true });
+    const { impl } = fakeFetch({ 'https://late.example/': { body: '<link rel="alternate" type="application/rss+xml" href="/feed.xml">' } });
+    await new DeepCrawler(store, { fetch: impl }).visit(row());
+    expect(store.getSourceByUrl('https://late.example/feed.xml')).toMatchObject({ nsfw: 1 });
   });
 
   it('turns a plain site into its feed, and a Discourse page into its forum feed', async () => {
@@ -310,6 +473,28 @@ describe('crawler: scheduling', () => {
     // Other hosts weren't held up behind the slow one.
     expect(calls.find((c) => c.url.includes('other.'))!.at - calls[0].at).toBeLessThan(60);
   });
+
+  it("doesn't let one big site (thousands of communities on one instance) stall the rest", async () => {
+    const store = await openDeepStore(':memory:');
+    const big = Array.from({ length: 320 }, (_, i) => `https://big.example/feeds/c/${i}.xml`);
+    const others = ['https://one.example/rss', 'https://two.example/rss', 'https://three.example/rss'];
+    store.addSources([...big, ...others].map((url) => ({ url, kind: 'forum' as const, site: new URL(url).host, origin: 't', intervalMin: 720 })));
+    const { impl, calls } = fakeFetch(Object.fromEntries([...big, ...others].map((u) => [u, { body: RSS }])));
+    const crawler = new DeepCrawler(store, { fetch: impl, hostGapMs: 200, concurrency: 4 });
+    const t0 = Date.now();
+    crawler.start();
+    while (calls.filter((c) => !c.url.includes('big.')).length < others.length && Date.now() - t0 < 3000) await new Promise((r) => setTimeout(r, 10));
+    crawler.pause();
+    // Before the fix the batch held only big.example (one request per 200 ms), so the others waited behind 300 of them.
+    expect(Date.now() - t0).toBeLessThan(400);
+    expect(calls.filter((c) => c.url.includes('big.')).length).toBeLessThanOrEqual(3);
+  });
+
+  it('paces sites that share a backend as one host', () => {
+    expect(politenessSlot('https://unix.stackexchange.com/feeds')).toBe('stackexchange');
+    expect(politenessSlot('https://stackoverflow.com/feeds')).toBe('stackexchange');
+    expect(politenessSlot('https://www.vogons.org/app.php/feed')).toBe('vogons.org');
+  });
 });
 
 describe('deep index service', () => {
@@ -319,25 +504,58 @@ describe('deep index service', () => {
   });
   afterAll(() => deep.resetDeepIndex());
 
-  it('loads the open directories once a week and reports failures', async () => {
-    const { impl } = fakeFetch({
-      [sources.SEED_LISTS.smallweb.url]: { body: 'https://a.example/feed\nhttps://b.example/rss.xml\n' },
-      [sources.SEED_LISTS.club512.url]: { body: '- domain: tiny.example\n  url: https://tiny.example/\n' },
-      [sources.SEED_LISTS.fourchan.url]: { body: JSON.stringify({ boards: [{ board: 'g', title: 'Technology', ws_board: 1 }, { board: 'b', title: 'Random', ws_board: 0 }] }) },
-    });
-    const first = await deep.ensureSeeded({ fetch: impl });
+  const directoryRoutes = (): Record<string, Route> => ({
+    [sources.SEED_LISTS.smallweb.url]: { body: 'https://a.example/feed\nhttps://b.example/rss.xml\n' },
+    [sources.SEED_LISTS.club512.url]: { body: '- domain: tiny.example\n  url: https://tiny.example/\n' },
+    [sources.SEED_LISTS.fourchan.url]: { body: JSON.stringify({ boards: [{ board: 'g', title: 'Technology', ws_board: 1 }, { board: 'b', title: 'Random', ws_board: 0 }] }) },
+    [sources.SEED_LISTS.webring.url]: { body: WEBRING },
+    [sources.SEED_LISTS.lemmy.url]: { body: JSON.stringify(LEMMY) },
+    [sources.SEED_LISTS.discourse.url]: { body: JSON.stringify(DISCOVER_1) },
+    'https://discover.discourse.org/latest.json?no_definitions=true&page=1': { body: JSON.stringify(DISCOVER_2) },
+  });
+
+  it('loads the open directories once a week, paging Discourse Discover', async () => {
+    const { impl } = fakeFetch(directoryRoutes());
+    const first = await deep.ensureSeeded({ fetch: impl, wait: true });
     expect(first.errors).toEqual([]);
-    expect(first.added).toBe(sources.builtinSources().length + 2 + 1 + 2);
-    expect((await deep.ensureSeeded({ fetch: impl })).added).toBe(0);
+    // builtins + small web 2 + 512KB 1 + 4chan 2 + webring 1 (tiny.example is in the 512KB Club too, stored once)
+    // + Lemmy 3 + Discourse 4 (one forum is listed on both pages)
+    expect(first.added).toBe(sources.builtinSources().length + 2 + 1 + 2 + 1 + 3 + 4);
+    expect((await deep.ensureSeeded({ fetch: impl, wait: true })).added).toBe(0);
     const store = (await deep.getDeepStore())!;
     expect(store.getSourceByUrl('https://a.4cdn.org/b/catalog.json')).toMatchObject({ nsfw: 1, thread_url: 'https://boards.4chan.org/b/thread/{no}' });
+    expect(store.getSourceByUrl('https://last.example/latest.rss')).toMatchObject({ kind: 'forum', origin: 'discourse', title: 'Last' });
+    expect(store.getMeta('seeded_at')).toBeTruthy();
+  });
 
-    deep.resetDeepIndex();
-    useTempGloggHome();
+  it("doesn't make the Atlas wait for the big directories", async () => {
+    const routes = directoryRoutes();
+    routes[sources.SEED_LISTS.lemmy.url] = { ...routes[sources.SEED_LISTS.lemmy.url], delayMs: 400 };
+    const { impl } = fakeFetch(routes);
+    const t0 = Date.now();
+    const quick = await deep.ensureSeeded({ fetch: impl });
+    expect(Date.now() - t0).toBeLessThan(300);
+    expect(quick.loading).toBe(true);
+    const store = (await deep.getDeepStore())!;
+    expect(store.getSourceByUrl('https://a.example/feed')).toBeTruthy();
+    expect(store.getSourceByUrl('https://lemmy.example/feeds/c/retrocomputing.xml?sort=New')).toBeUndefined();
+    const seeding = async () => {
+      const st = await deep.deepStatus();
+      return st.available && st.seeding;
+    };
+    while (await seeding()) await new Promise((r) => setTimeout(r, 25));
+    expect(store.getSourceByUrl('https://lemmy.example/feeds/c/retrocomputing.xml?sort=New')).toBeTruthy();
+  });
+
+  it('reports each directory that failed, and retries it later rather than on every page load', async () => {
     const broken = fakeFetch({});
-    const partial = await deep.ensureSeeded({ fetch: broken.impl });
-    expect(partial.errors).toHaveLength(3);
+    const partial = await deep.ensureSeeded({ fetch: broken.impl, wait: true });
+    expect(partial.errors).toHaveLength(6);
+    expect(partial.errors.join(' ')).toContain('data.lemmyverse.net: HTTP 404');
     expect((await deep.getDeepStore())!.getMeta('seeded_at')).toBeUndefined();
+    const before = broken.calls.length;
+    expect((await deep.ensureSeeded({ fetch: broken.impl, wait: true })).errors).toHaveLength(6);
+    expect(broken.calls.length).toBe(before);
   });
 
   it.each([
@@ -349,6 +567,18 @@ describe('deep index service', () => {
   ])('adds %s', async (_label, url, route, expected) => {
     const { impl } = fakeFetch({ [url]: route as Route });
     expect(await deep.addUserSource(url, impl)).toMatchObject({ ...expected, origin: 'user', next_at: 0 });
+  });
+
+  it("adds a 2ch-style catalog as a board, and keeps a source marked 18+ behind the switch", async () => {
+    const { impl } = fakeFetch({ 'https://2ch.su/pr/catalog.json': { body: DVACH }, 'https://late.example/feed.xml': { body: RSS } });
+    expect(await deep.addUserSource('https://2ch.su/pr/catalog.json', impl)).toMatchObject({ kind: 'board', thread_url: 'https://2ch.su/pr/res/{no}.html', nsfw: 0 });
+    expect(await deep.addUserSource('https://late.example/feed.xml', impl, { nsfw: true })).toMatchObject({ kind: 'blog', nsfw: 1 });
+  });
+
+  it("refuses blocklisted sources before fetching them", async () => {
+    const { impl, calls } = fakeFetch({});
+    await expect(deep.addUserSource('https://lemmy.example/c/jailbait', impl)).rejects.toThrow(/doesn't index that/);
+    expect(calls).toHaveLength(0);
   });
 
   it('says why a URL could not be added', async () => {
@@ -404,8 +634,29 @@ describe('verified source lists', () => {
       expect(s.url).toMatch(/^https:\/\//);
       if (s.kind === 'board') expect(s.threadUrl).toContain('{no}');
     }
-    expect(list.filter((s) => s.kind === 'forum').length).toBeGreaterThanOrEqual(30);
-    expect(list.filter((s) => s.kind === 'board').length).toBeGreaterThanOrEqual(16);
+    expect(list.filter((s) => s.kind === 'forum').length).toBeGreaterThanOrEqual(130);
+    expect(list.filter((s) => s.kind === 'board').length).toBeGreaterThanOrEqual(75);
+    expect(list.some((s) => isBlockedSource(s))).toBe(false);
+  });
+
+  it('keeps the original board addresses, so existing indexes gain boards instead of duplicates', () => {
+    const urls = new Set(sources.OTHER_BOARDS.map((s) => s.url));
+    for (const u of ['https://lainchan.org/λ/catalog.json', 'https://lainchan.org/Ω/catalog.json', 'https://wizchan.org/wiz/catalog.json']) expect(urls.has(u)).toBe(true);
+  });
+
+  it('uses each board\'s real thread links and flags its 18+ boards', () => {
+    const board = (url: string) => sources.OTHER_BOARDS.find((s) => s.url === url)!;
+    expect(board('https://kissu.moe/qa/catalog.json').threadUrl).toBe('https://kissu.moe/qa/thread/{no}');
+    expect(board('https://2ch.su/pr/catalog.json').threadUrl).toBe('https://2ch.su/pr/res/{no}.html');
+    expect(board('https://2ch.su/b/catalog.json').nsfw).toBe(true);
+    expect(board('https://leftypol.org/siberia/catalog.json').nsfw).toBe(true);
+    expect(board('https://leftypol.org/tech/catalog.json').nsfw).toBeUndefined();
+  });
+
+  it('lists 100 Stack Exchange sites once each', () => {
+    const se = sources.STACK_EXCHANGE.map((s) => s.site);
+    expect(se).toHaveLength(100);
+    expect(new Set(se).size).toBe(100);
   });
 });
 

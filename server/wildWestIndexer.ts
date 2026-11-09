@@ -29,6 +29,9 @@ async function fetchWithTimeout(
   }
 }
 
+/** 4chan boards that aren't work-safe (`ws_board: 0` in a.4cdn.org/boards.json, checked 2026-11-09). */
+const FOURCHAN_NSFW_BOARDS = new Set('aco b bant d e f gif h hc hm hr i ic pol r r9k s s4s soc t trash u wg y'.split(' '));
+
 function stripHtmlTags(raw: string): string {
   return raw
     .replace(/<br\s*\/?>/gi, ' ')
@@ -119,7 +122,7 @@ export async function searchFourChanCatalogs(
                 : undefined,
               points: thread.replies ?? 0,
               commentsCount: thread.replies ?? 0,
-              isNsfw: board === 'b' || board === 'pol',
+              isNsfw: FOURCHAN_NSFW_BOARDS.has(board),
               tags: ['4chan', `/${board}/`, 'imageboard', 'wild-west'],
             });
           }
@@ -186,6 +189,7 @@ export async function searchChanArchives(
           publishedAt: p.timestamp
             ? new Date(p.timestamp * 1000).toISOString()
             : undefined,
+          isNsfw: FOURCHAN_NSFW_BOARDS.has(board),
           tags: ['desuarchive', `/${board}/`, 'chan-archive', 'wild-west'],
         };
       });
@@ -234,7 +238,7 @@ export async function searchChanArchives(
           publishedAt: p.timestamp
             ? new Date(p.timestamp * 1000).toISOString()
             : undefined,
-          isNsfw: board === 'pol',
+          isNsfw: FOURCHAN_NSFW_BOARDS.has(board),
           tags: ['4plebs', `/${board}/`, 'chan-archive', 'wild-west'],
         };
       });
@@ -283,9 +287,46 @@ export async function searchChanArchives(
     }
   })();
 
-  const [desu, plebs, lain] = await Promise.all([desuPromise, plebsPromise, lainchanPromise]);
-  results.push(...desu, ...plebs, ...lain);
+  // D) b4k (/v/, /vg/, /vrpg/ …) and Palanq (/p/, /vt/, /bant/ …): boards the archives above don't keep.
+  const [desu, plebs, lain, b4k, palanq] = await Promise.all([
+    desuPromise,
+    plebsPromise,
+    lainchanPromise,
+    searchFoolFuuka('arch.b4k.dev', 'b4k', q, 4),
+    searchFoolFuuka('archive.palanq.win', 'Palanq', q, 4),
+  ]);
+  results.push(...desu, ...plebs, ...lain, ...b4k, ...palanq);
   return results;
+}
+
+/** One FoolFuuka archive's search API. Posts from 4chan's adult boards are marked 18+ and only shown in 18+ mode. */
+async function searchFoolFuuka(host: string, label: string, q: string, max: number): Promise<RawSearchResult[]> {
+  try {
+    const res = await fetchWithTimeout(`https://${host}/_/api/chan/search/?text=${encodeURIComponent(q)}`, {}, 2000);
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      0?: { posts?: { num?: string; thread_num?: string; board?: { shortname?: string }; title?: string | null; comment?: string; timestamp?: number }[] };
+    };
+    return (data?.[0]?.posts || []).slice(0, max).flatMap((p) => {
+      const board = p.board?.shortname;
+      const threadNum = p.thread_num || p.num;
+      if (!board || !threadNum) return [];
+      const comment = stripHtmlTags(p.comment || '');
+      return [
+        {
+          title: `[${label} /${board}/] ${p.title?.trim() || comment.slice(0, 76) || `Thread #${threadNum}`}`,
+          url: `https://${host}/${board}/thread/${threadNum}/#${p.num || threadNum}`,
+          snippet: comment.slice(0, 260) || `Archived /${board}/ thread on ${label}`,
+          source: 'chanboards' as const,
+          publishedAt: p.timestamp ? new Date(p.timestamp * 1000).toISOString() : undefined,
+          isNsfw: FOURCHAN_NSFW_BOARDS.has(board),
+          tags: [label.toLowerCase(), `/${board}/`, 'chan-archive', 'wild-west'],
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**

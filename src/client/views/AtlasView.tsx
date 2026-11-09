@@ -20,10 +20,10 @@ const CATEGORIES: { id: IndieSiteEntry['category'] | 'all'; label: string }[] = 
 type Tab = 'picked' | 'blog' | 'site' | 'board' | 'forum' | 'index';
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: 'picked', label: 'Hand-picked', hint: 'Sites we chose and described' },
-  { id: 'blog', label: 'Blogs', hint: 'Personal blogs from the Kagi Small Web list' },
-  { id: 'site', label: 'Small sites', hint: 'Tiny, fast personal sites from the 512KB Club' },
-  { id: 'board', label: 'Boards', hint: 'Imageboards: 4chan, lainchan, wizchan' },
-  { id: 'forum', label: 'Forums', hint: 'Discourse communities and old-school forums' },
+  { id: 'blog', label: 'Blogs', hint: 'Personal blogs from Kagi Small Web and the XXIIVV webring' },
+  { id: 'site', label: 'Small sites', hint: 'Tiny personal sites from the 512KB Club and the XXIIVV webring' },
+  { id: 'board', label: 'Boards', hint: 'Imageboards: 4chan, 2ch, lainchan, wizchan, leftypol, uboachan, sushigirl, kissu' },
+  { id: 'forum', label: 'Forums', hint: 'Lemmy communities, Discourse forums, Stack Exchange and old-school boards' },
   { id: 'index', label: 'Deep index', hint: 'Crawl status, and add your own sources' },
 ];
 
@@ -45,7 +45,11 @@ interface DirPage {
   total: number;
   items: DirItem[];
   counts: Partial<Record<'blog' | 'site' | 'board' | 'forum', number>>;
+  /** Where this tab's sources came from, largest first. */
+  origins?: { origin: string; sources: number }[];
   errors?: string[];
+  /** The big directories (Lemmy, Discourse) are still loading in the background. */
+  loading?: boolean;
 }
 
 interface DeepStatus {
@@ -56,6 +60,7 @@ interface DeepStatus {
   counts?: { visited: number; unchanged: number; failed: number; posts: number };
   lastError?: string | null;
   seededAt?: number | null;
+  seeding?: boolean;
   posts?: number;
   bytes?: number;
   byKind?: { kind: string; sources: number; visited: number; failing: number; posts: number }[];
@@ -66,13 +71,26 @@ const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
 const ORIGIN_LABEL: Record<string, string> = {
   smallweb: 'Kagi Small Web',
   '512kb': '512KB Club',
+  xxiivv: 'XXIIVV webring',
   '4chan': '4chan',
+  '2ch': '2ch',
   lainchan: 'lainchan',
   wizchan: 'wizchan',
+  leftypol: 'leftypol',
+  uboachan: 'uboachan',
+  sushigirl: 'sushigirl',
+  kissu: 'kissu',
+  lemmy: 'Lemmy',
   discourse: 'Discourse',
-  forums: 'forum',
-  user: 'yours',
+  stackexchange: 'Stack Exchange',
+  forums: 'Classic forums',
+  user: 'Yours',
 };
+
+/** A feed's own title, without the boilerplate some engines add ("Recent Questions - …", "… - Latest topics"). */
+function dirTitle(item: DirItem): string | null {
+  return item.title?.replace(/^Recent Questions - /, '').replace(/ - Latest (topics|posts)$/, '') || null;
+}
 
 /** The page a directory row should open: boards and feeds open their site, not the API. */
 function siteUrl(item: DirItem): string {
@@ -81,6 +99,10 @@ function siteUrl(item: DirItem): string {
     if (m) return `https://boards.4chan.org/${m[1]}/catalog`;
     return item.url.replace(/catalog\.json$/, 'catalog.html');
   }
+  const lemmy = item.url.match(/^(https:\/\/[^/]+)\/feeds\/c\/([^/.]+)\.xml/);
+  if (lemmy) return `${lemmy[1]}/c/${lemmy[2]}`;
+  if (/\/latest\.rss$/.test(item.url)) return `${item.url.replace(/\/latest\.rss$/, '')}/`;
+  if (item.origin === 'stackexchange') return item.url.replace(/\/feeds$/, '/questions');
   return `https://${item.site}/`;
 }
 
@@ -172,7 +194,7 @@ export function AtlasView({
       {tab === 'picked' ? (
         <HandPicked onRead={onRead} uncensored={uncensored} />
       ) : tab === 'index' ? (
-        <DeepIndexPanel status={status} reload={loadStatus} onToast={onToast} />
+        <DeepIndexPanel status={status} reload={loadStatus} onToast={onToast} uncensored={uncensored} />
       ) : (
         <Directory key={tab} kind={tab} uncensored={uncensored} onCounts={setCounts} onRead={onRead} />
       )}
@@ -260,9 +282,12 @@ function Directory({
 }) {
   const [q, setQ] = useState('');
   const [order, setOrder] = useState<'posts' | 'random' | 'name'>('posts');
+  const [origin, setOrigin] = useState('');
+  const [origins, setOrigins] = useState<NonNullable<DirPage['origins']>>([]);
   const [items, setItems] = useState<DirItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [directoriesLoading, setDirectoriesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reqId = useRef(0);
 
@@ -272,12 +297,15 @@ function Directory({
       setLoading(true);
       try {
         const params = new URLSearchParams({ kind, q, order, offset: String(offset), limit: String(PAGE), nsfw: String(uncensored) });
+        if (origin) params.set('origin', origin);
         const page = await api<DirPage>(`/api/deep/sites?${params}`);
         if (id !== reqId.current) return;
         if (!page.available) setError(page.errors?.[0] || 'The deep index is not available on this system.');
         else setError(page.errors?.length ? `Some directories didn't load: ${page.errors.join('; ')}` : null);
         setItems((prev) => (offset === 0 ? page.items : [...prev, ...page.items]));
         setTotal(page.total);
+        setOrigins(page.origins ?? []);
+        setDirectoriesLoading(Boolean(page.loading));
         onCounts(page.counts);
       } catch (e) {
         if (id === reqId.current) setError((e as Error).message);
@@ -285,13 +313,20 @@ function Directory({
         if (id === reqId.current) setLoading(false);
       }
     },
-    [kind, q, order, uncensored, onCounts]
+    [kind, q, order, origin, uncensored, onCounts]
   );
 
   useEffect(() => {
     const t = setTimeout(() => void load(0), q ? 180 : 0);
     return () => clearTimeout(t);
   }, [load, q]);
+
+  // While Lemmy and Discourse load in the background, refresh the first page so they appear.
+  useEffect(() => {
+    if (!directoriesLoading || items.length > PAGE) return;
+    const t = setTimeout(() => void load(0), 4000);
+    return () => clearTimeout(t);
+  }, [directoriesLoading, items.length, load]);
 
   return (
     <>
@@ -313,7 +348,27 @@ function Directory({
         </div>
       </div>
 
+      {origins.length > 1 && (
+        <div className="chips" role="group" aria-label="Where these come from">
+          <button type="button" className={`chip ${origin === '' ? 'active' : ''}`} aria-pressed={origin === ''} onClick={() => setOrigin('')}>
+            All
+          </button>
+          {origins.map((o) => (
+            <button
+              key={o.origin}
+              type="button"
+              className={`chip ${origin === o.origin ? 'active' : ''}`}
+              aria-pressed={origin === o.origin}
+              onClick={() => setOrigin(origin === o.origin ? '' : o.origin)}
+            >
+              {ORIGIN_LABEL[o.origin] || o.origin} <span className="count">{fmt(o.sources)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && <div className="notice notice-warn">{error}</div>}
+      {directoriesLoading && !error && <div className="notice">Still loading the Lemmy and Discourse directories; they appear here as they arrive.</div>}
 
       <ul className="dir-list" aria-busy={loading}>
         {items.map((it) => (
@@ -321,11 +376,11 @@ function Directory({
             <img className="favicon" src={faviconUrl(it.site)} alt="" width={14} height={14} loading="lazy" />
             <div className="dir-main">
               <a className="dir-title truncate" href={siteUrl(it)} target="_blank" rel="noreferrer noopener">
-                {it.title || it.site}
+                {dirTitle(it) || it.site}
               </a>
               <span className="dir-sub truncate">
-                {it.title ? it.site : ''}
-                {it.title && ' · '}
+                {dirTitle(it) ? it.site : ''}
+                {dirTitle(it) && ' · '}
                 {ORIGIN_LABEL[it.origin] || it.origin}
               </span>
             </div>
@@ -361,13 +416,16 @@ function DeepIndexPanel({
   status,
   reload,
   onToast,
+  uncensored,
 }: {
   status: DeepStatus | null;
   reload: () => Promise<void>;
   onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
+  uncensored: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
+  const [adult, setAdult] = useState(false);
 
   if (!status) return <div className="skeleton-stack" aria-busy="true"><div className="skeleton w-80" /></div>;
   if (!status.available) return <div className="notice notice-warn">{status.reason}</div>;
@@ -395,7 +453,10 @@ function DeepIndexPanel({
     if (!url.trim()) return;
     setBusy(true);
     try {
-      const { source } = await api<{ source: { kind: string; url: string } }>('/api/deep/sources', { method: 'POST', json: { url } });
+      const { source } = await api<{ source: { kind: string; url: string } }>('/api/deep/sources', {
+        method: 'POST',
+        json: { url, nsfw: uncensored && adult },
+      });
       onToast?.(`Added as ${source.kind === 'board' ? 'a board' : source.kind === 'forum' ? 'a forum' : 'a blog'}. It's crawled next.`, 'ok');
       setUrl('');
       await reload();
@@ -442,6 +503,7 @@ function DeepIndexPanel({
           ))}
         </div>
         <div className="row-gap">
+          {status.seeding && <span className="muted">Loading the Lemmy and Discourse directories…</span>}
           {status.crawling ? (
             <button type="button" className="btn" disabled={busy} onClick={() => void act('pause')}>
               <Pause size={13} /> Pause
@@ -458,7 +520,7 @@ function DeepIndexPanel({
         {status.lastError && <p className="setting-hint">Last error: {status.lastError}</p>}
         <p className="setting-hint">
           Crawling stays off until you start it. glogg then reads each source's feed (one request per site at a time, at least a second apart, and only
-          what changed) and keeps the text on this machine in ~/.glogg/deep.db. A first full pass takes roughly 2–3 hours and about 1 GB; results
+          what changed) and keeps the text on this machine in ~/.glogg/deep.db. A first full pass over all ~56,000 sources takes roughly 3–4 hours and 1–1.5 GB; results
           appear as it goes, and searches answer from here in milliseconds.
         </p>
       </section>
@@ -481,6 +543,12 @@ function DeepIndexPanel({
             <Plus size={13} /> Add
           </button>
         </form>
+        {uncensored && (
+          <label className="check-row">
+            <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} />
+            18+ source: only shown in 18+ mode
+          </label>
+        )}
         <p className="setting-hint">glogg works out what it is: an RSS/Atom/JSON feed, a Discourse forum, an imageboard catalog, or a page whose feed it can find.</p>
       </section>
 
@@ -496,8 +564,21 @@ function DeepIndexPanel({
           <li>
             <a href="https://github.com/4chan/4chan-API" target="_blank" rel="noreferrer">4chan API</a>: board catalogs, at most one request a second
           </li>
-          <li>lainchan, wizchan, 28 Discourse forums, VOGONS, VCFed, Raspberry Pi and Arch forums, Lobsters and Tildes: checked by hand</li>
+          <li>
+            <a href="https://webring.xxiivv.com" target="_blank" rel="noreferrer">XXIIVV webring</a>: hand-made personal sites
+          </li>
+          <li>
+            <a href="https://lemmyverse.net" target="_blank" rel="noreferrer">Lemmyverse</a>: Lemmy communities with 100+ subscribers; ones it flags are left out
+          </li>
+          <li>
+            <a href="https://discover.discourse.org" target="_blank" rel="noreferrer">Discourse Discover</a>: Discourse forums, read a page a second
+          </li>
+          <li>
+            Imageboards checked by hand: 2ch, lainchan, wizchan, leftypol, uboachan, sushigirl, kissu. 100 Stack Exchange sites, paced as one
+            site. 28 more Discourse forums, VOGONS, VCFed, Raspberry Pi and Arch forums, Lobsters and Tildes.
+          </li>
         </ul>
+        <p className="setting-hint">Sources and posts that advertise sexual material involving minors are never indexed, in any mode.</p>
       </section>
     </div>
   );

@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync as Db } from 'node:sqlite';
+import { isBlockedPost, isBlockedSource } from './blocklist.js';
 import type { DeepKind, DeepPost } from './parse.js';
 
 export interface SourceInput {
@@ -151,7 +152,10 @@ export class DeepStore {
     this.db.prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   }
 
-  /** Adds sources that aren't known yet; existing ones keep their crawl state. Returns how many were new. */
+  /**
+   * Adds sources that aren't known yet; existing ones keep their crawl state. Returns how many were new.
+   * Blocklisted sources are never stored, whoever adds them (see blocklist.ts).
+   */
   addSources(list: SourceInput[]): number {
     const stmt = this.db.prepare(
       `INSERT INTO sources(url, kind, site, origin, title, nsfw, interval_min, thread_url)
@@ -160,6 +164,7 @@ export class DeepStore {
     return this.tx(() => {
       let added = 0;
       for (const s of list) {
+        if (isBlockedSource(s)) continue;
         const r = stmt.run(s.url, s.kind, s.site, s.origin, s.title ?? null, s.nsfw ? 1 : 0, s.intervalMin, s.threadUrl ?? null);
         added += Number(r.changes);
       }
@@ -175,11 +180,18 @@ export class DeepStore {
     return this.db.prepare('SELECT * FROM sources WHERE url = ?').get(url) as SourceRow | undefined;
   }
 
-  /** Sources due for a visit, boards and forums first. */
-  dueSources(now: number, limit: number): SourceRow[] {
+  /**
+   * Sources due for a visit, boards and forums first. `skipSites` are sites the crawler
+   * can't contact right now, so one big site (thousands of Lemmy communities on one
+   * instance) can't fill the whole batch and stall everything else.
+   */
+  dueSources(now: number, limit: number, skipSites: string[] = []): SourceRow[] {
     return this.db
-      .prepare(`SELECT * FROM sources WHERE next_at <= ? ORDER BY ${KIND_PRIORITY}, next_at LIMIT ?`)
-      .all(now, limit) as unknown as SourceRow[];
+      .prepare(
+        `SELECT * FROM sources WHERE next_at <= ? AND site NOT IN (SELECT value FROM json_each(?))
+         ORDER BY ${KIND_PRIORITY}, next_at LIMIT ?`
+      )
+      .all(now, JSON.stringify(skipSites), limit) as unknown as SourceRow[];
   }
 
   nextDueAt(): number | null {
@@ -209,6 +221,7 @@ export class DeepStore {
     const keep = KEEP_POSTS[source.kind] || 40;
     return this.tx(() => {
       for (const p of posts) {
+        if (isBlockedPost(p)) continue;
         upsert.run(p.url, source.id, source.kind, source.site, p.title, p.summary, p.published ?? null, source.nsfw, now);
       }
       this.db
@@ -266,12 +279,24 @@ export class DeepStore {
     return row ? { ...row, nsfw: Boolean(row.nsfw) } : undefined;
   }
 
-  listSources(opts: { kind?: DeepKind | 'all'; q?: string; offset?: number; limit?: number; order?: 'random' | 'posts' | 'name'; nsfw?: boolean }) {
+  listSources(opts: {
+    kind?: DeepKind | 'all';
+    origin?: string;
+    q?: string;
+    offset?: number;
+    limit?: number;
+    order?: 'random' | 'posts' | 'name';
+    nsfw?: boolean;
+  }) {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (opts.kind && opts.kind !== 'all') {
       where.push('kind = ?');
       args.push(opts.kind);
+    }
+    if (opts.origin) {
+      where.push('origin = ?');
+      args.push(opts.origin);
     }
     if (!opts.nsfw) where.push('nsfw = 0');
     if (opts.q?.trim()) {
@@ -289,6 +314,13 @@ export class DeepStore {
       )
       .all(...args, opts.limit ?? 60, opts.offset ?? 0);
     return { total, items };
+  }
+
+  /** How many sources of a kind each directory contributed, largest first. */
+  originCounts(kind: DeepKind, nsfw = false): { origin: string; sources: number }[] {
+    return this.db
+      .prepare(`SELECT origin, COUNT(*) AS sources FROM sources WHERE kind = ? AND (? = 1 OR nsfw = 0) GROUP BY origin ORDER BY sources DESC, origin`)
+      .all(kind, nsfw ? 1 : 0) as { origin: string; sources: number }[];
   }
 
   stats() {

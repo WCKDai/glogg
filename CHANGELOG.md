@@ -5,6 +5,10 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **More of the deep web in the deep index** (≈45,000 → ≈56,000 sources): imageboards on 2ch (in its own catalog format), leftypol, uboachan, sushigirl, kissu and more of wizchan; ≈9,800 Lemmy communities from Lemmyverse; ≈920 forums from Discourse Discover; 100 Stack Exchange sites; the XXIIVV webring. Every new board was crawled and a thread link from each opened.
+- **b4k and Palanq** archives in chan search.
+- Atlas: filter each tab by where its sources come from (Lemmy, Discourse, Stack Exchange …); mark a source you add as 18+ (in 18+ mode).
+- A blocklist (`server/deep/blocklist.ts`) keeps sources that advertise sexual material involving minors, and posts using the jargon for trading it, out of the index in every mode. On the real directories (≈70,000 names) it blocks nothing else.
 - **Deep index of the obscure web** (`server/deep/`): ≈43,000 small-web blogs (Kagi Small Web), ≈960 tiny sites (512KB Club), every 4chan board plus lainchan and wizchan, 34 forums (28 Discourse, VOGONS, VCFed, Raspberry Pi, Arch, Lobsters, Tildes) and any source you add. Opt-in, polite crawler; SQLite full-text index in `~/.glogg/deep.db`; searched on every query in milliseconds. New source types `deep-blogs`, `deep-boards`, `deep-forums`.
 - **Atlas** lists all of it, not just the 39 hand-picked sites: tabs per kind, filter, random order, Surprise me, crawl controls, add-your-own-source with type detection.
 - **Mwmbl** connector, and **live Discourse search** in the Forums scope.
@@ -27,10 +31,14 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - The client bundle no longer includes the server-side page cleaner (−26 KB gzipped).
 
 ### Security
+- Archive results from 4chan's adult boards (`/b/`, `/r9k/`, `/trash/` …, from 4chan's own `ws_board` flags) are now marked 18+ and hidden outside 18+ mode; before, only `/b/` and `/pol/` were.
 - The local API now refuses requests from other websites and DNS-rebinding hosts, except a few public read-only routes (search, OpenSearch, suggestions, Atlas, health, IPFS lookup). Previously any site could call every route, including ones that use stored keys or start containers. Use `GLOGG_ALLOWED_HOSTS` / `GLOGG_ALLOWED_ORIGINS` for custom domains.
 
 ### Fixed
 - A search could overrun its deadlines, or never finish when a core source hung: Node can fire a timer a millisecond before `Date.now()` shows its full delay, and the deadline check then missed. Each deadline now counts as reached when its own timer fires.
+- Board catalogs over 1.5 MB (leftypol's) failed as "not a board catalog"; boards now get 8 MB.
+- One site with thousands of feeds (a big Lemmy instance) could fill the crawler's whole batch and slow it to one request a second; sites that are waiting are now skipped when picking the next batch.
+- A directory that failed to load was fetched again on every Atlas page load; it now waits ten minutes.
 - Plugins failed to load under Vite-based runtimes because of a fractional cache-busting query; plugin load errors no longer show as "[object Object]".
 - TorBox torrent uploads typecheck again.
 

@@ -227,13 +227,15 @@ Big search engines rank by popularity, so personal blogs, imageboard threads and
 
 | Kind | Where it comes from | How it's read |
 | :--- | :--- | :--- |
-| Blogs | [Kagi Small Web](https://github.com/kagisearch/smallweb) (≈43,000 personal blogs, MIT) | RSS, Atom or JSON Feed, daily |
-| Small sites | [512KB Club](https://512kb.club) (≈960 tiny sites, MIT) | feed found on the page, then daily |
-| Imageboards | every 4chan board ([API rules](https://github.com/4chan/4chan-API): one request a second), 16 lainchan boards, wizchan | board catalogs, hourly; text only, 18+ boards only in 18+ mode |
-| Forums | 28 Discourse forums, VOGONS, VCFed, Raspberry Pi, Arch, Lobsters, Tildes | feeds every 3 hours, plus live Discourse search in the Forums scope |
-| Yours | any URL you add in Atlas → Deep index | glogg detects a feed, a Discourse forum, a board catalog or a page with a feed |
+| Blogs | [Kagi Small Web](https://github.com/kagisearch/smallweb) (≈43,000 personal blogs, MIT), [XXIIVV webring](https://webring.xxiivv.com) members with a feed | RSS, Atom or JSON Feed, daily |
+| Small sites | [512KB Club](https://512kb.club) (≈960 tiny sites, MIT), the rest of the XXIIVV webring | feed found on the page, then daily |
+| Imageboards | every 4chan board ([API rules](https://github.com/4chan/4chan-API): one request a second), 19 boards on 2ch (Russian), 16 on lainchan, 15 on leftypol, 10 on uboachan, 9 on sushigirl, 7 on wizchan, 2 on kissu | board catalogs, hourly; text only, 18+ boards only in 18+ mode |
+| Forums | ≈9,800 [Lemmy](https://lemmyverse.net) communities (100+ subscribers, ones Lemmyverse flags left out, 18+ ones gated), ≈950 Discourse forums ([Discourse Discover](https://discover.discourse.org) plus 28 picked), 100 Stack Exchange sites, VOGONS, VCFed, Raspberry Pi, Arch, Lobsters, Tildes | feeds every 3–12 hours, plus live Discourse search in the Forums scope |
+| Yours | any URL you add in Atlas → Deep index (in 18+ mode you can mark it 18+) | glogg detects a feed, a Discourse forum, a board catalog (4chan or 2ch format) or a page with a feed |
 
-**Crawling is off until you start it** (Atlas → Deep index → Build the deep index). It then runs in the background and resumes after restarts: at most one request per site at a time, at least a second apart, conditional requests so unchanged feeds cost a `304`, `Retry-After` honoured, failing sources backed off up to a week, network hiccups retried in 20 minutes. Text is stored in `~/.glogg/deep.db` (SQLite with full-text search, built into Node 22.13+). In a 60-second sample run it indexed about 11,000 posts into 18 MB.
+**Crawling is off until you start it** (Atlas → Deep index → Build the deep index). It then runs in the background and resumes after restarts: at most one request per site at a time, at least a second apart, conditional requests so unchanged feeds cost a `304`, `Retry-After` honoured, failing sources backed off up to a week, network hiccups retried in 20 minutes. Text is stored in `~/.glogg/deep.db` (SQLite with full-text search, built into Node 22.13+). In a 60-second sample run it indexed about 11,000 posts into 18 MB; a full first pass over the ≈56,000 sources takes roughly 3–4 hours and 1–1.5 GB. Stack Exchange's 100 sites share one backend, so they are paced as one site (a request every 2.5 s). The big directories (Lemmy, Discourse Discover) load in the background, so the Atlas and the crawler never wait on them.
+
+**Never indexed, in any mode:** sources whose names advertise sexual material involving minors, and posts using the jargon for trading it (`server/deep/blocklist.ts`). 18+ mode unlocks adult content, not this.
 
 The Atlas lists everything above (hand-picked sites, blogs, small sites, boards, forums) with filters, random order and **Surprise me**. Results show up as *Indexed blogs / boards / forums* in Small Web, Wild West, Forums and All searches. glogg also queries [Mwmbl](https://mwmbl.org), a non-profit search engine with its own index.
 
@@ -316,7 +318,7 @@ npm run check:bundle   # fail if the gzipped client grows past its budget (JS 12
 
 | Suite | Covers |
 | :--- | :--- |
-| `tests/deep.test.ts` | Deep index: feed/catalog/page parsers, the SQLite store (stemming, fallback, 18+ gate, retention), crawler visits (304, 429, backoff, transient retries) and politeness timing, source detection, search integration |
+| `tests/deep.test.ts` | Deep index: feed/catalog/page parsers (incl. 2ch, Lemmyverse, Discourse Discover, XXIIVV), the blocklist, the SQLite store (stemming, fallback, 18+ gate, retention, origin filters), crawler visits (304, 429, backoff, transient retries, big catalogs) and politeness timing (shared backends, one big site can't stall the rest), directory loading (weekly, background, retry), source detection, search integration |
 | `tests/quality.test.ts` | Ranking goldens (junk hidden, docs and accepted answers on top, variety kept), exact instant answers, bangs, client bundle hygiene |
 | `tests/research.test.ts` | Passage selection, quotes free of page chrome and filler, prompts, and the research engine with stubbed pages and models |
 | `tests/searchPipeline.test.ts` | Source deadlines and grace, source health, the cache, instant-answer budget, all upstreams stubbed |

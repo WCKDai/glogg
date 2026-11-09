@@ -8,8 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { analyzeQueryIntent } from '../../src/core/index.js';
 import type { RawSearchResult, SourceConnectorId } from '../../src/core/index.js';
+import { isBlockedSource } from './blocklist.js';
 import { CRAWLER_UA, DeepCrawler } from './crawler.js';
-import { discoverFeeds, isDiscourse, parseChanCatalog } from './parse.js';
+import { discoverFeeds, isDiscourse, parseChanCatalog, parseDiscourseDirectory } from './parse.js';
 import type { DeepKind } from './parse.js';
 import {
   builtinSources,
@@ -18,12 +19,17 @@ import {
   SEED_LISTS,
   sourcesFrom4chan,
   sourcesFrom512kb,
+  sourcesFromDiscourseDirectory,
+  sourcesFromLemmyverse,
   sourcesFromSmallWeb,
+  sourcesFromWebring,
 } from './sources.js';
 import { DeepStore, openDeepStore } from './store.js';
 import type { SourceInput, SourceRow } from './store.js';
 
 const RESEED_MS = 7 * 24 * 60 * 60_000;
+/** A directory that failed is tried again after this, not on every page load. */
+const RETRY_MS = 10 * 60_000;
 const glogHome = () => process.env.GLOGG_HOME || path.join(os.homedir(), '.glogg');
 export const deepDbPath = () => path.join(glogHome(), 'deep.db');
 
@@ -37,7 +43,8 @@ let store: DeepStore | null = null;
 let opening: Promise<DeepStore | null> | null = null;
 let unavailable = '';
 let crawler: DeepCrawler | null = null;
-let seeding: Promise<{ added: number; errors: string[] }> | null = null;
+let seeding: Promise<number> | null = null;
+let background: Promise<number> | null = null;
 
 export async function getDeepStore(): Promise<DeepStore | null> {
   if (store) return store;
@@ -58,6 +65,7 @@ export function resetDeepIndex(): void {
   store = null;
   opening = null;
   seeding = null;
+  background = null;
   unavailable = '';
 }
 
@@ -74,42 +82,102 @@ async function fetchText(url: string, fetchImpl: typeof fetch, timeoutMs = 30_00
   return res.text();
 }
 
+/** Discourse Discover, one page a second until the last (at most 60 pages). A page failing midway keeps what came before. */
+async function loadDiscourseDirectory(fetchImpl: typeof fetch): Promise<SourceInput[]> {
+  const forums = new Map<string, { url: string; title: string; nsfw: boolean }>();
+  let url: string | undefined = SEED_LISTS.discourse.url;
+  for (let page = 0; url && page < 60; page++) {
+    if (page > 0) await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const parsed = parseDiscourseDirectory(JSON.parse(await fetchText(url, fetchImpl)), url);
+      for (const f of parsed.forums) if (!forums.has(f.url)) forums.set(f.url, f);
+      url = parsed.next;
+    } catch (e) {
+      if (forums.size === 0) throw e;
+      break;
+    }
+  }
+  return sourcesFromDiscourseDirectory([...forums.values()]);
+}
+
+interface SeedList {
+  key: keyof typeof SEED_LISTS;
+  /** Big or paged directories load in the background, so the Atlas and the crawler never wait on them. */
+  background?: boolean;
+  load: (fetchImpl: typeof fetch) => Promise<SourceInput[]>;
+}
+
+const LISTS: SeedList[] = [
+  { key: 'smallweb', load: async (f) => sourcesFromSmallWeb(await fetchText(SEED_LISTS.smallweb.url, f)) },
+  { key: 'club512', load: async (f) => sourcesFrom512kb(await fetchText(SEED_LISTS.club512.url, f)) },
+  { key: 'fourchan', load: async (f) => sourcesFrom4chan(JSON.parse(await fetchText(SEED_LISTS.fourchan.url, f))) },
+  { key: 'webring', load: async (f) => sourcesFromWebring(await fetchText(SEED_LISTS.webring.url, f)) },
+  { key: 'lemmy', background: true, load: async (f) => sourcesFromLemmyverse(JSON.parse(await fetchText(SEED_LISTS.lemmy.url, f, 120_000))) },
+  { key: 'discourse', background: true, load: loadDiscourseDirectory },
+];
+
+/** Loads directories in parallel; each one's success or failure is remembered on its own. Returns how many sources were new. */
+async function loadLists(s: DeepStore, lists: SeedList[], fetchImpl: typeof fetch): Promise<number> {
+  let added = 0;
+  await Promise.all(
+    lists.map(async (l) => {
+      s.setMeta(`seed_tried:${l.key}`, String(Date.now()));
+      try {
+        // Await first: `added += …await…` would read `added` before the await and lose updates.
+        const fresh = s.addSources(await l.load(fetchImpl));
+        added += fresh;
+        s.setMeta(`seeded:${l.key}`, String(Date.now()));
+        s.setMeta(`seed_error:${l.key}`, '');
+      } catch (e) {
+        s.setMeta(`seed_error:${l.key}`, `${hostOf(SEED_LISTS[l.key].url)}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })
+  );
+  if (LISTS.every((l) => s.getMeta(`seeded:${l.key}`) && !s.getMeta(`seed_error:${l.key}`))) s.setMeta('seeded_at', String(Date.now()));
+  return added;
+}
+
+function seedErrors(s: DeepStore): string[] {
+  return LISTS.map((l) => s.getMeta(`seed_error:${l.key}`) || '').filter(Boolean);
+}
+
 /**
  * Loads the open directories into the index (sources only, nothing is crawled):
- * verified boards and forums, Kagi Small Web, 512KB Club and the 4chan board list.
- * Refreshed weekly; failures are reported and retried next time.
+ * verified boards and forums, Kagi Small Web, 512KB Club, 4chan's board list and
+ * the XXIIVV webring, then Lemmy and Discourse Discover in the background.
+ * Each is refreshed weekly; one that fails is retried after ten minutes.
+ * `wait` also waits for the background directories (tests, the CLI).
  */
-export async function ensureSeeded(opts: { force?: boolean; fetch?: typeof fetch } = {}): Promise<{ added: number; errors: string[] }> {
+export async function ensureSeeded(
+  opts: { force?: boolean; fetch?: typeof fetch; wait?: boolean } = {}
+): Promise<{ added: number; errors: string[]; loading: boolean }> {
   const s = await getDeepStore();
-  if (!s) return { added: 0, errors: [unavailable] };
-  const last = Number(s.getMeta('seeded_at') || 0);
-  if (!opts.force && Date.now() - last < RESEED_MS) return { added: 0, errors: [] };
-  seeding ??= (async () => {
-    const fetchImpl = opts.fetch ?? fetch;
-    const errors: string[] = [];
-    let added = s.addSources(builtinSources());
-    const lists: [string, (text: string) => SourceInput[]][] = [
-      [SEED_LISTS.smallweb.url, sourcesFromSmallWeb],
-      [SEED_LISTS.club512.url, sourcesFrom512kb],
-      [SEED_LISTS.fourchan.url, (t) => sourcesFrom4chan(JSON.parse(t))],
-    ];
-    await Promise.all(
-      lists.map(async ([url, parse]) => {
-        try {
-          // Await first: `added += …await…` would read `added` before the await and lose updates.
-          const fresh = s.addSources(parse(await fetchText(url, fetchImpl)));
-          added += fresh;
-        } catch (e) {
-          errors.push(`${hostOf(url)}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      })
-    );
-    if (errors.length === 0) s.setMeta('seeded_at', String(Date.now()));
-    return { added, errors };
-  })().finally(() => {
-    seeding = null;
-  });
-  return seeding;
+  if (!s) return { added: 0, errors: [unavailable], loading: false };
+  const fetchImpl = opts.fetch ?? fetch;
+  const now = Date.now();
+  const due = (l: SeedList) =>
+    opts.force ||
+    (now - Number(s.getMeta(`seeded:${l.key}`) || 0) >= RESEED_MS && now - Number(s.getMeta(`seed_tried:${l.key}`) || 0) >= RETRY_MS);
+
+  // Built-in sources every time: it's cheap, and ones added by an upgrade show up at once.
+  let added = s.addSources(builtinSources());
+  const slow = LISTS.filter((l) => l.background && due(l));
+  if (slow.length && !background) {
+    // .catch: the store can be closed underneath a slow download (tests reset it between cases).
+    background = loadLists(s, slow, fetchImpl)
+      .catch(() => 0)
+      .finally(() => (background = null));
+  }
+  const pendingBackground = background;
+  const fast = LISTS.filter((l) => !l.background && due(l));
+  if (fast.length) {
+    seeding ??= loadLists(s, fast, fetchImpl).finally(() => (seeding = null));
+    added += await seeding;
+  } else if (seeding) {
+    await seeding;
+  }
+  if (opts.wait && pendingBackground) added += await pendingBackground;
+  return { added, errors: seedErrors(s), loading: Boolean(background) };
 }
 
 export async function deepStatus() {
@@ -123,6 +191,8 @@ export async function deepStatus() {
     startedAt: crawler?.startedAt || null,
     lastError: crawler?.lastError || null,
     seededAt: Number(s.getMeta('seeded_at') || 0) || null,
+    seeding: Boolean(seeding || background),
+    seedErrors: seedErrors(s),
     nextDueAt: s.nextDueAt(),
     ...s.stats(),
   };
@@ -178,9 +248,10 @@ export async function randomDeep(opts: { nsfw?: boolean; kinds?: DeepKind[] } = 
 
 /**
  * Adds any URL: a feed, a Discourse forum, an imageboard catalog, or a page
- * whose feed can be discovered. Returns the stored source.
+ * whose feed can be discovered. `nsfw` keeps it behind the 18+ switch.
+ * Returns the stored source.
  */
-export async function addUserSource(raw: string, fetchImpl: typeof fetch = fetch): Promise<SourceRow> {
+export async function addUserSource(raw: string, fetchImpl: typeof fetch = fetch, opts: { nsfw?: boolean } = {}): Promise<SourceRow> {
   const s = await getDeepStore();
   if (!s) throw new Error(unavailable);
   let url: URL;
@@ -190,35 +261,41 @@ export async function addUserSource(raw: string, fetchImpl: typeof fetch = fetch
     throw new Error('That is not a valid address.');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Only http(s) addresses can be added.');
+  const blocked = new Error("glogg doesn't index that.");
+  if (isBlockedSource({ url: url.toString(), site: url.hostname })) throw blocked;
 
   const res = await fetchImpl(url.toString(), { headers: { 'User-Agent': CRAWLER_UA }, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`${url.host} answered HTTP ${res.status}.`);
   const text = (await res.text()).slice(0, 1_500_000);
   const page = res.url || url.toString();
   const site = hostOf(page);
+  const nsfw = Boolean(opts.nsfw);
   let input: SourceInput | null = null;
 
-  if (/^\s*\[/.test(text)) {
+  let json: unknown;
+  if (/^\s*[[{]/.test(text) && !text.includes('jsonfeed.org')) {
     try {
-      if (parseChanCatalog(JSON.parse(text), (n) => String(n)).length > 0) {
-        const base = page.replace(/\/catalog\.json(\?.*)?$/, '');
-        const threadUrl = site === 'a.4cdn.org' ? `${base.replace('a.4cdn.org', 'boards.4chan.org')}/thread/{no}` : `${base}/res/{no}.html`;
-        input = { url: page, kind: 'board', site, origin: 'user', intervalMin: INTERVAL_MIN.board, threadUrl };
-      }
+      json = JSON.parse(text);
     } catch {
       // not JSON after all
     }
+  }
+  if (json !== undefined && parseChanCatalog(json, (n) => String(n)).length > 0) {
+    const base = page.replace(/\/catalog\.json(\?.*)?$/, '');
+    const threadUrl = site === 'a.4cdn.org' ? `${base.replace('a.4cdn.org', 'boards.4chan.org')}/thread/{no}` : `${base}/res/{no}.html`;
+    input = { url: page, kind: 'board', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.board, threadUrl };
   } else if (/<(rss|feed|rdf:RDF)[\s>]/i.test(text.slice(0, 4000)) || (/^\s*\{/.test(text) && text.includes('jsonfeed.org'))) {
     const kind = /xmlns:discourse=/.test(text) ? 'forum' : 'blog';
-    input = { url: page, kind, site, origin: 'user', intervalMin: INTERVAL_MIN[kind] };
+    input = { url: page, kind, site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN[kind] };
   } else if (isDiscourse(text)) {
-    input = { url: `${new URL(page).origin}/latest.rss`, kind: 'forum', site, origin: 'user', intervalMin: INTERVAL_MIN.forum };
-  } else {
+    input = { url: `${new URL(page).origin}/latest.rss`, kind: 'forum', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.forum };
+  } else if (json === undefined) {
     const feed = discoverFeeds(text, page)[0];
-    if (feed) input = { url: feed, kind: 'blog', site, origin: 'user', intervalMin: INTERVAL_MIN.blog };
+    if (feed) input = { url: feed, kind: 'blog', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.blog };
   }
 
   if (!input) throw new Error(`No feed, forum or board found at ${url.host}. Try the page's RSS link or a board's catalog.json.`);
+  if (isBlockedSource(input)) throw blocked;
   s.addSources([input]);
   const row = s.getSourceByUrl(input.url)!;
   s.updateSource(row.id, { next_at: 0 });

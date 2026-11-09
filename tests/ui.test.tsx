@@ -90,7 +90,7 @@ const RESEARCH_STREAM = [
   { type: 'done', mode: 'extractive', durationMs: 900 },
 ];
 
-let calls: { method: string; path: string; body?: unknown }[] = [];
+let calls: { method: string; path: string; search: string; body?: unknown }[] = [];
 let deepCrawling = false;
 
 function installApi() {
@@ -99,7 +99,7 @@ function installApi() {
     const url = new URL(input, 'http://localhost');
     const method = init.method || 'GET';
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path: url.pathname, body });
+    calls.push({ method, path: url.pathname, search: url.search, body });
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
     switch (`${method} ${url.pathname}`) {
       case 'GET /api/plugins':
@@ -128,8 +128,18 @@ function installApi() {
             { id: 1, url: 'https://tiny.example/feed.xml', kind: 'blog', site: 'tiny.example', origin: 'smallweb', title: 'Tiny Blog', nsfw: 0, posts: 12, status: 'ok', fetched_at: Date.now() },
             { id: 2, url: 'https://other.example/rss', kind: 'blog', site: 'other.example', origin: 'smallweb', title: null, nsfw: 0, posts: 0, status: null, fetched_at: null },
           ],
+          origins:
+            url.searchParams.get('kind') === 'forum'
+              ? [
+                  { origin: 'lemmy', sources: 9828 },
+                  { origin: 'discourse', sources: 947 },
+                  { origin: 'stackexchange', sources: 100 },
+                ]
+              : [],
           errors: [],
         });
+      case 'POST /api/deep/sources':
+        return json({ source: { kind: 'blog', url: body.url } });
       case 'POST /api/research':
         return new Response(RESEARCH_STREAM.map((e) => JSON.stringify(e)).join('\n'), { headers: { 'Content-Type': 'application/x-ndjson' } });
       default:
@@ -391,6 +401,37 @@ describe('atlas', () => {
     expect(calls.find((c) => c.path === '/api/deep/crawl')!.body).toEqual({ action: 'start' });
     await until(() => byText('button', 'Pause'));
     expect(unlabeledIconButtons()).toEqual([]);
+  });
+
+  it('filters a directory by where its sources came from', async () => {
+    await click($('button[aria-label="Atlas"]'));
+    await click(byText('[role="tab"]', 'Forums'));
+    await until(() => byText('.chips button', 'Lemmy'));
+    expect(byText('.chips button', 'Stack Exchange')!.textContent).toContain('100');
+    await click(byText('.chips button', 'Lemmy'));
+    await until(() => calls.some((c) => c.path === '/api/deep/sites' && c.search.includes('origin=lemmy')));
+    expect(byText('.chips button', 'Lemmy')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('offers an 18+ flag for added sources only in 18+ mode', async () => {
+    const addFrom = async () => {
+      await click($('button[aria-label="Atlas"]'));
+      await click(byText('[role="tab"]', 'Deep index'));
+      await until(() => $('#deep-add'));
+    };
+    await addFrom();
+    expect($('.check-row')).toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+    localStorage.setItem('glogg.uncensored', 'true');
+    await render();
+    await addFrom();
+    await click($('.check-row input'));
+    await type($<HTMLInputElement>('#deep-add')!, 'late.example/feed.xml');
+    await submit($<HTMLInputElement>('#deep-add')!);
+    await until(() => calls.some((c) => c.path === '/api/deep/sources'));
+    expect(calls.find((c) => c.path === '/api/deep/sources')!.body).toEqual({ url: 'late.example/feed.xml', nsfw: true });
   });
 });
 

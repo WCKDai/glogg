@@ -316,19 +316,23 @@ export async function createGloggServer() {
       res.json({ available: false, total: 0, items: [], counts: {}, errors: [(await deepStatus()).reason] });
       return;
     }
-    const { errors } = await ensureSeeded();
+    const { errors, loading } = await ensureSeeded();
     const q = (k: string) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : undefined);
     const order = q('order');
+    const kind = deepKind(q('kind'));
+    const nsfw = q('nsfw') === 'true';
     const page = store.listSources({
-      kind: deepKind(q('kind')),
+      kind,
+      origin: q('origin') || undefined,
       q: q('q'),
       offset: Math.max(0, Number(q('offset')) || 0),
       limit: Math.min(200, Math.max(1, Number(q('limit')) || 60)),
       order: order === 'random' || order === 'name' ? order : 'posts',
-      nsfw: q('nsfw') === 'true',
+      nsfw,
     });
     const counts = Object.fromEntries(store.stats().byKind.map((k) => [k.kind, k.sources]));
-    res.json({ available: true, ...page, counts, errors });
+    const origins = kind === 'all' ? [] : store.originCounts(kind, nsfw);
+    res.json({ available: true, ...page, counts, origins, errors, loading });
   });
 
   app.post('/api/deep/sources', async (req, res) => {
@@ -338,7 +342,7 @@ export async function createGloggServer() {
       return;
     }
     try {
-      res.json({ source: await addUserSource(url) });
+      res.json({ source: await addUserSource(url, fetch, { nsfw: req.body?.nsfw === true }) });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Could not add that source' });
     }

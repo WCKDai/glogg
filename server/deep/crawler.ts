@@ -1,6 +1,7 @@
 /**
  * Deep index — the crawler. Opt-in, resumable and polite:
- *  - one request at a time per host, at least HOST_GAP_MS apart (4chan's API rule is 1 s)
+ *  - one request at a time per host, at least HOST_GAP_MS apart (4chan's API rule is 1 s);
+ *    sites that share a backend (all of Stack Exchange) are paced as one host
  *  - conditional requests (ETag / Last-Modified), so unchanged feeds cost a 304
  *  - Retry-After honoured; failing sources back off exponentially, up to a week
  *  - responses capped in size and time; text only, nothing else is downloaded
@@ -22,6 +23,23 @@ export interface CrawlerOptions {
   hostGapMs?: number;
   timeoutMs?: number;
   maxBytes?: number;
+  /** Board catalogs are one big JSON document (leftypol's is over 1.5 MB), so they get more room. */
+  maxBoardBytes?: number;
+}
+
+/** Hosts that share one backend, paced as one: Stack Exchange throttles bursts across all its sites. */
+const SHARED_BACKENDS: { pattern: RegExp; slot: string; gapMs: number }[] = [
+  {
+    pattern: /(^|\.)(stackexchange\.com|stackoverflow\.com|superuser\.com|serverfault\.com|askubuntu\.com|mathoverflow\.net)$/,
+    slot: 'stackexchange',
+    gapMs: 2500,
+  },
+];
+
+/** The politeness slot a request counts against: its host, or its shared backend. */
+export function politenessSlot(url: string): string {
+  const host = hostOf(url);
+  return SHARED_BACKENDS.find((b) => b.pattern.test(host))?.slot ?? host;
 }
 
 export type VisitResult = 'ok' | 'unchanged' | 'moved' | 'error';
@@ -82,12 +100,16 @@ export class DeepCrawler {
   private readonly hostGapMs: number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
+  private readonly maxBoardBytes: number;
   private running = false;
   private inFlight = 0;
   private timer: NodeJS.Timeout | undefined;
   private readonly busyHosts = new Set<string>();
-  /** Earliest time each host may be contacted again. */
+  /** Earliest time each host (politeness slot) may be contacted again. */
   private readonly hostFreeAt = new Map<string, number>();
+  /** The same, by the sources' `site`, so the due query can skip sites that are waiting. */
+  private readonly busySites = new Set<string>();
+  private readonly siteFreeAt = new Map<string, number>();
   readonly counts = { visited: 0, unchanged: 0, failed: 0, posts: 0 };
   startedAt = 0;
   lastError = '';
@@ -100,6 +122,7 @@ export class DeepCrawler {
     this.hostGapMs = opts.hostGapMs ?? 1000;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
     this.maxBytes = opts.maxBytes ?? 1_500_000;
+    this.maxBoardBytes = opts.maxBoardBytes ?? 8_000_000;
   }
 
   get isRunning(): boolean {
@@ -129,9 +152,9 @@ export class DeepCrawler {
     if (!this.running) return;
     const now = this.now();
     if (this.inFlight < this.concurrency) {
-      for (const s of this.store.dueSources(now, 300)) {
+      for (const s of this.store.dueSources(now, 300, this.waitingSites(now))) {
         if (this.inFlight >= this.concurrency) break;
-        const host = hostOf(s.url);
+        const host = politenessSlot(s.url);
         if (this.busyHosts.has(host) || (this.hostFreeAt.get(host) ?? 0) > now) continue;
         this.store.updateSource(s.id, { next_at: now + LEASE_MS });
         void this.run(s, host);
@@ -142,15 +165,26 @@ export class DeepCrawler {
     this.timer = setTimeout(() => this.pump(), wait);
   }
 
+  /** Sites that are busy or still in their gap; expired entries are dropped as it goes. */
+  private waitingSites(now: number): string[] {
+    for (const [site, at] of this.siteFreeAt) if (at <= now) this.siteFreeAt.delete(site);
+    return [...new Set([...this.busySites, ...this.siteFreeAt.keys()])];
+  }
+
   private async run(s: SourceRow, host: string): Promise<void> {
     this.inFlight += 1;
     this.busyHosts.add(host);
+    this.busySites.add(s.site);
     try {
       await this.visit(s);
     } finally {
       this.inFlight -= 1;
       this.busyHosts.delete(host);
-      this.hostFreeAt.set(host, Math.max(this.hostFreeAt.get(host) ?? 0, this.now() + this.hostGapMs));
+      this.busySites.delete(s.site);
+      const gap = SHARED_BACKENDS.find((b) => b.slot === host)?.gapMs ?? this.hostGapMs;
+      const freeAt = Math.max(this.hostFreeAt.get(host) ?? 0, this.now() + Math.max(gap, this.hostGapMs));
+      this.hostFreeAt.set(host, freeAt);
+      this.siteFreeAt.set(s.site, freeAt);
       if (this.running) this.pump();
     }
   }
@@ -206,7 +240,7 @@ export class DeepCrawler {
     }
     if (res.status === 429 || res.status === 503) {
       const wait = Math.max(retryAfterMs(res.headers.get('retry-after'), now), 15 * MINUTE);
-      this.hostFreeAt.set(hostOf(s.url), now + wait);
+      this.hostFreeAt.set(politenessSlot(s.url), now + wait);
       this.store.updateSource(s.id, { status: 'rate-limited', error: `HTTP ${res.status}`, fetched_at: now, next_at: now + wait });
       return 'error';
     }
@@ -214,7 +248,7 @@ export class DeepCrawler {
 
     let text: string;
     try {
-      text = await readCapped(res, this.maxBytes);
+      text = await readCapped(res, s.kind === 'board' ? this.maxBoardBytes : this.maxBytes);
     } catch (e) {
       return this.fail(s, now, e instanceof Error ? e.message : String(e));
     }
@@ -246,7 +280,9 @@ export class DeepCrawler {
         return 'moved';
       }
       const kind = isDiscourse(text) ? 'forum' : 'blog';
-      this.store.addSources([{ url: feed, kind, site: s.site, origin: s.origin, title: s.title ?? undefined, intervalMin: INTERVAL_MIN[kind] }]);
+      this.store.addSources([
+        { url: feed, kind, site: s.site, origin: s.origin, title: s.title ?? undefined, nsfw: Boolean(s.nsfw), intervalMin: INTERVAL_MIN[kind] },
+      ]);
       this.store.updateSource(s.id, { status: 'feed-found', error: feed, fetched_at: now, fails: 0, next_at: this.schedule(s, now, INTERVAL_MIN.site) });
       return 'moved';
     } else {
