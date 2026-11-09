@@ -9,15 +9,14 @@ import {
   Magnet,
   MoreHorizontal,
   Pin,
-  Sparkles,
 } from 'lucide-react';
 import type {
   DownloadTargetId,
   InstantAnswerPayload,
   ScoredSearchResult,
 } from '../../core/browser.js';
+import { Favicon } from './Favicon.js';
 import {
-  faviconUrl,
   relativeDate,
   SOURCE_LABELS,
   urlCrumb,
@@ -33,28 +32,24 @@ export function AnswerCard({
   answer: InstantAnswerPayload;
   onRead: (url: string) => void;
 }) {
+  // Say what it is: a quote from the top pages is not a verified answer.
+  const quoted = answer.kind === 'knowledge-synthesis';
   const label =
     answer.kind === 'computation'
       ? 'Calculated'
       : answer.kind === 'technical-answer'
       ? 'Accepted answer'
-      : answer.kind === 'knowledge-synthesis'
-      ? 'Summary from sources'
+      : quoted
+      ? 'From the top results'
       : 'Answer';
 
   return (
-    <section className="answer" aria-label="Answer">
+    <section className={`answer ${quoted ? 'answer-quoted' : ''}`} aria-label="Answer">
       <div className="answer-eyebrow">
-        <Sparkles size={13} />
-        <span>{label}</span>
-        {answer.primarySourceDomain && (
-          <>
-            <span className="dot-sep" />
-            <span>{answer.primarySourceDomain}</span>
-          </>
-        )}
+        <span className="answer-kind">{label}</span>
+        {answer.primarySourceDomain && !quoted && <span>{answer.primarySourceDomain}</span>}
       </div>
-      <h2 className="answer-title">{answer.title}</h2>
+      {!quoted && <h2 className="answer-title">{answer.title}</h2>}
       {answer.subtitle && <p className="answer-sub">{answer.subtitle}</p>}
       <p className="answer-body">{answer.directAnswer}</p>
 
@@ -90,7 +85,8 @@ export function AnswerCard({
         <div className="answer-cites">
           {answer.citations.slice(0, 5).map((c) => (
             <a key={c.url} href={c.url} target="_blank" rel="noreferrer" title={c.title} className="cite">
-              <img src={faviconUrl(c.domain)} alt="" width={12} height={12} loading="lazy" />
+              <span className="cite-n">{c.index}</span>
+              <Favicon domain={c.domain} size={12} />
               <span>{c.domain}</span>
             </a>
           ))}
@@ -215,7 +211,7 @@ export function ResultItem({
       style={{ '--i': index } as React.CSSProperties}
     >
       <div className="result-meta">
-        <img className="favicon" src={faviconUrl(item.domain)} alt="" width={16} height={16} loading="lazy" />
+        <Favicon domain={item.domain} />
         <span className="result-domain">{item.domain}</span>
         {crumb && <span className="result-crumb">{crumb}</span>}
         {item.isNsfw && <span className="tag tag-danger">18+</span>}

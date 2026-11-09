@@ -8,6 +8,7 @@ import {
   History,
   Magnet,
   Moon,
+  Search,
   Server,
   Settings,
   Sparkles,
@@ -36,6 +37,7 @@ import { AnswerCard, ReleaseList, ResultItem } from './components/Results.js';
 import { ReaderSheet } from './components/ReaderSheet.js';
 import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
 import { AdvancedRail } from './components/AdvancedRail.js';
+import { Favicon } from './components/Favicon.js';
 import { StatusBar } from './components/StatusBar.js';
 import { ResearchPanel } from './components/ResearchPanel.js';
 import { ToolCard } from './components/ToolKit.js';
@@ -49,7 +51,6 @@ import type { ToolsTarget } from './views/ToolsView.js';
 import {
   api,
   DownloadTargetsContext,
-  faviconUrl,
   indexTools,
   inputsFromTrigger,
   isTypingTarget,
@@ -857,7 +858,7 @@ export function App() {
           <div className="chips">
             {data.compiledQuery.escapeUrls.slice(0, 12).map((e) => (
               <a key={e.id} className="chip" href={e.url} target="_blank" rel="noreferrer" title={e.description}>
-                <img src={faviconUrl(hostOf(e.url))} alt="" width={12} height={12} loading="lazy" />
+                <Favicon domain={hostOf(e.url)} size={12} />
                 {e.name}
                 <ArrowUpRight size={11} />
               </a>
@@ -871,82 +872,50 @@ export function App() {
   return (
     <DownloadTargetsContext.Provider value={targets}>
       <div className="shell">
-        <header className={`topbar ${scrolled ? 'scrolled' : ''} ${isHome ? '' : 'has-search'}`}>
-          <button type="button" className="logo" onClick={goHome} aria-label="glogg home">
-            <img className="logo-mark" src="/logo.png" alt="" width={26} height={26} />
-            <span className="logo-text">glogg</span>
+        <nav className="appnav" aria-label="Sections">
+          <button type="button" className="appnav-logo" onClick={goHome} aria-label="glogg home" title="glogg">
+            <img src="/logo.png" alt="" width={28} height={28} />
           </button>
+          <NavButton label="Search" aria="Search home" icon={<Search size={18} />} active={view === 'search'} onClick={goHome} />
+          <NavButton label="Tools" icon={<Wrench size={18} />} active={view === 'tools'} onClick={() => openTools()} />
+          <NavButton label="Atlas" icon={<Compass size={18} />} active={view === 'atlas'} onClick={() => setView('atlas')} />
+          <NavButton
+            label="Downloads"
+            icon={<Download size={18} />}
+            active={view === 'downloads'}
+            onClick={() => setView('downloads')}
+            badge={activeDownloads}
+          />
+          <NavButton label="Services" icon={<Server size={18} />} active={view === 'services'} onClick={() => setView('services')} />
+          <div className="appnav-fill" />
+          {uncensored && (
+            <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">
+              18+
+            </button>
+          )}
+          <NavButton label="Settings" icon={<Settings size={18} />} active={view === 'settings'} onClick={() => openSettings()} />
+        </nav>
 
-          <div className="topbar-center">{!isHome && <SearchBox ref={searchRef} {...searchBoxProps} busy={loading || Boolean(toolRun?.loading)} />}</div>
-
-          <nav className="topbar-right" aria-label="Tools">
-            <button type="button" className="icon-btn ghost hide-sm" onClick={() => setPaletteOpen(true)} title="Command palette (⌘K)" aria-label="Command palette">
-              <Command size={16} />
+        <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
+          <div className="topbar-search">{!isHome && <SearchBox ref={searchRef} {...searchBoxProps} busy={loading || Boolean(toolRun?.loading)} />}</div>
+          <div className="topbar-tools">
+            <button type="button" className="kbd-btn" onClick={() => setPaletteOpen(true)} aria-label="Command palette" title="Command palette">
+              <Command size={12} />K
             </button>
-            <button type="button" className={`icon-btn ghost ${view === 'tools' ? 'active' : ''}`} onClick={() => openTools()} title="Tools" aria-label="Tools">
-              <Wrench size={16} />
-            </button>
-            <span className="badge-wrap">
-              <button
-                type="button"
-                className={`icon-btn ghost ${view === 'downloads' ? 'active' : ''}`}
-                onClick={() => setView('downloads')}
-                title="Downloads"
-                aria-label="Downloads"
-              >
-                <Download size={16} />
-              </button>
-              {activeDownloads > 0 && <span className="badge">{activeDownloads}</span>}
-            </span>
-            <button type="button" className={`icon-btn ghost hide-sm hide-md ${view === 'atlas' ? 'active' : ''}`} onClick={() => setView('atlas')} title="Atlas" aria-label="Atlas">
-              <Compass size={16} />
-            </button>
-            <button type="button" className={`icon-btn ghost hide-sm hide-md ${view === 'services' ? 'active' : ''}`} onClick={() => setView('services')} title="Services" aria-label="Services">
-              <Server size={16} />
-            </button>
-            <button type="button" className={`icon-btn ghost ${view === 'settings' ? 'active' : ''}`} onClick={() => openSettings()} title="Settings" aria-label="Settings">
-              <Settings size={16} />
-            </button>
-            {uncensored && (
-              <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">
-                18+
-              </button>
-            )}
             <button type="button" className="icon-btn ghost" onClick={toggleTheme} title={isDark ? 'Light theme' : 'Dark theme'} aria-label="Toggle theme">
               {isDark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-          </nav>
+          </div>
         </header>
 
         <main className="main">
           {isHome && (
             <section className="home">
-              <div className="home-brand">
-                <img className="home-mark" src="/logo.png" alt="" width={46} height={46} />
-                <h1 className="home-logo">
-                  glogg<span>.</span>
+              <div className="home-head">
+                <h1 className="home-tagline">
+                  <span className="home-name">glogg</span>
+                  {advanced ? 'Ask anything. Cited answers from the real web.' : 'The whole web, minus the junk.'}
                 </h1>
-              </div>
-              <p className="home-tagline">{advanced ? 'Ask anything. Cited answers from the real web.' : 'The whole web, minus the junk.'}</p>
-              <div className="home-search">
-                <SearchBox ref={searchRef} {...searchBoxProps} size="hero" autoFocus />
-              </div>
-              <div className="home-controls">
-                <div className="home-scopes" role="radiogroup" aria-label="Scope">
-                  {SCOPES.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={scope === s.id}
-                      className={`chip ${scope === s.id ? 'active' : ''}`}
-                      onClick={() => setScope(s.id)}
-                      title={s.hint}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
                 <div className="segmented home-mode" role="radiogroup" aria-label="View">
                   {(['simple', 'advanced'] as const).map((m) => (
                     <button
@@ -962,6 +931,24 @@ export function App() {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="home-search">
+                <SearchBox ref={searchRef} {...searchBoxProps} size="hero" autoFocus />
+              </div>
+              <div className="scopes home-scopes" role="radiogroup" aria-label="Scope">
+                {SCOPES.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={scope === s.id}
+                    className={`scope ${scope === s.id ? 'active' : ''}`}
+                    onClick={() => setScope(s.id)}
+                    title={s.hint}
+                  >
+                    {s.label}
+                  </button>
+                ))}
               </div>
               <div className="home-panels">
                 <section className="home-panel" aria-label="Recent searches">
@@ -1018,12 +1005,6 @@ export function App() {
                 <span>
                   <kbd>m</kbd> {advanced ? 'simple' : 'advanced'} view
                 </span>
-                <button type="button" className="link-btn" onClick={() => setView('atlas')}>
-                  Atlas
-                </button>
-                <button type="button" className="link-btn" onClick={() => setView('services')}>
-                  Services
-                </button>
               </div>
             </section>
           )}
@@ -1191,5 +1172,38 @@ function ResultsSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** A section in the left nav: icon and label, so nothing has to be guessed from a glyph. */
+function NavButton({
+  label,
+  aria,
+  icon,
+  active,
+  onClick,
+  badge = 0,
+}: {
+  label: string;
+  /** Accessible name when it should say more than the label. */
+  aria?: string;
+  icon: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
+}) {
+  return (
+    <button
+      type="button"
+      className={`appnav-btn ${active ? 'active' : ''}`}
+      onClick={onClick}
+      aria-label={aria ?? label}
+      aria-current={active ? 'page' : undefined}
+      title={label}
+    >
+      {icon}
+      <span className="appnav-label">{label}</span>
+      {badge > 0 && <span className="badge">{badge}</span>}
+    </button>
   );
 }

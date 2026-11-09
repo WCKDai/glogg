@@ -226,6 +226,14 @@ describe('home', () => {
     expect($$('[role="radiogroup"][aria-label="View"] [role="radio"]').map((b) => b.textContent)).toEqual(['Simple', 'Advanced']);
     expect(unlabeledIconButtons()).toEqual([]);
   });
+
+  it('names every section in the nav, with words, and marks where you are', async () => {
+    expect($$('.appnav-btn').map((b) => b.textContent?.trim())).toEqual(['Search', 'Tools', 'Atlas', 'Downloads', 'Services', 'Settings']);
+    expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Search');
+    await click($('button[aria-label="Atlas"]'));
+    expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Atlas');
+    expect($$('.appnav-btn[aria-current="page"]')).toHaveLength(1);
+  });
 });
 
 describe('tools from the search box', () => {

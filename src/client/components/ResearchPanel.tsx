@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowUp, Check, Copy, RotateCcw, Sparkles } from 'lucide-react';
-import { copyText, faviconUrl } from '../lib.js';
+import { copyText } from '../lib.js';
+import { Favicon } from './Favicon.js';
 import type { ResearchState } from '../lib.js';
 import { Markdown } from './Markdown.js';
 
@@ -67,7 +68,7 @@ function Turn({
                 className={s.read ? '' : 'unread'}
               >
                 <span className="n">{s.index}</span>
-                <img src={faviconUrl(s.domain)} alt="" width={12} height={12} loading="lazy" />
+                <Favicon domain={s.domain} size={12} />
                 <span className="truncate">{s.domain}</span>
               </a>
             </li>

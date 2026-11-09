@@ -26,6 +26,20 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - **Requires Node 22.13+** (was 20): the deep index uses Node's built-in SQLite. Node 20 reached end of life in April 2026; CI already runs 22.
 - **Outgoing connections are IPv4-first with the normal connect timeout.** Node's default gives each address a few hundred milliseconds and failed many parallel requests on networks without IPv6 (measured: 6–31 of 40); with this, 0–3. `GLOGG_HAPPY_EYEBALLS=1` restores Node's default.
 - **New look ("Stein")**: colours sampled from the icon, tighter and denser layout, quicker motion, honours reduced motion.
+- **The look, reworked as a tool rather than a landing page.**
+  - Sections (Search, Tools, Atlas, Downloads, Services, Settings) sit in a labelled bar on the left, a tab bar on phones, in place of a row of unlabelled icons.
+  - The search box sits in the same column on every page, and the home screen starts with it, not with a big logo.
+  - Results are rows separated by hairlines rather than floating cards; only menus, the palette and toasts cast shadows.
+  - All ten scopes fit on one line, and source filters scroll instead of wrapping.
+  - Atlas's hand-picked sites are a dense list with short names.
+  - A site with no icon (yet) shows its initial instead of a blank square.
+- **System fonts.** The page no longer loads Inter and JetBrains Mono from Google Fonts, so opening glogg contacts no third party for fonts and paints sooner.
+- **Plainer, truer copy.**
+  - The answer card no longer claims "Verified Sources" or a "Synthesized Answer". Quotes from the top pages are labelled *From the top results*, with a grey bar instead of the blue one real answers get.
+  - Hacker News, Lemmy and SearXNG results no longer show "Surfaced via…", "Shared on Fediverse…" or "[SearXNG via …]" boilerplate as their text, and that boilerplate no longer leaks into answers.
+  - Lemmy posts in the deep index drop the "submitted by … N points | N comments" header Lemmy puts on every item.
+  - "Search elsewhere" links use plain names ("Google", not "Google udm=14 (De-Slopped)").
+  - Breadcrumbs skip bare ids and hashes.
 - **Faster searches**: results return shortly after the main sources answer instead of waiting for the slowest; instant answers are looked up in parallel with the sources; per-source results are cached for 10 minutes (repeat searches and filter changes take milliseconds); sources that keep hanging rest for five minutes; slow sources are picked up shortly after the first results without reordering them. Typical warm search went from 3–5 s to about 0.5 s.
 - **Better ranking**: synonyms for how-to queries (undo ⇄ reset/revert …), modifier words like "best" or "last" count less, official documentation and accepted Q&A answers rank higher for how-to questions, and filler phrases are caught with typographic apostrophes too.
 - Marginalia moved to `api2.marginalia-search.com`; a personal key can be set in Settings → Integrations or `MARGINALIA_API_KEY`.

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dices, ExternalLink, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
+import { BookOpen, Dices, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
 import { CURATED_INDIE_INDEX, IndieSiteEntry } from '../../core/browser.js';
-import { api, faviconUrl, relativeDate } from '../lib.js';
+import { Favicon } from '../components/Favicon.js';
+import { api, relativeDate } from '../lib.js';
 
 const CATEGORIES: { id: IndieSiteEntry['category'] | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -86,6 +87,11 @@ const ORIGIN_LABEL: Record<string, string> = {
   forums: 'Classic forums',
   user: 'Yours',
 };
+
+/** "Matrix.org — Open standard for …" → "Matrix.org"; "Stoat (stoat.chat)" → "Stoat". The full title stays in the tooltip. */
+function shortTitle(title: string): string {
+  return title.split(' — ')[0].replace(/\s*\([^)]*\)\s*$/, '').trim() || title;
+}
 
 /** A feed's own title, without the boilerplate some engines add ("Recent Questions - …", "… - Latest topics"). */
 function dirTitle(item: DirItem): string | null {
@@ -243,28 +249,27 @@ function HandPicked({ onRead, uncensored }: { onRead: (url: string) => void; unc
         ))}
       </div>
 
-      <div className="atlas">
+      <ul className="dir-list">
         {items.map((s) => (
-          <article key={s.domain} className="site">
-            <div className="site-head">
-              <img src={faviconUrl(s.domain)} alt="" width={16} height={16} loading="lazy" />
-              <span className="site-domain">{s.domain}</span>
-              {s.era === 'pre-llm' && <span className="tag">pre-LLM</span>}
-            </div>
-            <h3 className="site-title">{s.title}</h3>
-            <p className="site-desc">{s.description}</p>
-            <div className="site-foot">
-              <button type="button" className="link-btn" onClick={() => onRead(s.url)}>
-                Read
-              </button>
-              <a className="link-btn" href={s.url} target="_blank" rel="noreferrer">
-                Visit <ExternalLink size={11} />
+          <li key={s.domain} className="dir-row">
+            <Favicon domain={s.domain} size={14} />
+            <div className="dir-main">
+              <a className="dir-title truncate" href={s.url} target="_blank" rel="noreferrer noopener" title={s.title}>
+                {shortTitle(s.title)}
               </a>
+              <span className="dir-sub truncate" title={s.description}>
+                {s.domain} · {s.description}
+              </span>
             </div>
-          </article>
+            {s.era === 'pre-llm' && <span className="tag">pre-LLM</span>}
+            {s.is18Plus && <span className="tag tag-danger">18+</span>}
+            <button type="button" className="icon-btn ghost" title="Read clean" aria-label={`Read ${s.domain}`} onClick={() => onRead(s.url)}>
+              <BookOpen size={13} />
+            </button>
+          </li>
         ))}
-        {items.length === 0 && <p className="empty">No sites match.</p>}
-      </div>
+      </ul>
+      {items.length === 0 && <p className="empty">No sites match.</p>}
     </>
   );
 }
@@ -373,7 +378,7 @@ function Directory({
       <ul className="dir-list" aria-busy={loading}>
         {items.map((it) => (
           <li key={it.id} className="dir-row">
-            <img className="favicon" src={faviconUrl(it.site)} alt="" width={14} height={14} loading="lazy" />
+            <Favicon domain={it.site} size={14} />
             <div className="dir-main">
               <a className="dir-title truncate" href={siteUrl(it)} target="_blank" rel="noreferrer noopener">
                 {dirTitle(it) || it.site}
@@ -390,7 +395,7 @@ function Directory({
               {it.fetched_at ? ` · ${relativeDate(new Date(it.fetched_at).toISOString())}` : ''}
             </span>
             <button type="button" className="icon-btn ghost" title="Read clean" aria-label={`Read ${it.site}`} onClick={() => onRead(siteUrl(it))}>
-              <ExternalLink size={13} />
+              <BookOpen size={13} />
             </button>
           </li>
         ))}

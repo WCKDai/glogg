@@ -273,7 +273,12 @@ export function urlCrumb(url: string): string {
     const u = new URL(url);
     const p = decodeURIComponent(u.pathname).replace(/\/+$/, '');
     if (!p || p === '/') return '';
-    const parts = p.split('/').filter(Boolean);
+    // Bare ids, hashes and one-letter route parts ("a", "t") say nothing; years do.
+    const parts = p
+      .split('/')
+      .filter(Boolean)
+      .filter((seg) => !/^\d+$/.test(seg) || /^(19|20)\d\d$/.test(seg))
+      .filter((seg) => seg.length > 1 && !/^[0-9a-f]{12,}$/i.test(seg));
     const crumb = parts.slice(0, 3).join(' › ');
     return crumb.length > 56 ? `${crumb.slice(0, 56)}…` : crumb;
   } catch {

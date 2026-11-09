@@ -84,7 +84,7 @@ Queries 20 independent, decentralized, and primary-source connectors in parallel
 - **Strict Domain Diversity Cap (`1 / site` default)**: Prevents any single domain from dominating the page and deduplicates syndicated/scraped titles.
 
 ### 2. 18+ Uncensored & Unfiltered Mode (`uncensoredMode`)
-No algorithmic babying or artificial guardrails. Turning on **18+ mode** in Settings (it asks you to confirm, so a stray click can't do it; an **18+** pill in the header turns it off again) or `--uncensored` in the CLI:
+No algorithmic babying or artificial guardrails. Turning on **18+ mode** in Settings (it asks you to confirm, so a stray click can't do it; an **18+** pill in the section bar turns it off again) or `--uncensored` in the CLI:
 - Unlocks unfiltered **18+ / XXX BitTorrent DHT (`5xx`)** swarms and **Usenet (`alt.binaries.*erotica*`)** releases.
 - Configures self-hosted **Bitmagnet** with `delete_xxx: false` ([`infra/bitmagnet/config.yml`](./infra/bitmagnet/config.yml)).
 - Forces **DuckDuckGo `kp=-2`** and **SearXNG `safesearch=0`**.
@@ -180,7 +180,7 @@ glogg has two views. **Simple** is one search box and one column of answers and 
 | Narrow the search | Scopes: All, Wild West (imageboards, chan archives, old forums), Forums, Small Web, Docs & Papers, Fediverse, Archives, News, Torrents, Usenet |
 | Move through results | <kbd>/</kbd> focus search · <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>↵</kbd> open · <kbd>r</kbd> clean reader · <kbd>d</kbd> send to downloads · <kbd>m</kbd> switch view |
 | See what was searched | The status bar shows how many sources answered and how fast. Click it for a per-source breakdown (answered, empty, late, resting). |
-| Turn off filters | Settings → 18+ mode turns on unfiltered results (SafeSearch off) after a confirmation; the **18+** pill in the header turns it off. Sponsored results are never promoted; they are listed under "hidden" at the bottom. |
+| Turn off filters | Settings → 18+ mode turns on unfiltered results (SafeSearch off) after a confirmation; the **18+** pill in the section bar turns it off. Sponsored results are never promoted; they are listed under "hidden" at the bottom. |
 | Not it? | Every results page ends with links that run the same query on other engines |
 
 ### Downloads & integrations

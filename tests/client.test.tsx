@@ -12,10 +12,13 @@ import {
   streamEvents,
   suggestTools,
   targetLabel,
+  urlCrumb,
 } from '../src/client/lib.js';
 import type { ResearchState } from '../src/client/lib.js';
 import { Markdown } from '../src/client/components/Markdown.js';
 import { ToolOutput } from '../src/client/components/ToolKit.js';
+import { AnswerCard } from '../src/client/components/Results.js';
+import { Favicon } from '../src/client/components/Favicon.js';
 
 const plugin = (p: Partial<PluginInfo> & { id: string }): PluginInfo => ({
   name: p.id,
@@ -247,5 +250,52 @@ describe('tool output', () => {
     );
     expect(out).toContain('Nothing found.');
     expect(out).toContain('Nothing to show.');
+  });
+});
+
+describe('honest copy', () => {
+  const answer = (kind: string) =>
+    ({
+      kind,
+      title: 'Page title',
+      directAnswer: 'Lead text from the page.',
+      confidence: 'synthesized',
+      citations: [{ index: 1, title: 'A page', url: 'https://a.example/x', domain: 'a.example', source: 'web' }],
+      primarySourceUrl: 'https://a.example/x',
+      primarySourceDomain: 'a.example',
+    }) as never;
+
+  it('labels quotes from the top results as quotes, without a headline or claims of verification', () => {
+    const html = renderToStaticMarkup(<AnswerCard answer={answer('knowledge-synthesis')} onRead={() => undefined} />);
+    expect(html).toContain('From the top results');
+    expect(html).not.toContain('<h2');
+    expect(html).not.toMatch(/verified|synthesi[sz]ed/i);
+  });
+
+  it('gives a real answer its title and source', () => {
+    const html = renderToStaticMarkup(<AnswerCard answer={answer('technical-answer')} onRead={() => undefined} />);
+    expect(html).toContain('Accepted answer');
+    expect(html).toContain('<h2 class="answer-title">Page title</h2>');
+    expect(html).toContain('a.example');
+  });
+});
+
+describe('favicons', () => {
+  it("shows the site's initial under its icon, tinted the same way every time", () => {
+    const a = renderToStaticMarkup(<Favicon domain="www.example.org" />);
+    expect(a).toContain('<span class="favicon-letter">E</span>');
+    expect(renderToStaticMarkup(<Favicon domain="www.example.org" />)).toBe(a);
+    expect(renderToStaticMarkup(<Favicon domain="other.example" />)).not.toBe(a);
+  });
+});
+
+describe('breadcrumbs', () => {
+  it.each([
+    ['https://stackoverflow.com/questions/927358/how-to-undo', 'questions › how-to-undo'],
+    ['https://simonwillison.net/2024/Mar/26/llm-cmd/', '2024 › Mar › llm-cmd'],
+    ['https://forum.example/a/4965655', ''],
+    ['https://example.com/', ''],
+  ])('%s → "%s"', (url, crumb) => {
+    expect(urlCrumb(url)).toBe(crumb);
   });
 });

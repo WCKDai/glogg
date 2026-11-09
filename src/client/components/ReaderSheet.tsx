@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Download, ExternalLink, X } from 'lucide-react';
 import type { DownloadTargetId, PageAutopsyReport } from '../../core/browser.js';
-import { api, faviconUrl } from '../lib.js';
+import { api } from '../lib.js';
+import { Favicon } from './Favicon.js';
 import { SendMenu } from './Results.js';
 
 export function ReaderSheet({
@@ -52,7 +53,7 @@ export function ReaderSheet({
       <div className="scrim" onClick={onClose} />
       <aside className="sheet" role="dialog" aria-label="Reader">
         <header className="sheet-bar">
-          <img src={faviconUrl(domain)} alt="" width={16} height={16} />
+          <Favicon domain={domain} />
           <span className="sheet-domain">{domain}</span>
           <div className="sheet-bar-actions">
             <SendMenu url={url} onSend={(t) => onSend(url, report?.title || domain, t)} label="Save" />
