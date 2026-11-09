@@ -30,6 +30,7 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - The local API now refuses requests from other websites and DNS-rebinding hosts, except a few public read-only routes (search, OpenSearch, suggestions, Atlas, health, IPFS lookup). Previously any site could call every route, including ones that use stored keys or start containers. Use `GLOGG_ALLOWED_HOSTS` / `GLOGG_ALLOWED_ORIGINS` for custom domains.
 
 ### Fixed
+- A search could overrun its deadlines, or never finish when a core source hung: Node can fire a timer a millisecond before `Date.now()` shows its full delay, and the deadline check then missed. Each deadline now counts as reached when its own timer fires.
 - Plugins failed to load under Vite-based runtimes because of a fractional cache-busting query; plugin load errors no longer show as "[object Object]".
 - TorBox torrent uploads typecheck again.
 

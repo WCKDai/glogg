@@ -940,6 +940,9 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
     let coreDoneAt = coreTotal === 0 ? start : 0;
     let finished = false;
     const timers: NodeJS.Timeout[] = [];
+    // Node can run a timer a millisecond before Date.now() shows its full delay. Each deadline therefore
+    // counts as reached when its own timer fires; otherwise a missed hard deadline would wait forever.
+    const reached = new Set<'soft' | 'hard' | 'minWait' | 'grace'>();
 
     const finish = () => {
       if (finished) return;
@@ -954,19 +957,24 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
       const now = Date.now();
       const elapsed = now - start;
       const coreDone = coreSettled === coreTotal;
-      if (
-        settled === tasks.length ||
-        elapsed >= hardMs ||
-        (elapsed >= softMs && (coreCount >= minCore || coreDone)) ||
-        (coreDone && coreCount >= minCore && now - coreDoneAt >= graceMs && elapsed >= minWaitMs)
-      ) {
+      const soft = reached.has('soft') || elapsed >= softMs;
+      const hard = reached.has('hard') || elapsed >= hardMs;
+      const minWait = reached.has('minWait') || elapsed >= minWaitMs;
+      const grace = reached.has('grace') || (coreDoneAt > 0 && now - coreDoneAt >= graceMs);
+      if (settled === tasks.length || hard || (soft && (coreCount >= minCore || coreDone)) || (coreDone && coreCount >= minCore && grace && minWait)) {
         finish();
       }
     };
-    const at = (ms: number) => timers.push(setTimeout(check, Math.max(0, ms)));
-    at(softMs);
-    at(hardMs);
-    at(minWaitMs);
+    const at = (ms: number, deadline: 'soft' | 'hard' | 'minWait' | 'grace') =>
+      timers.push(
+        setTimeout(() => {
+          reached.add(deadline);
+          check();
+        }, Math.max(0, ms))
+      );
+    at(softMs, 'soft');
+    at(hardMs, 'hard');
+    at(minWaitMs, 'minWait');
 
     for (const t of tasks) {
       let p: Promise<RawSearchResult[]>;
@@ -990,7 +998,7 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
           coreSettled += 1;
           if (coreSettled === coreTotal) {
             coreDoneAt = Date.now();
-            at(graceMs);
+            at(graceMs, 'grace');
           }
         }
         check();

@@ -91,6 +91,35 @@ describe('gathering sources', () => {
     expect(ms).toBeLessThan(500);
   });
 
+  it.each([
+    // [label, results from the answering core source, sources that never answer, options, when it must end]
+    ['the hard deadline, with a core source that never answers', 1, [{ key: 'hung', core: true }], { softMs: 50, hardMs: 250 }, 250],
+    ['the soft deadline, once core sources have enough', 8, [{ key: 'slow', core: false }], { softMs: 60, hardMs: 1500, minCore: 6 }, 60],
+  ] as const)('ends at %s when its timer fires, even if the clock reads a hair earlier', async (_label, coreResults, extra, opts, endsAt) => {
+    // Node can run a timer a millisecond before Date.now() shows its full delay. Faking the timers but
+    // not the clock makes that gap total (the clock barely moves), so only the timers can end the wait.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let done = false;
+      const run = fs
+        .gatherSources(
+          [
+            { key: 'core', core: true, run: after(5, results(coreResults)) },
+            ...extra.map((t) => ({ ...t, run: () => new Promise<RawSearchResult[]>(() => undefined) })),
+          ],
+          opts
+        )
+        .then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(endsAt - 1);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records how each source did, and reports late ones when they finally settle', async () => {
     const timings: Record<string, import('../server/federatedSearch.js').SourceTiming> = {};
     const settled: string[] = [];
