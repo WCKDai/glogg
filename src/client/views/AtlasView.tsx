@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Dices, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
 import { CURATED_INDIE_INDEX, IndieSiteEntry } from '../../core/browser.js';
 import { Favicon } from '../components/Favicon.js';
-import { api, relativeDate } from '../lib.js';
+import { api, plural, relativeDate } from '../lib.js';
 
 const CATEGORIES: { id: IndieSiteEntry['category'] | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -121,7 +121,15 @@ export function AtlasView({
   uncensored: boolean;
   onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
 }) {
-  const [tab, setTab] = useState<Tab>('picked');
+  // The tab is part of the address (/atlas?tab=boards), so it can be linked and survives a refresh.
+  const [tab, setTabState] = useState<Tab>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return TABS.some((x) => x.id === t) ? (t as Tab) : 'picked';
+  });
+  const setTab = useCallback((t: Tab) => {
+    setTabState(t);
+    window.history.replaceState(window.history.state, '', t === 'picked' ? window.location.pathname : `${window.location.pathname}?tab=${t}`);
+  }, []);
   const [status, setStatus] = useState<DeepStatus | null>(null);
   const [counts, setCounts] = useState<DirPage['counts']>({});
 
@@ -166,7 +174,7 @@ export function AtlasView({
                 · {fmt(counts.blog)} blogs · {fmt(counts.site)} small sites · {fmt(counts.board)} boards · {fmt(counts.forum)} forums
               </>
             )}
-            {status?.posts ? <> · {fmt(status.posts)} posts in your deep index</> : null}
+            {status?.posts ? <> · {plural(status.posts, 'post')} in your deep index</> : null}
           </p>
         </div>
         <button
@@ -391,7 +399,7 @@ function Directory({
             </div>
             {it.nsfw ? <span className="tag tag-danger">18+</span> : null}
             <span className="dir-meta">
-              {it.posts > 0 ? `${fmt(it.posts)} posts` : it.status === 'no-feed' ? 'no feed' : it.status === 'error' ? 'failing' : it.fetched_at ? '' : 'not crawled'}
+              {it.posts > 0 ? plural(it.posts, 'post') : it.status === 'no-feed' ? 'no feed' : it.status === 'error' ? 'failing' : it.fetched_at ? '' : 'not crawled'}
               {it.fetched_at ? ` · ${relativeDate(new Date(it.fetched_at).toISOString())}` : ''}
             </span>
             <button type="button" className="icon-btn ghost" title="Read clean" aria-label={`Read ${it.site}`} onClick={() => onRead(siteUrl(it))}>

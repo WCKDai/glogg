@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Command } from 'lucide-react';
 import type { RankedSearchResponse } from '../../core/browser.js';
-import { useClickOutside } from '../lib.js';
+import { plural, useClickOutside } from '../lib.js';
 import type { Mode, ResearchState } from '../lib.js';
 
 /** Names for the server's source tasks (metrics.sourceTimings keys). */
@@ -105,7 +105,7 @@ export function StatusBar({
       ) : (
         <span className="sb-item">
           <span className="sb-dot ok" aria-hidden />
-          Ready · {toolCount} tools
+          Ready · {plural(toolCount, 'tool')}
         </span>
       )}
 

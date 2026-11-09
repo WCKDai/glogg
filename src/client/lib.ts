@@ -294,16 +294,25 @@ export function urlCrumb(url: string): string {
   }
 }
 
-export function relativeDate(iso?: string): string {
+/** "today", "yesterday", "3 days ago", then the date: "Mar 12", or "Mar 2019" for other years. */
+export function relativeDate(iso?: string, now = Date.now()): string {
   if (!iso) return '';
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return '';
-  const days = Math.floor((Date.now() - t) / 86_400_000);
+  const days = Math.floor((now - t) / 86_400_000);
   if (days < 1) return 'today';
   if (days < 2) return 'yesterday';
-  if (days < 30) return `${days}d ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return new Date(t).getFullYear().toString();
+  if (days < 7) return `${days} days ago`;
+  const date = new Date(t);
+  const thisYear = date.getFullYear() === new Date(now).getFullYear();
+  return date.toLocaleDateString(undefined, thisYear ? { month: 'short', day: 'numeric' } : { month: 'short', year: 'numeric' });
+}
+
+const pluralRules = new Intl.PluralRules('en');
+
+/** "1 post", "1,204 posts": a count with its noun in the right number. */
+export function plural(n: number, one: string, other = `${one}s`): string {
+  return `${n.toLocaleString()} ${pluralRules.select(n) === 'one' ? one : other}`;
 }
 
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {

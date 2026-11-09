@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { diversifyAndRankResults, evaluateInstantComputation, resolveBang } from '../src/core/index.js';
-import type { RawSearchResult } from '../src/core/index.js';
+import type { RawSearchResult, ScoredSearchResult } from '../src/core/index.js';
 
 const r = (title: string, url: string, snippet: string, extra: Partial<RawSearchResult> = {}): RawSearchResult => ({
   title,
@@ -126,6 +126,64 @@ describe('overlay layering', () => {
   it('keeps toasts above every overlay, and the status bar below them', () => {
     expect(z(rule('.toasts'))).toBeGreaterThan(z(rule('.palette')));
     expect(z(rule('.statusbar'))).toBeLessThan(z(rule('.scrim')));
+  });
+});
+
+describe('answers quote prose, not plumbing', () => {
+  it('skips vote counts, Q&A metadata and blocks of code when quoting the top results', async () => {
+    const { buildInstantAnswer } = await import('../server/answerEngine.js');
+    const hit = (n: number, snippet: string): ScoredSearchResult =>
+      ({ id: `r${n}`, title: `Result ${n}`, url: `https://site${n}.example/page`, domain: `site${n}.example`, rootDomain: `site${n}.example`, snippet, source: 'web', slopScore: 5, relevanceScore: 80 }) as unknown as ScoredSearchResult;
+    const answer = await buildInstantAnswer(
+      'sourdough starter feeding schedule',
+      [
+        hit(1, '219 points · 83 comments on Hacker News · sourdough starter feeding'),
+        hit(2, '2 answers · score 9 · sourdough, starter, feeding, schedule, baking'),
+        hit(3, '("r: {}", r); // | | // | | // -+ | } // ------------------+ |'),
+        hit(4, 'Feed a sourdough starter twice a day at room temperature, discarding half before each feeding.'),
+        hit(5, 'A cold starter in the fridge needs feeding only once a week, then a day at room temperature before baking.'),
+      ],
+      Promise.resolve([null, null, null] as never)
+    );
+    expect(answer?.kind).toBe('knowledge-synthesis');
+    const quoted = [answer!.directAnswer, ...(answer!.takeaways ?? []).map((t) => t.text)].join(' | ');
+    expect(quoted).toContain('Feed a sourdough starter twice a day');
+    expect(quoted).not.toMatch(/points|answers ·|\/\/ \|/);
+  });
+});
+
+describe('interface details', () => {
+  const css = fs.readFileSync(path.resolve(import.meta.dirname, '../src/client/styles.css'), 'utf8');
+  const block = (selector: string) => css.match(new RegExp(`(^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[2] ?? '';
+
+  it("doesn't animate what you do hundreds of times a day: the palette, switching views", () => {
+    expect(block('.palette')).not.toMatch(/(^|;)\s*animation\s*:/m);
+    expect(block('.scrim-soft')).toMatch(/animation: none/);
+    expect(css).not.toMatch(/\.main > \* \{[^}]*animation/);
+  });
+
+  it('shows hover-only actions on touch screens, and keeps phone inputs at 16px', () => {
+    expect(css).toMatch(/@media \(hover: none\) \{\s*\.result-actions \{\s*opacity: 1;/);
+    expect(css).toMatch(/@media \(max-width: 720px\), \(pointer: coarse\) \{[^@]*font-size: 16px/);
+  });
+
+  it('keeps small grey text readable (WCAG AA, 4.5:1) on every surface, in both themes', () => {
+    const tokens = (scope: string) =>
+      Object.fromEntries([...(css.match(new RegExp(`${scope} \\{([^}]*)\\}`))?.[1] ?? '').matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+    const lum = (hex: string) => {
+      const [r, g, b] = (hex.slice(1).match(/../g) ?? []).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    for (const scope of [':root', 'html.dark']) {
+      const t = tokens(scope);
+      for (const surface of ['bg', 'surface', 'surface-2', 'surface-3']) {
+        expect(contrast(t['ink-3'], t[surface]), `${scope} ink-3 on ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 });
 

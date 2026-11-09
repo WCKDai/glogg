@@ -1,6 +1,7 @@
 /* ─────────────────────────────────────────────────────────────────────────
    glogg — Stein
-   One colour from the icon (its azure glass); everything else neutral.
+   One colour from the icon (its azure glass); everything else a warm,
+   barely-there grey, so the accent and the content lead and the chrome recedes.
    Built as an instrument: hairline rules instead of cards, dense rows,
    mono for data, labels instead of mystery icons, and shadows only on
    things that float. System fonts: nothing loads from anyone else.
@@ -18,15 +19,16 @@
   --azure-700: #207ef0;
   --azure-800: #1764c8;
 
-  --bg: #f5f6f8;
+  /* Small grey text (ink-3) stays above 4.5:1 on every surface */
+  --bg: #f6f6f4;
   --surface: #ffffff;
-  --surface-2: #fafbfc;
-  --surface-3: #eef1f4;
-  --ink: #101720;
-  --ink-2: #47515f;
-  --ink-3: #6f7886;
-  --line: #e2e6eb;
-  --line-2: #ccd2da;
+  --surface-2: #fafaf9;
+  --surface-3: #eeeeeb;
+  --ink: #191918;
+  --ink-2: #4d4d49;
+  --ink-3: #6b6b66;
+  --line: #e5e5e1;
+  --line-2: #d3d3ce;
   /* Buttons and active states: #1D72E0 keeps white text at 4.6:1 */
   --accent: #1d72e0;
   --accent-ink: #1763c4;
@@ -43,7 +45,7 @@
   --ok-soft: rgba(19, 138, 90, 0.1);
   --warn: #b7790a;
   --warn-soft: rgba(183, 121, 10, 0.11);
-  --scrim: rgba(16, 23, 32, 0.32);
+  --scrim: rgba(25, 25, 24, 0.32);
   /* Flat by default; only overlays (menus, palette, sheet, toasts) cast shadows */
   --shadow-sm: none;
   --shadow: 0 1px 2px rgba(16, 23, 32, 0.06), 0 10px 28px -12px rgba(16, 23, 32, 0.22);
@@ -64,15 +66,15 @@
 }
 
 html.dark {
-  --bg: #0b0e13;
-  --surface: #11151c;
-  --surface-2: #151a22;
-  --surface-3: #1b212b;
-  --ink: #e7ebf1;
-  --ink-2: #a5aebb;
-  --ink-3: #78828f;
-  --line: #20262f;
-  --line-2: #2d3440;
+  --bg: #0f0f10;
+  --surface: #161617;
+  --surface-2: #1a1a1c;
+  --surface-3: #202022;
+  --ink: #ededeb;
+  --ink-2: #a8a8a3;
+  --ink-3: #8b8b86;
+  --line: #262628;
+  --line-2: #333336;
   /* Dark ink on azure keeps button text above 6:1 */
   --accent: #4b9bf8;
   --accent-ink: #7db6fb;
@@ -144,7 +146,6 @@ button {
 :focus-visible {
   outline: 2px solid var(--accent-bright);
   outline-offset: 2px;
-  border-radius: 6px;
 }
 
 h1,
@@ -222,7 +223,7 @@ kbd,
   gap: 2px;
   height: calc(100vh - var(--statusbar-h));
   padding: 10px 8px;
-  background: var(--surface);
+  background: var(--bg);
   border-right: 1px solid var(--line);
 }
 
@@ -265,8 +266,8 @@ kbd,
 }
 
 .appnav-btn.active {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--surface-3);
+  color: var(--ink);
 }
 
 .appnav-btn.active::before {
@@ -312,7 +313,7 @@ kbd,
   display: grid;
   place-items: center;
   pointer-events: none;
-  box-shadow: 0 0 0 2px var(--surface);
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 .topbar {
@@ -377,10 +378,6 @@ kbd,
     opacity: 0;
     transform: translateY(3px);
   }
-}
-
-.main > * {
-  animation: enter var(--t) var(--ease);
 }
 
 /* ── Home: the search, what you did last, and the tools ──────────────── */
@@ -899,12 +896,14 @@ html.dark .btn-primary:hover {
   border: 1px solid var(--line-2);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
+  transform-origin: top left;
   animation: pop var(--t-fast) var(--ease);
 }
 
 .menu-right {
   left: auto;
   right: 0;
+  transform-origin: top right;
 }
 
 .menu > button,
@@ -1891,6 +1890,8 @@ button.sb-item:hover {
 }
 
 .scrim-soft {
+  /* The palette opens hundreds of times a day: no fade, it's simply there. */
+  animation: none;
   background: color-mix(in srgb, var(--scrim) 70%, transparent);
   display: flex;
   justify-content: center;
@@ -2104,7 +2105,7 @@ button.sb-item:hover {
 
 .palette {
   /* A sibling of .scrim, so it positions itself: fixed, centred, above the scrim.
-     Centred with auto margins, not a transform, so the pop animation can't shift it. */
+     No opening animation: it's used hundreds of times a day and should just be there. */
   position: fixed;
   top: 14vh;
   left: 0;
@@ -2117,7 +2118,6 @@ button.sb-item:hover {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
-  animation: pop 0.14s ease-out;
 }
 
 .palette-input {
@@ -3521,4 +3521,164 @@ a.cite-ref {
   margin-top: 0;
   color: var(--danger);
   font-size: 12.5px;
+}
+
+/* ── Details ─────────────────────────────────────────────────────────
+   From Vercel's Web Interface Guidelines, Emil Kowalski and Rauno Freiberg:
+   the small things you feel more than see. */
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  /* No layout jump between pages with and without a scrollbar */
+  scrollbar-gutter: stable;
+}
+
+/* No double-tap zoom delay on anything you tap */
+a,
+button,
+input,
+label,
+select,
+summary,
+textarea,
+[role='button'],
+[role='tab'] {
+  touch-action: manipulation;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+.page-head h1 {
+  letter-spacing: -0.025em;
+}
+
+/* Counts and timings don't jitter as they change */
+.tab-count,
+.chip .count,
+.status-line,
+.stat-value,
+.dir-meta,
+.badge,
+.home-item-meta,
+.cite-n {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Press feedback: controls give way under the pointer */
+.chip,
+.scope,
+.tool-tab,
+.appnav-btn,
+.kbd-btn {
+  transition-property: background-color, border-color, color, transform;
+  transition-duration: var(--t-fast);
+  transition-timing-function: var(--ease);
+}
+
+.btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.kbd-btn:active,
+.chip:active,
+.scope:active,
+.tool-tab:active,
+.appnav-btn:active {
+  transform: scale(0.97);
+}
+
+/* Scrolling inside an overlay never scrolls the page behind it */
+.palette-list,
+.bang-menu,
+.menu,
+.sheet,
+.sheet-body {
+  overscroll-behavior: contain;
+}
+
+/* Touch screens have no hover: show the actions a pointer would reveal */
+@media (hover: none) {
+  .result-actions {
+    opacity: 1;
+  }
+}
+
+/* Fingers get 44px targets without moving anything */
+@media (pointer: coarse) {
+  .result-actions .btn,
+  .result-actions .icon-btn,
+  .topbar-tools .icon-btn {
+    position: relative;
+  }
+
+  .result-actions .btn::after,
+  .result-actions .icon-btn::after,
+  .topbar-tools .icon-btn::after {
+    content: '';
+    position: absolute;
+    inset: -7px;
+  }
+}
+
+/* iOS zooms into inputs smaller than 16px; never on a phone */
+@media (max-width: 720px), (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* Keyboard shortcuts ("?"): the palette's frame, a two-column list */
+.shortcuts {
+  padding: 18px 20px 14px;
+}
+
+.shortcuts h2 {
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.shortcuts dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.shortcuts dt {
+  display: flex;
+  gap: 4px;
+}
+
+.shortcuts dd {
+  color: var(--ink-2);
+  font-size: 13px;
 }

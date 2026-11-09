@@ -304,12 +304,20 @@ function buildExtractiveTakeaways(
     const cleanSnippet = res.snippet
       .replace(/^(?:Surfaced via Hacker News|Shared on Fediverse|GDELT Unfiltered Global News Wire)[^.]*\.\s*/i, '')
       .replace(/\bDiscussion: https?:\/\/\S+/gi, '')
+      .replace(/\s*·\s*★\s*[\d,]+.*$/, '')
       .replace(/\s*\[SearXNG via [^\]]+\]\s*/g, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    // A link or a vote count says nothing about the question.
-    if (cleanSnippet.length < 35 || (cleanSnippet.match(/\p{L}{3,}/gu) || []).length < 6) continue;
+    // A link, a vote count or a block of code says nothing about the question.
+    const letters = (cleanSnippet.match(/\p{L}/gu) || []).length;
+    if (
+      cleanSnippet.length < 35 ||
+      (cleanSnippet.match(/\p{L}{3,}/gu) || []).length < 6 ||
+      /^[\d,]+ (points?|answers?|comments?)\b/i.test(cleanSnippet) ||
+      letters / cleanSnippet.replace(/\s/g, '').length < 0.6
+    )
+      continue;
 
     const citationIdx = citations.length + 1;
     citations.push({

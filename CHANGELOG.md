@@ -30,6 +30,25 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - Test suites for quality goldens, research, the search pipeline, security, plugins, plugin tools, client logic, UI flows in jsdom, and speed budgets (`npm run test:perf`); a bundle-size budget in CI (`npm run check:bundle`).
 
 ### Changed
+- **A design pass from today's leading interface designers.** The sources are Vercel's Web Interface Guidelines, Rauno Freiberg's "Invisible details of interaction design", Emil Kowalski's UI cheatsheet, and Linear's March 2026 refresh ("Don't compete for attention you haven't earned").
+  - **Addresses:** every section has one (`/atlas`, `/tools`, `/settings`, …), as does the Atlas tab (`?tab=board`), along with a matching tab title. Back and Forward move between sections, a refresh keeps your place, and the section bar is made of real links, so ⌘-click opens a new tab.
+  - **Calmer colours:** warmer neutral greys replace the blue-grey, and the section bar recedes into the page. Small grey text now meets WCAG AA (4.5:1) on every surface in both themes; before, it was 3.9–4.1 in light mode.
+  - **Motion:** the command palette and view switches open instantly, because they're used too often to animate. Buttons, chips and tabs give way slightly when pressed, and menus grow from the button that opened them.
+  - **Touch:** result actions are visible on touch screens, which have no hover. Small buttons get 44px touch targets, and inputs are 16px on phones so iOS doesn't zoom.
+  - **Keyboard:** `?` shows every shortcut, and so does "Keyboard shortcuts" in the command palette.
+  - **Details:**
+    - dates read "3 days ago" for a week, then "Mar 12";
+    - counts use the right plural ("1 repeat");
+    - numbers use tabular figures;
+    - headings are balanced;
+    - there's a skip link;
+    - the browser's theme colour matches the page;
+    - the focus ring no longer reshapes square elements.
+- **Results say plainly what they are.**
+  - Stack Exchange results read "2 answers · score 9 · tags", not "Verified practitioner Q&A thread (1 answers…)".
+  - Hacker News discussions are "Discussion: …" with "219 points · 83 comments", not "[HN Discussion]" with "practitioner comments".
+  - GitHub and Wikipedia titles lose "— Source Repository" and "— Wikipedia Reference".
+  - Answers stop quoting vote counts, Q&A metadata or blocks of code.
 - **The README is rewritten:** what glogg does, installing with Docker Compose, Coolify or from source, configuration and security, with screenshots.
 - **The optional services stack moved to `infra/docker-compose.services.yml`.**
   - The root `docker-compose.yml` now runs glogg itself.

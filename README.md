@@ -124,6 +124,8 @@ Switch with <kbd>m</kbd>.
 | Search another engine | Put a bang anywhere in the query: `!w turing`, `!gh ripgrep`, `!4p thinkpad`. There are 50+ built in; add your own in Settings. |
 | Run a tool | Type `>` and a trigger: `>dns example.com`, `>whois example.com`, `>headers example.com`, `>hash text`, `>rd magnet:?…` |
 | Do anything else | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd>: views, scopes, toggles, every tool |
+| See every shortcut | <kbd>?</kbd> |
+| Link to a section | Every section has its own address: `/atlas`, `/atlas?tab=board`, `/tools`, `/downloads`, `/services`, `/settings`. Back and Forward work, and ⌘-click opens a section in a new tab. |
 | Narrow the search | Scopes: All, Wild West (imageboards, chan archives, old forums), Forums, Small Web, Docs & Papers, Fediverse, Archives, News, Torrents, Usenet |
 | Move through results | <kbd>/</kbd> search · <kbd>j</kbd> <kbd>k</kbd> move · <kbd>↵</kbd> open · <kbd>r</kbd> read clean · <kbd>d</kbd> send to downloads |
 | See what was asked | The status bar shows how many sources answered and how fast; click it for each source |

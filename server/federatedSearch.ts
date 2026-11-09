@@ -28,6 +28,11 @@ import {
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
+/** "1 point", "219 points". */
+function count(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 async function fetchWithTimeout(
   url: string,
   timeoutMs = 4200,
@@ -323,7 +328,7 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
           url: p.url,
           snippet:
             p.body?.slice(0, 200) ||
-            `${entry.counts?.score ?? 0} points · ${entry.counts?.comments ?? 0} comments in c/${entry.community?.name || 'lemmy'}`,
+            `${count(entry.counts?.score ?? 0, 'point')} · ${count(entry.counts?.comments ?? 0, 'comment')} in c/${entry.community?.name || 'lemmy'}`,
           source: 'lemmy',
           publishedAt: p.published,
           points: entry.counts?.score,
@@ -336,7 +341,7 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
         url: p.ap_id || `https://lemmy.world/post/${p.id}`,
         snippet:
           p.body?.slice(0, 240) ||
-          `${entry.counts?.comments ?? 0} comments in c/${entry.community?.name || 'lemmy'}`,
+          `${count(entry.counts?.comments ?? 0, 'comment')} in c/${entry.community?.name || 'lemmy'}`,
         source: 'lemmy',
         publishedAt: p.published,
         points: entry.counts?.score,
@@ -433,7 +438,7 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
           id: `hn-ext-${hit.objectID}`,
           title: hit.title,
           url: hit.url,
-          snippet: `${hit.points ?? 0} points · ${hit.num_comments ?? 0} comments on Hacker News`,
+          snippet: `${count(hit.points ?? 0, 'point')} · ${count(hit.num_comments ?? 0, 'comment')} on Hacker News`,
           source: 'web',
           publishedAt: hit.created_at,
           author: hit.author,
@@ -444,11 +449,11 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
       if ((hit.num_comments ?? 0) >= 15 || !hit.url) {
         results.push({
           id: `hn-disc-${hit.objectID}`,
-          title: `[HN Discussion] ${hit.title}`,
+          title: `Discussion: ${hit.title}`,
           url: hnThreadUrl,
           snippet:
             hit.story_text?.replace(/<[^>]+>/g, ' ').slice(0, 260) ||
-            `${hit.num_comments ?? 0} practitioner comments & ${hit.points ?? 0} points discussing "${hit.title}" on Hacker News.`,
+            `${count(hit.points ?? 0, 'point')} · ${count(hit.num_comments ?? 0, 'comment')} on Hacker News`,
           source: 'hn',
           publishedAt: hit.created_at,
           author: hit.author,
@@ -497,7 +502,7 @@ async function searchWikipedia(rawQuery: string, kwQuery: string, entitySubject:
       return {
         raw: {
           id: `wiki-${item.pageid}`,
-          title: `${item.title} — Wikipedia Reference`,
+          title: item.title,
           url: wikiUrl,
           snippet: cleanSnippet,
           source: 'wikipedia' as const,
@@ -562,9 +567,7 @@ async function searchStackExchange(
               .replace(/&quot;/g, '"')
               .replace(/&amp;/g, '&'),
             url: item.link,
-            snippet: `Verified practitioner Q&A thread on ${site} (${item.answer_count ?? 0} answers, score ${
-              item.score ?? 0
-            }). Tags: ${(item.tags ?? []).join(', ')}`,
+            snippet: [count(item.answer_count ?? 0, 'answer'), `score ${item.score ?? 0}`, (item.tags ?? []).join(', ')].filter(Boolean).join(' · '),
             source: 'stackexchange' as const,
             publishedAt: item.creation_date
               ? new Date(item.creation_date * 1000).toISOString()
@@ -662,11 +665,9 @@ async function searchGitHub(
       if ((repo.stargazers_count ?? 0) < minStars) continue;
       results.push({
         id: `gh-${repo.id}`,
-        title: `${repo.full_name} — Source Repository`,
+        title: repo.full_name,
         url: repo.html_url,
-        snippet: `${repo.description || 'Primary source code repository'} (★ ${
-          repo.stargazers_count ?? 0
-        }). Topics: ${(repo.topics ?? []).slice(0, 6).join(', ')}`,
+        snippet: [repo.description, `★ ${repo.stargazers_count ?? 0}`, (repo.topics ?? []).slice(0, 6).join(', ')].filter(Boolean).join(' · '),
         source: 'github',
         publishedAt: repo.created_at,
         points: repo.stargazers_count,

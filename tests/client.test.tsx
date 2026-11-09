@@ -12,6 +12,8 @@ import {
   streamEvents,
   suggestTools,
   targetLabel,
+  plural,
+  relativeDate,
   urlCrumb,
 } from '../src/client/lib.js';
 import type { ResearchState } from '../src/client/lib.js';
@@ -297,5 +299,26 @@ describe('breadcrumbs', () => {
     ['https://example.com/', ''],
   ])('%s → "%s"', (url, crumb) => {
     expect(urlCrumb(url)).toBe(crumb);
+  });
+});
+
+describe('dates and counts', () => {
+  const now = Date.parse('2026-11-09T12:00:00Z');
+  const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
+
+  it('says how long ago for a week, then gives the date', () => {
+    expect(relativeDate(ago(0.2), now)).toBe('today');
+    expect(relativeDate(ago(1.2), now)).toBe('yesterday');
+    expect(relativeDate(ago(3), now)).toBe('3 days ago');
+    expect(relativeDate('2026-03-12T12:00:00Z', now)).toMatch(/Mar 12|12 Mar/);
+    expect(relativeDate('2019-03-12T12:00:00Z', now)).toMatch(/Mar 2019|2019/);
+    expect(relativeDate('not a date', now)).toBe('');
+  });
+
+  it('puts nouns in the right number', () => {
+    expect(plural(1, 'repeat')).toBe('1 repeat');
+    expect(plural(2, 'repeat')).toBe('2 repeats');
+    expect(plural(0, 'post')).toBe('0 posts');
+    expect(plural(1, 'index', 'indexes')).toBe('1 index');
   });
 });

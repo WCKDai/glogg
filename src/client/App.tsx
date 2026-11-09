@@ -34,6 +34,7 @@ import type {
 } from '../core/browser.js';
 import { SearchBox } from './components/SearchBox.js';
 import { SignIn } from './components/SignIn.js';
+import { Shortcuts } from './components/Shortcuts.js';
 import { AnswerCard, ReleaseList, ResultItem } from './components/Results.js';
 import { ReaderSheet } from './components/ReaderSheet.js';
 import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
@@ -60,6 +61,7 @@ import {
   mergeTargets,
   reduceResearch,
   runTool,
+  plural,
   SCOPES,
   sendToDownloads,
   SIGN_IN_EVENT,
@@ -87,12 +89,37 @@ const QUICK_TRIGGERS = ['dns', 'whois', 'headers', 'tls', 'hash', 'rd', 'nzb', '
 const HISTORY_MAX = 8;
 const NO_PLUGINS: PluginsResponse = { plugins: [], userDir: '' };
 
-function readUrlState(): { q: string; scope: SearchLensId } {
+/** Every section has its own address, so Back, refresh, bookmarks and "open in new tab" work. */
+const VIEW_PATHS: Record<View, string> = {
+  search: '/',
+  tools: '/tools',
+  atlas: '/atlas',
+  downloads: '/downloads',
+  services: '/services',
+  settings: '/settings',
+};
+
+const VIEW_TITLES: Record<View, string> = {
+  search: 'glogg',
+  tools: 'Tools — glogg',
+  atlas: 'Atlas — glogg',
+  downloads: 'Downloads — glogg',
+  services: 'Services — glogg',
+  settings: 'Settings — glogg',
+};
+
+function viewFromPath(pathname: string): View {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  return (Object.keys(VIEW_PATHS) as View[]).find((v) => VIEW_PATHS[v] === path) ?? 'search';
+}
+
+function readUrlState(): { q: string; scope: SearchLensId; view: View } {
   const params = new URLSearchParams(window.location.search);
   const scope = params.get('scope') as SearchLensId | null;
   return {
     q: params.get('q') || '',
     scope: scope && SCOPES.some((s) => s.id === scope) ? scope : 'all',
+    view: viewFromPath(window.location.pathname),
   };
 }
 
@@ -135,7 +162,7 @@ export function App() {
 
   // ── Session state ─────────────────────────────────────────────────────
   const initial = useMemo(readUrlState, []);
-  const [view, setView] = useState<View>('search');
+  const [view, setView] = useState<View>(initial.view);
   const [input, setInput] = useState(initial.q);
   const [submitted, setSubmitted] = useState('');
   const [scope, setScope] = useState<SearchLensId>(initial.scope);
@@ -146,6 +173,7 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [readerUrl, setReaderUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // A password-protected glogg asks for a sign-in on load, and again whenever a session runs out.
   const [signInNeeded, setSignInNeeded] = useState(false);
   useEffect(() => {
@@ -205,7 +233,8 @@ export function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.classList.toggle('light', !isDark);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#0a1524' : '#f0f8ff');
+    // The browser's own chrome matches the page, whichever theme you picked.
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', isDark ? '#0f0f10' : '#f6f6f4'));
   }, [isDark]);
 
   useEffect(() => {
@@ -272,10 +301,20 @@ export function App() {
     [send]
   );
 
-  const openTools = useCallback((target?: ToolsTarget) => {
-    setToolsTarget(target ?? null);
-    setView('tools');
+  /** Go to a section, with its own address and title. */
+  const navigate = useCallback((v: View) => {
+    setView(v);
+    pushUrl(VIEW_PATHS[v]);
+    document.title = VIEW_TITLES[v];
   }, []);
+
+  const openTools = useCallback(
+    (target?: ToolsTarget) => {
+      setToolsTarget(target ?? null);
+      navigate('tools');
+    },
+    [navigate]
+  );
 
   const toolHandlers = useMemo<ToolActionHandlers>(
     () => ({
@@ -472,7 +511,7 @@ export function App() {
     setResearch(null);
     setThread([]);
     document.title = 'glogg';
-    if (window.location.search) window.history.pushState({}, '', '/');
+    pushUrl('/');
     setTimeout(() => searchRef.current?.focus(), 0);
   }, [stopWork]);
 
@@ -485,9 +524,13 @@ export function App() {
   // Initial URL + back/forward
   useEffect(() => {
     if (initial.q) void runSearch(initial.q, { scope: initial.scope, push: false });
+    else if (initial.view !== 'search') document.title = VIEW_TITLES[initial.view];
     const onPop = () => {
-      const { q, scope: sc } = readUrlState();
-      if (q) void runSearch(q, { scope: sc, push: false });
+      const { q, scope: sc, view: v } = readUrlState();
+      if (v !== 'search') {
+        setView(v);
+        document.title = VIEW_TITLES[v];
+      } else if (q) void runSearch(q, { scope: sc, push: false });
       else {
         stopWork();
         setSubmitted('');
@@ -567,10 +610,13 @@ export function App() {
   );
 
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
-  const openSettings = useCallback((section: string | null = null) => {
-    setSettingsFocus(section);
-    setView('settings');
-  }, []);
+  const openSettings = useCallback(
+    (section: string | null = null) => {
+      setSettingsFocus(section);
+      navigate('settings');
+    },
+    [navigate]
+  );
 
   const switchScope = useCallback(
     (id: SearchLensId) => {
@@ -633,9 +679,14 @@ export function App() {
         setPaletteOpen((o) => !o);
         return;
       }
-      if (paletteOpen || readerUrl || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (paletteOpen || shortcutsOpen || readerUrl || e.metaKey || e.ctrlKey || e.altKey) return;
       if (isTypingTarget(e.target)) return;
 
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
       if (e.key === '/') {
         e.preventDefault();
         searchRef.current?.focus();
@@ -665,17 +716,17 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, readerUrl, view, navList, activeItem, isReleaseScope, openUrl, sendItem, switchMode, toolRun]);
+  }, [paletteOpen, shortcutsOpen, readerUrl, view, navList, activeItem, isReleaseScope, openUrl, sendItem, switchMode, toolRun]);
 
   // ── Command palette ───────────────────────────────────────────────────
   const commands = useMemo<PaletteCommand[]>(() => {
     const c: PaletteCommand[] = [
       { id: 'v-home', label: 'New search', group: 'Go to', hint: 'home', run: goHome },
       { id: 'v-tools', label: 'Tools', group: 'Go to', keywords: 'plugins debrid osint whois dns cloud usenet test', run: () => openTools() },
-      { id: 'v-dl', label: 'Downloads', group: 'Go to', keywords: 'aria2 offcloud nextcloud queue', run: () => setView('downloads') },
-      { id: 'v-atlas', label: 'Atlas: blogs, boards, forums and hand-picked sites', group: 'Go to', keywords: 'indie small web directory deep index chan imageboard forum surprise', run: () => setView('atlas') },
-      { id: 'v-svc', label: 'Services — self-hosted containers', group: 'Go to', keywords: 'docker podman searxng bitmagnet ipfs', run: () => setView('services') },
-      { id: 'v-set', label: 'Settings', group: 'Go to', keywords: 'keys api integrations bangs domains', run: () => setView('settings') },
+      { id: 'v-dl', label: 'Downloads', group: 'Go to', keywords: 'aria2 offcloud nextcloud queue', run: () => navigate('downloads') },
+      { id: 'v-atlas', label: 'Atlas: blogs, boards, forums and hand-picked sites', group: 'Go to', keywords: 'indie small web directory deep index chan imageboard forum surprise', run: () => navigate('atlas') },
+      { id: 'v-svc', label: 'Services — self-hosted containers', group: 'Go to', keywords: 'docker podman searxng bitmagnet ipfs', run: () => navigate('services') },
+      { id: 'v-set', label: 'Settings', group: 'Go to', keywords: 'keys api integrations bangs domains', run: () => openSettings() },
       {
         id: 'm-mode',
         label: mode === 'advanced' ? 'Simple view' : 'Advanced view: research answers, filters, signals',
@@ -706,6 +757,7 @@ export function App() {
       uncensored
         ? { id: 't-18', label: 'Turn 18+ off', group: 'Toggle', keywords: 'nsfw uncensored safesearch adult', run: () => setAdultMode(false) }
         : { id: 't-18', label: '18+ mode (in Settings)', group: 'Go to', keywords: 'nsfw uncensored safesearch adult', run: () => openSettings('adult') },
+      { id: 'h-keys', label: 'Keyboard shortcuts', group: 'Help', keywords: 'keys hotkeys help ?', run: () => setShortcutsOpen(true) },
       { id: 't-theme', label: isDark ? 'Light theme' : 'Dark theme', group: 'Toggle', run: toggleTheme },
       { id: 't-sys', label: 'Follow system theme', group: 'Toggle', run: () => setThemePref('system') },
       {
@@ -847,7 +899,7 @@ export function App() {
             <ChevronDown size={14} style={{ transform: showFiltered ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }} />
             {data.filteredSlop.length} hidden
             {data.metrics.sponsoredRemovedCount > 0 && <> · {data.metrics.sponsoredRemovedCount} sponsored</>}
-            {data.metrics.demotedDuplicateDomainsCount > 0 && <> · {data.metrics.demotedDuplicateDomainsCount} repeats</>}
+            {data.metrics.demotedDuplicateDomainsCount > 0 && <> · {plural(data.metrics.demotedDuplicateDomainsCount, 'repeat')}</>}
           </button>
           {showFiltered && (
             <div className="filtered-list">
@@ -884,28 +936,32 @@ export function App() {
   return (
     <DownloadTargetsContext.Provider value={targets}>
       <div className="shell">
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
         <nav className="appnav" aria-label="Sections">
           <button type="button" className="appnav-logo" onClick={goHome} aria-label="glogg home" title="glogg">
             <img src="/logo.png" alt="" width={28} height={28} />
           </button>
-          <NavButton label="Search" aria="Search home" icon={<Search size={18} />} active={view === 'search'} onClick={goHome} />
-          <NavButton label="Tools" icon={<Wrench size={18} />} active={view === 'tools'} onClick={() => openTools()} />
-          <NavButton label="Atlas" icon={<Compass size={18} />} active={view === 'atlas'} onClick={() => setView('atlas')} />
+          <NavButton label="Search" aria="Search home" href="/" icon={<Search size={18} />} active={view === 'search'} onClick={goHome} />
+          <NavButton label="Tools" href={VIEW_PATHS.tools} icon={<Wrench size={18} />} active={view === 'tools'} onClick={() => openTools()} />
+          <NavButton label="Atlas" href={VIEW_PATHS.atlas} icon={<Compass size={18} />} active={view === 'atlas'} onClick={() => navigate('atlas')} />
           <NavButton
             label="Downloads"
+            href={VIEW_PATHS.downloads}
             icon={<Download size={18} />}
             active={view === 'downloads'}
-            onClick={() => setView('downloads')}
+            onClick={() => navigate('downloads')}
             badge={activeDownloads}
           />
-          <NavButton label="Services" icon={<Server size={18} />} active={view === 'services'} onClick={() => setView('services')} />
+          <NavButton label="Services" href={VIEW_PATHS.services} icon={<Server size={18} />} active={view === 'services'} onClick={() => navigate('services')} />
           <div className="appnav-fill" />
           {uncensored && (
             <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">
               18+
             </button>
           )}
-          <NavButton label="Settings" icon={<Settings size={18} />} active={view === 'settings'} onClick={() => openSettings()} />
+          <NavButton label="Settings" href={VIEW_PATHS.settings} icon={<Settings size={18} />} active={view === 'settings'} onClick={() => openSettings()} />
         </nav>
 
         <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
@@ -920,7 +976,7 @@ export function App() {
           </div>
         </header>
 
-        <main className="main">
+        <main className="main" id="main" tabIndex={-1}>
           {isHome && (
             <section className="home">
               <div className="home-head">
@@ -1017,6 +1073,9 @@ export function App() {
                 <span>
                   <kbd>m</kbd> {advanced ? 'simple' : 'advanced'} view
                 </span>
+                <span>
+                  <kbd>?</kbd> all shortcuts
+                </span>
               </div>
             </section>
           )}
@@ -1107,10 +1166,10 @@ export function App() {
               }}
               onToast={toast}
               handlers={toolHandlers}
-              onOpenSettings={() => setView('settings')}
+              onOpenSettings={() => openSettings()}
             />
           )}
-          {view === 'downloads' && <DownloadsView onToast={toast} onOpenSettings={() => setView('settings')} />}
+          {view === 'downloads' && <DownloadsView onToast={toast} onOpenSettings={() => openSettings()} />}
           {view === 'atlas' && <AtlasView onRead={setReaderUrl} uncensored={uncensored} onToast={toast} />}
           {view === 'services' && <ServicesView onToast={toast} />}
           {view === 'settings' && (
@@ -1141,6 +1200,8 @@ export function App() {
           onToggleMode={() => switchMode(mode === 'advanced' ? 'simple' : 'advanced')}
           onOpenPalette={() => setPaletteOpen(true)}
         />
+
+        {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
 
         {signInNeeded && <SignIn onDone={() => window.location.reload()} />}
 
@@ -1189,10 +1250,14 @@ function ResultsSkeleton() {
   );
 }
 
-/** A section in the left nav: icon and label, so nothing has to be guessed from a glyph. */
+/**
+ * A section in the left nav: icon and label, so nothing has to be guessed from a glyph.
+ * A real link, so ⌘/Ctrl-click and middle-click open the section in a new tab.
+ */
 function NavButton({
   label,
   aria,
+  href,
   icon,
   active,
   onClick,
@@ -1201,16 +1266,21 @@ function NavButton({
   label: string;
   /** Accessible name when it should say more than the label. */
   aria?: string;
+  href: string;
   icon: React.ReactNode;
   active: boolean;
   onClick: () => void;
   badge?: number;
 }) {
   return (
-    <button
-      type="button"
+    <a
+      href={href}
       className={`appnav-btn ${active ? 'active' : ''}`}
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        e.preventDefault();
+        onClick();
+      }}
       aria-label={aria ?? label}
       aria-current={active ? 'page' : undefined}
       title={label}
@@ -1218,6 +1288,6 @@ function NavButton({
       {icon}
       <span className="appnav-label">{label}</span>
       {badge > 0 && <span className="badge">{badge}</span>}
-    </button>
+    </a>
   );
 }

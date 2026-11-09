@@ -235,7 +235,7 @@ describe('home', () => {
   it('names every section in the nav, with words, and marks where you are', async () => {
     expect($$('.appnav-btn').map((b) => b.textContent?.trim())).toEqual(['Search', 'Tools', 'Atlas', 'Downloads', 'Services', 'Settings']);
     expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Search');
-    await click($('button[aria-label="Atlas"]'));
+    await click($('a[aria-label="Atlas"]'));
     expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Atlas');
     expect($$('.appnav-btn[aria-current="page"]')).toHaveLength(1);
   });
@@ -393,7 +393,7 @@ describe('command palette', () => {
 describe('atlas', () => {
   it('shows the open directories with counts and lets you browse them', async () => {
     deepCrawling = false;
-    await click($('button[aria-label="Atlas"]'));
+    await click($('a[aria-label="Atlas"]'));
     await until(() => $('.atlas-page'));
     await click(byText('[role="tab"]', 'Blogs'));
     await until(() => $$('.dir-row').length === 2);
@@ -405,7 +405,7 @@ describe('atlas', () => {
 
   it('starts the deep index only when asked', async () => {
     deepCrawling = false;
-    await click($('button[aria-label="Atlas"]'));
+    await click($('a[aria-label="Atlas"]'));
     await click(byText('[role="tab"]', 'Deep index'));
     await until(() => byText('button', 'Resume crawling') || byText('button', 'Build the deep index'));
     expect(calls.some((c) => c.path === '/api/deep/crawl')).toBe(false);
@@ -417,7 +417,7 @@ describe('atlas', () => {
   });
 
   it('filters a directory by where its sources came from', async () => {
-    await click($('button[aria-label="Atlas"]'));
+    await click($('a[aria-label="Atlas"]'));
     await click(byText('[role="tab"]', 'Forums'));
     await until(() => byText('.chips button', 'Lemmy'));
     expect(byText('.chips button', 'Stack Exchange')!.textContent).toContain('100');
@@ -428,7 +428,7 @@ describe('atlas', () => {
 
   it('offers an 18+ flag for added sources only in 18+ mode', async () => {
     const addFrom = async () => {
-      await click($('button[aria-label="Atlas"]'));
+      await click($('a[aria-label="Atlas"]'));
       await click(byText('[role="tab"]', 'Deep index'));
       await until(() => $('#deep-add'));
     };
@@ -448,6 +448,72 @@ describe('atlas', () => {
   });
 });
 
+describe('sections have addresses', () => {
+  afterEach(() => window.history.replaceState({}, '', '/'));
+
+  it('puts each section in the URL and the tab title, and Back returns to the last one', async () => {
+    const atlas = $<HTMLAnchorElement>('a[aria-label="Atlas"]')!;
+    expect(atlas.getAttribute('href')).toBe('/atlas');
+    await click(atlas);
+    await until(() => $('.atlas-page'));
+    expect(window.location.pathname).toBe('/atlas');
+    expect(document.title).toBe('Atlas — glogg');
+
+    await click($('a[aria-label="Tools"]'));
+    expect(window.location.pathname).toBe('/tools');
+    await act(async () => {
+      window.history.back();
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    await until(() => $('.atlas-page'));
+    expect(document.title).toBe('Atlas — glogg');
+  });
+
+  it('opens straight into a section from its address, and keeps the Atlas tab there', async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    window.history.replaceState({}, '', '/atlas?tab=forum');
+    await render();
+    await until(() => $('.atlas-page'));
+    expect($('[role="tab"][aria-selected="true"]')!.textContent).toContain('Forums');
+    await click(byText('[role="tab"]', 'Boards'));
+    expect(window.location.search).toBe('?tab=board');
+  });
+
+  it('leaves ⌘-click and middle-click to the browser, so a section opens in a new tab', async () => {
+    // Runs after glogg's own handler: records whether glogg took the click over, then stops jsdom navigating.
+    const takenOver: boolean[] = [];
+    const browser = (e: Event) => {
+      takenOver.push(e.defaultPrevented);
+      e.preventDefault();
+    };
+    window.addEventListener('click', browser);
+    try {
+      await act(async () => {
+        $('a[aria-label="Settings"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+      });
+    } finally {
+      window.removeEventListener('click', browser);
+    }
+    expect(takenOver).toEqual([false]);
+    expect(window.location.pathname).toBe('/');
+  });
+});
+
+describe('keyboard shortcuts', () => {
+  it('lists every shortcut on "?", and closes on Escape', async () => {
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    });
+    await until(() => $('.shortcuts'));
+    expect($$('.shortcuts dd').map((d) => d.textContent)).toContain('Command palette');
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect($('.shortcuts')).toBeNull();
+  });
+});
+
 describe('18+ mode', () => {
   const stored = () => localStorage.getItem('glogg.uncensored');
 
@@ -457,7 +523,7 @@ describe('18+ mode', () => {
   });
 
   it('turns on only after confirming in Settings, and off again with one click', async () => {
-    await click($('button[aria-label="Settings"]'));
+    await click($('a[aria-label="Settings"]'));
     // Matched in code: jsdom's selector engine misreads the "+" inside [aria-label="18+ mode"].
     const toggle = () => $$('button[role="switch"]').find((b) => b.getAttribute('aria-label') === '18+ mode');
     await until(toggle);
@@ -527,7 +593,7 @@ describe('password-protected glogg', () => {
 
 describe('tools page', () => {
   it('opens on a tool that works without setup', async () => {
-    await click($('button[aria-label="Tools"]'));
+    await click($('a[aria-label="Tools"]'));
     await until(() => $('.tools-main h2'));
     expect($('.tools-main h2')?.textContent).toBe('OSINT');
     expect($$('.tools-item').find((b) => b.textContent?.includes('AI'))?.querySelector('.dot.warn')).toBeTruthy();
