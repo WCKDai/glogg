@@ -9,6 +9,17 @@ import { ContainerServiceStatus, ContainerStackReport } from '../src/core/types.
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
+/** The optional services stack the Services page starts and stops (glogg itself is in ../docker-compose.yml). */
+const SERVICES_COMPOSE = path.join(REPO_ROOT, 'infra', 'docker-compose.services.yml');
+
+/**
+ * GLOGG_CONTAINER_RUNTIME: auto (default) looks for docker, then podman; docker or podman uses
+ * only that one; none never runs either, for glogg running in a container itself, or in CI.
+ */
+function runtimeSetting(): 'auto' | 'docker' | 'podman' | 'none' {
+  const v = (process.env.GLOGG_CONTAINER_RUNTIME || 'auto').toLowerCase();
+  return v === 'docker' || v === 'podman' || v === 'none' ? v : 'auto';
+}
 
 export const MANAGED_SERVICES: Omit<
   ContainerServiceStatus,
@@ -123,11 +134,15 @@ async function checkPortReachable(url: string, timeoutMs = 800): Promise<boolean
 }
 
 export async function getContainerStackStatus(): Promise<ContainerStackReport> {
-  const [hasDocker, hasPodman, hasColima] = await Promise.all([
-    checkBinaryExists('docker'),
-    checkBinaryExists('podman'),
-    checkBinaryExists('colima'),
-  ]);
+  const setting = runtimeSetting();
+  const [hasDocker, hasPodman, hasColima] =
+    setting === 'none'
+      ? [false, false, false]
+      : await Promise.all([
+          setting !== 'podman' && checkBinaryExists('docker'),
+          setting !== 'docker' && checkBinaryExists('podman'),
+          setting === 'auto' && checkBinaryExists('colima'),
+        ]);
 
   let activeRuntime: 'docker' | 'podman' | 'none' = hasDocker
     ? 'docker'
@@ -214,7 +229,7 @@ export async function getContainerStackStatus(): Promise<ContainerStackReport> {
     },
     activeRuntime,
     daemonRunning,
-    composeFilePath: path.join(REPO_ROOT, 'docker-compose.yml'),
+    composeFilePath: SERVICES_COMPOSE,
     services,
   };
 }
@@ -224,6 +239,9 @@ export async function runContainerOrchestrationAction(params: {
   serviceId?: string;
   preferredRuntime?: 'docker' | 'podman';
 }): Promise<{ ok: boolean; command: string; output: string }> {
+  if (runtimeSetting() === 'none') {
+    return { ok: false, command: '', output: 'Container management is off here (GLOGG_CONTAINER_RUNTIME=none).' };
+  }
   const status = await getContainerStackStatus();
   const runtime =
     params.preferredRuntime ||
@@ -353,7 +371,7 @@ export async function runContainerOrchestrationAction(params: {
     return { ok: false, command: '', output: 'Invalid action or missing serviceId' };
   }
 
-  const args = ['compose', ...composeSubArgs];
+  const args = ['compose', '-f', SERVICES_COMPOSE, ...composeSubArgs];
   const cmdString = `${runtime} ${args.join(' ')}`;
   try {
     const { stdout, stderr } = await execFileAsync(runtime, args, {
@@ -368,7 +386,7 @@ export async function runContainerOrchestrationAction(params: {
     };
   } catch (err) {
     const standaloneBin = runtime === 'podman' ? 'podman-compose' : 'docker-compose';
-    const fallbackArgs = composeSubArgs.filter((a) => a !== '--quiet-pull');
+    const fallbackArgs = ['-f', SERVICES_COMPOSE, ...composeSubArgs.filter((a) => a !== '--quiet-pull')];
     try {
       const { stdout, stderr } = await execFileAsync(standaloneBin, fallbackArgs, {
         cwd: REPO_ROOT,

@@ -26,8 +26,10 @@ glogg/
 ├── scripts/
 │   ├── glogg-cli.ts           # Terminal CLI (`npm run cli -- search "linux"`)
 │   └── build-extension.ts     # esbuild bundler for the Manifest V3 extension
-├── infra/                     # Self-hosted SearXNG (`settings.yml`) and Bitmagnet (`config.yml`) configs
-├── docker-compose.yml         # Self-hosted stack: Bitmagnet, Kubo IPFS, SearXNG, Prowlarr, NZBHydra2, Tor Proxy
+├── infra/                     # Optional services stack (docker-compose.services.yml), SearXNG and Bitmagnet configs
+├── Dockerfile                 # glogg's image: web app, API and deep index in one container
+├── docker-compose.yml         # glogg with Docker Compose (+ a private SearXNG with --profile searxng)
+├── docker-compose.coolify.yml # glogg on Coolify: HTTPS, generated password, nothing published
 └── tests/                     # Vitest unit & integration test suites
 ```
 

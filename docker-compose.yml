@@ -1,137 +1,51 @@
-name: glogg-meta-stack
+# glogg with Docker Compose.
+#
+#   docker compose up -d                       open http://localhost:4173
+#   docker compose --profile searxng up -d     also run a private SearXNG for web results
+#
+# Settings, keys and the deep index live in the glogg-data volume. glogg answers on
+# this machine only; to reach it from other devices see "Docker" in the README
+# (set GLOGG_PASSWORD first). Optional settings go in a .env file (see .env.example).
+
+name: glogg
 
 services:
-  # 1. SearXNG — Uncensored open-source metasearch engine (safe_search=0, JSON API enabled)
+  glogg:
+    build: .
+    image: glogg:local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${GLOGG_PORT:-4173}:4173"
+    environment:
+      GLOGG_PASSWORD: ${GLOGG_PASSWORD:-}
+      GLOGG_ALLOWED_HOSTS: ${GLOGG_ALLOWED_HOSTS:-}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+    volumes:
+      - glogg-data:/data
+    # Nothing but /data (and a scratch /tmp) is writable, and the process can't gain privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   searxng:
-    image: docker.io/searxng/searxng:latest
-    container_name: glogg-searxng
+    profiles: [searxng]
+    build: ./infra/searxng
+    image: glogg-searxng:local
     restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./infra/searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
-
-  # 2. Bitmagnet — Self-hosted BitTorrent DHT crawler, classifier & GraphQL/Torznab search engine
-  bitmagnet:
-    image: ghcr.io/bitmagnet-io/bitmagnet:latest
-    container_name: glogg-bitmagnet
-    restart: unless-stopped
-    ports:
-      - "3333:3333"
-      - "3334:3334/tcp"
-      - "3334:3334/udp"
-    depends_on:
-      bitmagnet-postgres:
-        condition: service_healthy
-    environment:
-      - POSTGRES_HOST=bitmagnet-postgres
-      - POSTGRES_PASSWORD=postgres
-      - TMDB_ENABLED=false
-    command:
-      - worker
-      - run
-      - --keys=http_server
-      - --keys=queue_server
-      - --keys=dht_crawler
-    volumes:
-      - ./infra/bitmagnet:/root/.config/bitmagnet
-
-  bitmagnet-postgres:
-    image: docker.io/library/postgres:16-alpine
-    container_name: glogg-bitmagnet-db
-    restart: unless-stopped
-    environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=bitmagnet
-      - PGUSER=postgres
-    volumes:
-      - bitmagnet_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # 3. Kubo IPFS — Decentralized IPFS DHT Node, IPNS Resolver & HTTP Gateway
-  ipfs-kubo:
-    image: docker.io/ipfs/kubo:latest
-    container_name: glogg-ipfs
-    restart: unless-stopped
-    ports:
-      - "4001:4001/tcp"
-      - "4001:4001/udp"
-      - "5001:5001"
-      - "8081:8080"
-    volumes:
-      - ipfs_data:/data/ipfs
-
-  # 4. Aria2 Pro RPC — High-Speed Multi-Protocol Download Engine (HTTP/FTP/BitTorrent/Magnet JSON-RPC)
-  aria2-rpc:
-    image: docker.io/p3terx/aria2-pro:latest
-    container_name: glogg-aria2
-    restart: unless-stopped
-    ports:
-      - "6800:6800"
-      - "6888:6888"
-      - "6888:6888/udp"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - RPC_SECRET=glogg-secret
-      - RPC_PORT=6800
-      - LISTEN_PORT=6888
-    volumes:
-      - aria2_config:/config
-      - ./downloads:/downloads
-
-  # 5. NZBHydra2 — Usenet / Newznab meta-search indexer
-  nzbhydra2:
-    image: lscr.io/linuxserver/nzbhydra2:latest
-    container_name: glogg-nzbhydra2
-    restart: unless-stopped
-    ports:
-      - "5076:5076"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=UTC
-    volumes:
-      - nzbhydra_config:/config
-
-  # 6. Prowlarr — Torznab & Newznab Indexer Manager (500+ public & private trackers/usenet)
-  prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
-    container_name: glogg-prowlarr
-    restart: unless-stopped
-    ports:
-      - "9696:9696"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=UTC
-    volumes:
-      - prowlarr_config:/config
-
-  # 7. Nextcloud — Self-Hosted Cloud Storage & WebDAV Target for Glogg Downloads
-  nextcloud:
-    image: docker.io/library/nextcloud:stable-alpine
-    container_name: glogg-nextcloud
-    restart: unless-stopped
-    ports:
-      - "8088:80"
-    environment:
-      - SQLITE_DATABASE=nextcloud
-      - NEXTCLOUD_ADMIN_USER=admin
-      - NEXTCLOUD_ADMIN_PASSWORD=glogg-admin
-    volumes:
-      - nextcloud_data:/var/www/html
+    # No published port: only glogg talks to it.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
-  bitmagnet_pgdata:
-  ipfs_data:
-  aria2_config:
-  nzbhydra_config:
-  prowlarr_config:
-  nextcloud_data:
+  glogg-data:

@@ -51,15 +51,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:perf": "GLOGG_PERF_REPORT=1 vitest run tests/perf.test.tsx",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "services:up": "docker compose -f infra/docker-compose.services.yml up -d",
+    "services:down": "docker compose -f infra/docker-compose.services.yml down"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
     "express": "^5.1.0",
     "lucide-react": "^1.16.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/express": "^5.0.1",
@@ -69,7 +72,6 @@
     "@vitejs/plugin-react": "^4.4.1",
     "esbuild": "^0.25.2",
     "jsdom": "^26.1.0",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.0",
     "vitest": "^3.1.1"

@@ -9,7 +9,8 @@
  * same-origin.
  *
  *   GLOGG_ALLOWED_ORIGINS  extra origins, comma-separated (https://glogg.example.com)
- *   GLOGG_ALLOWED_HOSTS    extra Host names behind a proxy or custom domain; "*" disables the check
+ *   GLOGG_ALLOWED_HOSTS    extra Host names behind a proxy or custom domain, or URLs (https://glogg.example.com,
+ *                          as Coolify's SERVICE_FQDN_* gives them); "*" disables the check
  */
 import net from 'node:net';
 import type { NextFunction, Request, Response } from 'express';
@@ -46,10 +47,20 @@ export function hostName(hostHeader: string): string {
   return h.replace(/:\d+$/, '');
 }
 
+/** "https://glogg.example.com/" → "glogg.example.com"; plain host names pass through. */
+function hostEntry(entry: string): string {
+  if (!entry.includes('://')) return entry;
+  try {
+    return new URL(entry).host;
+  } catch {
+    return entry;
+  }
+}
+
 export function isAllowedHost(hostHeader: string | undefined, env: Env = process.env): boolean {
   // Browsers always send Host, so a request without one isn't a web page.
   if (!hostHeader) return true;
-  const allowed = envList(env.GLOGG_ALLOWED_HOSTS);
+  const allowed = envList(env.GLOGG_ALLOWED_HOSTS).map(hostEntry);
   if (allowed.includes('*')) return true;
   const name = hostName(hostHeader);
   if (name === 'localhost' || name.endsWith('.localhost') || name.endsWith('.local')) return true;

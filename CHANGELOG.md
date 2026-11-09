@@ -5,6 +5,14 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Docker.**
+  - The Dockerfile builds one image with the web app, the API and the deep index. It runs as an unprivileged user, keeps data in `/data`, has a health check and never probes Docker or Podman.
+  - `docker compose up -d` runs glogg on <http://localhost:4173>, with a private SearXNG via `--profile searxng`.
+  - The container's filesystem is read-only except its data volume, it has no Linux capabilities, `no-new-privileges` is on, and the port is published on `127.0.0.1` only.
+- **Coolify.** `docker-compose.coolify.yml` deploys glogg with a generated domain and HTTPS, a generated password, glogg answering only under its domain, no published ports and a private SearXNG.
+- `GLOGG_CONTAINER_RUNTIME` (`auto`, `docker`, `podman`, `none`) for the Services page.
+- `GLOGG_ALLOWED_HOSTS` accepts URLs as well as host names (Coolify's `SERVICE_FQDN_*` includes the scheme).
+- `docs/api.md`, the full HTTP API reference.
 - **More of the deep web in the deep index** (≈45,000 → ≈56,000 sources): imageboards on 2ch (in its own catalog format), leftypol, uboachan, sushigirl, kissu and more of wizchan; ≈9,800 Lemmy communities from Lemmyverse; ≈920 forums from Discourse Discover; 100 Stack Exchange sites; the XXIIVV webring. Every new board was crawled and a thread link from each opened.
 - **b4k and Palanq** archives in chan search.
 - Atlas: filter each tab by where its sources come from (Lemmy, Discourse, Stack Exchange …); mark a source you add as 18+ (in 18+ mode).
@@ -22,6 +30,12 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 - Test suites for quality goldens, research, the search pipeline, security, plugins, plugin tools, client logic, UI flows in jsdom, and speed budgets (`npm run test:perf`); a bundle-size budget in CI (`npm run check:bundle`).
 
 ### Changed
+- **The README is rewritten:** what glogg does, installing with Docker Compose, Coolify or from source, configuration and security, with screenshots.
+- **The optional services stack moved to `infra/docker-compose.services.yml`.**
+  - The root `docker-compose.yml` now runs glogg itself.
+  - `npm run docker:up` builds and starts glogg in Docker; `npm run services:up` starts the optional services.
+  - Their admin and API ports now listen on `127.0.0.1` only: SearXNG, the Bitmagnet API, the IPFS API and gateway, aria2 RPC, Prowlarr, NZBHydra2 and Nextcloud. Before, they were open on every interface with default credentials. Peer-to-peer ports are unchanged.
+- `tsx` is a runtime dependency: `npm start` runs it, so `npm ci --omit=dev && npm start` failed before.
 - **18+ mode is switched on in Settings only, after a confirmation.** The one-click flame button in the header and the switch in the Advanced rail are gone, so a stray click can't turn it on. While it's on, an **18+** pill in the header turns it off with one click; the command palette offers "Turn 18+ off", or opens Settings to turn it on.
 - **Requires Node 22.13+** (was 20): the deep index uses Node's built-in SQLite. Node 20 reached end of life in April 2026; CI already runs 22.
 - **Outgoing connections are IPv4-first with the normal connect timeout.** Node's default gives each address a few hundred milliseconds and failed many parallel requests on networks without IPv6 (measured: 6–31 of 40); with this, 0–3. `GLOGG_HAPPY_EYEBALLS=1` restores Node's default.

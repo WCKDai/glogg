@@ -1,0 +1,16 @@
+# Only what the image build needs: package files, the client sources, the server and plugins.
+.git
+node_modules
+dist
+dist-extension
+downloads
+.tmp
+*.log
+.env
+.env.*
+brand
+docs
+extension
+infra
+scripts
+tests

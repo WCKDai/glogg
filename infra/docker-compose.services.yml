@@ -1,0 +1,141 @@
+# Optional services glogg can use, started and stopped from glogg's Services page
+# (or: docker compose -f infra/docker-compose.services.yml up -d searxng).
+# For glogg itself on a host glogg, not inside the glogg container. Admin and API
+# ports listen on this machine only; peer-to-peer ports (DHT, IPFS swarm) stay open.
+name: glogg-meta-stack
+
+services:
+  # 1. SearXNG — Uncensored open-source metasearch engine (safe_search=0, JSON API enabled)
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: glogg-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+
+  # 2. Bitmagnet — Self-hosted BitTorrent DHT crawler, classifier & GraphQL/Torznab search engine
+  bitmagnet:
+    image: ghcr.io/bitmagnet-io/bitmagnet:latest
+    container_name: glogg-bitmagnet
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3333:3333"
+      - "3334:3334/tcp"
+      - "3334:3334/udp"
+    depends_on:
+      bitmagnet-postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=bitmagnet-postgres
+      - POSTGRES_PASSWORD=postgres
+      - TMDB_ENABLED=false
+    command:
+      - worker
+      - run
+      - --keys=http_server
+      - --keys=queue_server
+      - --keys=dht_crawler
+    volumes:
+      - ./bitmagnet:/root/.config/bitmagnet
+
+  bitmagnet-postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: glogg-bitmagnet-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=bitmagnet
+      - PGUSER=postgres
+    volumes:
+      - bitmagnet_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Kubo IPFS — Decentralized IPFS DHT Node, IPNS Resolver & HTTP Gateway
+  ipfs-kubo:
+    image: docker.io/ipfs/kubo:latest
+    container_name: glogg-ipfs
+    restart: unless-stopped
+    ports:
+      - "4001:4001/tcp"
+      - "4001:4001/udp"
+      - "127.0.0.1:5001:5001"
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+
+  # 4. Aria2 Pro RPC — High-Speed Multi-Protocol Download Engine (HTTP/FTP/BitTorrent/Magnet JSON-RPC)
+  aria2-rpc:
+    image: docker.io/p3terx/aria2-pro:latest
+    container_name: glogg-aria2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6800:6800"
+      - "6888:6888"
+      - "6888:6888/udp"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - RPC_SECRET=glogg-secret
+      - RPC_PORT=6800
+      - LISTEN_PORT=6888
+    volumes:
+      - aria2_config:/config
+      - ../downloads:/downloads
+
+  # 5. NZBHydra2 — Usenet / Newznab meta-search indexer
+  nzbhydra2:
+    image: lscr.io/linuxserver/nzbhydra2:latest
+    container_name: glogg-nzbhydra2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5076:5076"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - nzbhydra_config:/config
+
+  # 6. Prowlarr — Torznab & Newznab Indexer Manager (500+ public & private trackers/usenet)
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: glogg-prowlarr
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9696:9696"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - prowlarr_config:/config
+
+  # 7. Nextcloud — Self-Hosted Cloud Storage & WebDAV Target for Glogg Downloads
+  nextcloud:
+    image: docker.io/library/nextcloud:stable-alpine
+    container_name: glogg-nextcloud
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    environment:
+      - SQLITE_DATABASE=nextcloud
+      - NEXTCLOUD_ADMIN_USER=admin
+      - NEXTCLOUD_ADMIN_PASSWORD=glogg-admin
+    volumes:
+      - nextcloud_data:/var/www/html
+
+volumes:
+  bitmagnet_pgdata:
+  ipfs_data:
+  aria2_config:
+  nzbhydra_config:
+  prowlarr_config:
+  nextcloud_data:

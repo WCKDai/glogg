@@ -23,6 +23,14 @@ describe('request guard: decisions', () => {
     expect(isAllowedHost('other.example', { GLOGG_ALLOWED_HOSTS: 'glogg.example.com' })).toBe(false);
   });
 
+  it("takes URLs too, as Coolify's SERVICE_FQDN_* gives them, without loosening the match", () => {
+    const env = { GLOGG_ALLOWED_HOSTS: 'https://glogg.example.com,https://alt.example.org/' };
+    expect(isAllowedHost('glogg.example.com', env)).toBe(true);
+    expect(isAllowedHost('alt.example.org', env)).toBe(true);
+    expect(isAllowedHost('example.com', env)).toBe(false);
+    expect(isAllowedHost('glogg.example.com.evil.example', env)).toBe(false);
+  });
+
   it.each([
     [undefined, true],
     ['http://localhost:4173', true],

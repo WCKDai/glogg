@@ -1,0 +1,61 @@
+# glogg on Coolify (https://coolify.io), with HTTPS and a password, in a few clicks:
+#
+#   1. New Resource → your Git repository (this one, or your fork).
+#   2. Build Pack: Docker Compose. Docker Compose Location: /docker-compose.coolify.yml
+#   3. Deploy. Coolify gives glogg a domain with HTTPS (change it under the glogg service)
+#      and generates its password: Environment Variables → SERVICE_PASSWORD_GLOGG.
+#
+# Nothing is published on the server's ports: only Coolify's proxy reaches glogg, over
+# HTTPS, and every request needs a session from that password. SearXNG runs privately
+# next to glogg for web results.
+
+services:
+  glogg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      # Coolify: give glogg a domain and route it to port 4173.
+      - SERVICE_FQDN_GLOGG_4173
+      # A password Coolify generates and keeps; every page and API call needs it.
+      - GLOGG_PASSWORD=${SERVICE_PASSWORD_GLOGG}
+      # Answer only under glogg's own domain.
+      - GLOGG_ALLOWED_HOSTS=${SERVICE_FQDN_GLOGG}
+      - SEARXNG_URL=http://searxng:8080
+    volumes:
+      - glogg-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      - searxng
+
+  searxng:
+    build:
+      context: infra/searxng
+    restart: unless-stopped
+    environment:
+      - SEARXNG_SECRET=${SERVICE_PASSWORD_64_SEARXNG}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  glogg-data:

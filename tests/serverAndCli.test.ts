@@ -5,7 +5,7 @@ import {
   DEFAULT_BOOSTED_DOMAINS,
   DEFAULT_SLOP_DOMAINS,
 } from '../src/core/index.js';
-import { getContainerStackStatus, MANAGED_SERVICES } from '../server/containerManager.js';
+import { getContainerStackStatus, MANAGED_SERVICES, runContainerOrchestrationAction } from '../server/containerManager.js';
 import { searchCuratedIndieIndex } from '../server/federatedSearch.js';
 import { createGloggServer } from '../server/index.js';
 import { runCli } from '../scripts/glogg-cli.js';
@@ -156,7 +156,9 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
     expect(report.primarySources.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('inspects Docker / Podman / Colima container stack status and validates all 7 managed services', async () => {
+  it('lists the 7 managed services without touching docker or podman when told not to', async () => {
+    // Hermetic: probing the host's real runtimes took seconds on CI and timed the test out.
+    process.env.GLOGG_CONTAINER_RUNTIME = 'none';
     expect(MANAGED_SERVICES.map((s) => s.id)).toEqual([
       'searxng',
       'bitmagnet',
@@ -167,14 +169,20 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
       'nzbhydra2',
     ]);
 
+    const t = Date.now();
     const stack = await getContainerStackStatus();
+    expect(Date.now() - t).toBeLessThan(1000);
     expect(stack.services.length).toBe(7);
-    expect(stack.composeFilePath).toContain('docker-compose.yml');
+    expect(stack.activeRuntime).toBe('none');
+    expect(stack.runtimes).toEqual({ docker: false, podman: false, colima: false });
+    expect(stack.composeFilePath).toMatch(/infra\/docker-compose\.services\.yml$/);
+    expect((await runContainerOrchestrationAction({ action: 'stack-up' })).output).toContain('GLOGG_CONTAINER_RUNTIME=none');
 
     const apiRes = await fetch(`${baseUrl}/api/containers`);
     expect(apiRes.status).toBe(200);
     const apiStack = (await apiRes.json()) as { services: Array<{ id: string }> };
     expect(apiStack.services.length).toBe(7);
+    delete process.env.GLOGG_CONTAINER_RUNTIME;
   });
 
   it('executes glogg CLI commands (query-plan, atlas, rules) cleanly', async () => {
