@@ -4,6 +4,7 @@
  * quote the best passages when no model is configured.
  */
 import {
+  botWall,
   buildResearchMessages,
   cleanAndAutopsyHtml,
   extractiveAnswer,
@@ -54,7 +55,11 @@ export async function fetchPageHtml(url: string, signal: AbortSignal, timeoutMs:
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const type = res.headers.get('content-type') || '';
     if (type && !/html|xml|text\/plain/i.test(type)) throw new Error(`not a web page (${type.split(';')[0]})`);
-    return await readTextCapped(res, MAX_PAGE_BYTES);
+    const html = await readTextCapped(res, MAX_PAGE_BYTES);
+    // A bot check's words aren't the page's: better unread than quoted.
+    const wall = botWall(html);
+    if (wall) throw new Error(`${wall} check`);
+    return html;
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', onAbort);

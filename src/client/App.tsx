@@ -119,6 +119,12 @@ function readUrlState(): { q: string; scope: SearchLensId | null; view: View } {
   };
 }
 
+/** True when no source answered at all (each failed or ran out of time), as opposed to none matching. */
+function allSourcesFailed(data: RankedSearchResponse): boolean {
+  const asked = Object.values(data.metrics.sourceTimings || {}).filter((t) => t.status !== 'off' && t.status !== 'resting');
+  return asked.length > 0 && asked.every((t) => t.status === 'error' || t.status === 'late');
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -141,6 +147,8 @@ interface SearchOpts {
   keepResearch?: boolean;
   /** Earlier research turns when this search is a follow-up question. */
   history?: ResearchState[];
+  /** The search came from the address (a reload, Back, or the browser's search box), not a click. */
+  fromAddress?: boolean;
 }
 
 export function App() {
@@ -439,7 +447,10 @@ export function App() {
 
       const bang = resolveBang(q, s.customBangs);
       if (bang) {
-        openUrl(bang.url);
+        // From the address bar (glogg as your browser's search engine) there was no click, so a new
+        // tab would be blocked as a popup: go there in this tab instead, as a redirect would.
+        if (opts.fromAddress) window.location.replace(bang.url);
+        else openUrl(bang.url);
         return;
       }
 
@@ -456,6 +467,7 @@ export function App() {
       setActive(0);
       setSourceFilter(null);
       setShowFiltered(false);
+      setRevealed([]);
       setToolRun(null);
       toolAbortRef.current?.abort();
       if (!opts.keepResearch) {
@@ -530,7 +542,9 @@ export function App() {
         if (researchNow) void startResearch(q, res, opts.history ?? []);
       } catch (e) {
         if (ctrl.signal.aborted) return;
-        setError(e instanceof Error ? e.message : 'Search failed');
+        // "Failed to fetch" is the browser's way of saying glogg itself couldn't be reached.
+        const msg = e instanceof Error ? e.message : '';
+        setError(/failed to fetch|networkerror|load failed/i.test(msg) ? "Couldn't reach glogg. Check your connection, then try again." : msg || 'Search failed');
         setData(null);
         if (researchNow) setResearch(null);
       } finally {
@@ -567,14 +581,14 @@ export function App() {
 
   // Initial URL + back/forward
   useEffect(() => {
-    if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, push: false });
+    if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
     else if (initial.view !== 'search') document.title = VIEW_TITLES[initial.view];
     const onPop = () => {
       const { q, scope: sc, view: v } = readUrlState();
       if (v !== 'search') {
         setView(v);
         document.title = VIEW_TITLES[v];
-      } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, push: false });
+      } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
       else {
         stopWork();
         setSubmitted('');
@@ -594,11 +608,14 @@ export function App() {
   const isReleaseScope = RELEASE_SCOPES.includes(scope);
   const blockedSet = useMemo(() => new Set(blocked), [blocked]);
 
+  // Hidden results you asked to see anyway join the end of the list.
+  const [revealed, setRevealed] = useState<string[]>([]);
   const visible = useMemo<ScoredSearchResult[]>(() => {
     if (!data) return [];
-    const base = data.results.filter((r) => !blockedSet.has(r.rootDomain));
+    const shown = data.filteredSlop.filter((r) => revealed.includes(r.id));
+    const base = [...data.results.filter((r) => !blockedSet.has(r.rootDomain)), ...shown];
     return sourceFilter ? base.filter((r) => r.source === sourceFilter) : base;
-  }, [data, blockedSet, sourceFilter]);
+  }, [data, blockedSet, sourceFilter, revealed]);
 
   const releases = useMemo<ScoredSearchResult[]>(() => {
     if (!data) return [];
@@ -617,6 +634,29 @@ export function App() {
 
   const navList = isReleaseScope ? releases : visible;
   const activeItem = navList[active];
+
+  // Moving through results with the keyboard is spoken; hovering isn't.
+  const movedByKey = useRef(false);
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    if (!movedByKey.current || !activeItem) return;
+    movedByKey.current = false;
+    setAnnouncement(`${active + 1} of ${navList.length}: ${activeItem.title}, ${activeItem.domain}`);
+  }, [active, activeItem, navList.length]);
+
+  /** From the reader: the previous or next readable result, without closing it. */
+  const stepReader = useCallback(
+    (delta: -1 | 1) => {
+      for (let i = activeRef.current + delta; i >= 0 && i < navList.length; i += delta) {
+        if (!navList[i].url.startsWith('magnet:')) {
+          setActive(i);
+          setReaderUrl(navList[i].url);
+          return;
+        }
+      }
+    },
+    [navList]
+  );
 
   useEffect(() => {
     if (!activeItem) return;
@@ -686,10 +726,12 @@ export function App() {
   );
 
   const digDeeper = useCallback(() => {
+    // Advanced view stays on, so say so: later searches come with a researched answer too.
+    if (live.current.mode !== 'advanced') toast('Advanced view: searches now come with a researched answer. Press m to switch back.', 'info');
     setMode('advanced');
     const s = live.current;
     if (s.data && s.submitted && !s.research) void startResearch(s.submitted, s.data);
-  }, [setMode, startResearch]);
+  }, [setMode, startResearch, toast]);
 
   const followUp = useCallback(
     (q: string) => {
@@ -740,9 +782,11 @@ export function App() {
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
+        movedByKey.current = true;
         setActive((i) => Math.min(i + 1, navList.length - 1));
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
+        movedByKey.current = true;
         setActive((i) => Math.max(i - 1, 0));
       } else if (e.key === 'Enter' || e.key === 'o') {
         if (e.key === 'Enter' && e.target instanceof HTMLElement && e.target.closest('button, a')) return;
@@ -859,8 +903,11 @@ export function App() {
   const resultsBody = loading ? (
     <ResultsSkeleton />
   ) : error ? (
-    <div style={{ marginTop: 20 }}>
-      <div className="notice notice-error">Search failed: {error}</div>
+    <div className="search-problem" role="alert">
+      <p>{error}</p>
+      <button type="button" className="btn btn-sm" onClick={() => void runSearch(submitted, { push: false })}>
+        Try again
+      </button>
     </div>
   ) : data ? (
     <>
@@ -904,12 +951,24 @@ export function App() {
       {isReleaseScope ? (
         <ReleaseList items={releases} onSend={sendItem} />
       ) : visible.length === 0 ? (
-        <p className="empty">Nothing here. Try another scope, or one of the engines below.</p>
+        allSourcesFailed(data) ? (
+          <div className="search-problem" role="alert">
+            <p>None of the sources answered. They may be down, or this machine may be offline.</p>
+            <button type="button" className="btn btn-sm" onClick={() => void runSearch(submitted, { push: false })}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <p className="empty">
+            No results for “{submitted}”{data.filteredSlop.length > 0 ? `; ${plural(data.metrics.filteredSlopCount || data.filteredSlop.length, 'result')} hidden below` : ''}. Try fewer words, another scope, or one of the engines below.
+          </p>
+        )
       ) : (
-        <div className={`results${prefs.density === 'compact' ? ' compact' : ''}`}>
+        <div className={`results${prefs.density === 'compact' ? ' compact' : ''}`} role="list" aria-label={`${plural(visible.length, 'result')}`}>
           {visible.map((item, i) => (
             <React.Fragment key={item.id}>
               {i === 3 && !sourceFilter && releases.length > 0 && (
+                <div role="listitem">
                 <button type="button" className="banner" onClick={() => switchScope(scope === 'usenet-nzb' ? 'usenet-nzb' : 'p2p-magnet')}>
                   <Magnet size={15} />
                   <span>
@@ -917,6 +976,7 @@ export function App() {
                   </span>
                   <span className="go">View →</span>
                 </button>
+                </div>
               )}
               <ResultItem
                 item={item}
@@ -944,14 +1004,20 @@ export function App() {
           </button>
           {showFiltered && (
             <div className="filtered-list">
-              {data.filteredSlop.slice(0, 40).map((r) => (
-                <div key={r.id} className="filtered-row">
-                  <a href={r.url} target="_blank" rel="noreferrer" className="truncate">
-                    {r.title}
-                  </a>
-                  <span className="why">{r.isSponsored ? 'sponsored' : r.demotedReason || r.verdict.replace(/-/g, ' ')}</span>
-                </div>
-              ))}
+              {data.filteredSlop
+                .filter((r) => !revealed.includes(r.id))
+                .slice(0, 40)
+                .map((r) => (
+                  <div key={r.id} className="filtered-row">
+                    <a href={r.url} target={prefs.newTab ? '_blank' : undefined} rel="noreferrer" className="truncate">
+                      {r.title}
+                    </a>
+                    <span className="why">{r.demotedReason || (r.isSponsored ? 'Sponsored or affiliate' : r.verdict.replace(/-/g, ' '))}</span>
+                    <button type="button" className="link-btn" onClick={() => setRevealed((v) => [...v, r.id])} aria-label={`Show ${r.title} anyway`}>
+                      Show
+                    </button>
+                  </div>
+                ))}
             </div>
           )}
         </>
@@ -1008,9 +1074,14 @@ export function App() {
 
         <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
           <div className="topbar-search">{!isHome && <SearchBox ref={searchRef} {...searchBoxProps} busy={loading || Boolean(toolRun?.loading)} />}</div>
+          {/* Visible on every screen, phones included (they have no status bar). */}
+          {view === 'search' && (loading || refining) && (
+            <div className="search-progress" role="progressbar" aria-label={loading ? 'Searching' : 'Waiting for slower sources'} aria-valuetext={loading ? 'Searching' : 'More results coming'} />
+          )}
           <div className="topbar-tools">
             <button type="button" className="kbd-btn" onClick={() => setPaletteOpen(true)} aria-label="Command palette" title="Command palette">
-              <Command size={12} />K
+              <Command size={12} />
+              <span className="kbd-btn-k">K</span>
             </button>
             <button type="button" className="icon-btn ghost" onClick={toggleTheme} title={isDark ? 'Light theme' : 'Dark theme'} aria-label="Toggle theme">
               {isDark ? <Sun size={16} /> : <Moon size={16} />}
@@ -1019,6 +1090,9 @@ export function App() {
         </header>
 
         <main className="main" id="main" tabIndex={-1}>
+          <div className="sr-only" aria-live="polite">
+            {announcement}
+          </div>
           {isHome && (
             <section className="home">
               <div className="home-head">
@@ -1101,23 +1175,24 @@ export function App() {
                   )}
                 </section>
               </div>
+              {/* Each hint does what it says, for a tap as well as the key. */}
               <div className="home-hint">
-                <span>
+                <button type="button" onClick={() => prefill('!')}>
                   <kbd>!</kbd> other engines
-                </span>
-                <span>
+                </button>
+                <button type="button" onClick={() => prefill('>')}>
                   <kbd>&gt;</kbd> tools
-                </span>
-                <span>
+                </button>
+                <button type="button" onClick={() => setPaletteOpen(true)}>
                   <kbd>⌘</kbd>
                   <kbd>K</kbd> commands
-                </span>
-                <span>
+                </button>
+                <button type="button" onClick={() => switchMode(advanced ? 'simple' : 'advanced')}>
                   <kbd>m</kbd> {advanced ? 'simple' : 'advanced'} view
-                </span>
-                <span>
+                </button>
+                <button type="button" onClick={() => setShortcutsOpen(true)}>
                   <kbd>?</kbd> all shortcuts
-                </span>
+                </button>
               </div>
             </section>
           )}
@@ -1139,11 +1214,13 @@ export function App() {
 
           {view === 'search' && submitted && !toolRun && !advanced && (
             <div className="results-wrap">
+              <h1 className="sr-only">Results for “{submitted}”</h1>
               <nav className="scopes" aria-label="Scopes">
                 {SCOPES.map((s) => (
                   <button
                     key={s.id}
                     type="button"
+                    aria-pressed={scope === s.id}
                     className={`scope ${scope === s.id ? 'active' : ''}`}
                     onClick={() => switchScope(s.id)}
                     title={s.hint}
@@ -1152,6 +1229,7 @@ export function App() {
                   </button>
                 ))}
               </nav>
+              <p className="scope-hint">{SCOPES.find((s) => s.id === scope)?.hint}</p>
               {resultsBody}
             </div>
           )}
@@ -1258,6 +1336,7 @@ export function App() {
             onClose={() => setReaderUrl(null)}
             onNavigate={setReaderUrl}
             onSend={(url, title, target) => void send(url, title, target)}
+            onStep={view === 'search' && navList.length > 1 ? stepReader : undefined}
           />
         )}
 

@@ -111,6 +111,21 @@ function classifyPrimarySourceLink(url: string, domain: string): string | undefi
   return undefined;
 }
 
+/**
+ * The interstitials sites show automated readers instead of the page: bot
+ * checks and access walls. Returned as a name to tell the reader, or null.
+ */
+export function botWall(html: string): string | null {
+  const head = html.slice(0, 20_000);
+  const title = /<title[^>]*>([^<]*)<\/title>/i.exec(head)?.[1].trim().toLowerCase() ?? '';
+  if (title === 'just a moment...' || title === 'attention required! | cloudflare' || /cf-browser-verification|cf_chl_opt|challenge-platform/.test(head)) return 'Cloudflare';
+  if (/ddos-guard/i.test(head) && /checking your browser/i.test(head)) return 'DDoS-Guard';
+  if (/px-captcha|press (&amp;|&) hold/i.test(head)) return 'PerimeterX';
+  if (title === 'access denied' && /akamai|reference&#32;&#35;|errors\.edgesuite\.net/i.test(head)) return 'Akamai';
+  if (/<title[^>]*>\s*(verifying you are human|checking your browser|are you a robot\??)\s*<\/title>/i.test(head)) return 'a bot check';
+  return null;
+}
+
 /** Only links a reader can follow safely: no javascript:, data: or app-launching schemes. */
 const FOLLOWABLE = new Set(['http:', 'https:', 'magnet:']);
 
@@ -290,11 +305,13 @@ function autopsy(rawHtml: string, pageUrl: string): PageAutopsyReport {
     }
 
     const rawText = $(el).text().replace(/\s+/g, ' ').trim();
-    if (!rawText || rawText.length < 15) {
+    const isHeading = tagName === 'h1' || tagName === 'h2' || tagName === 'h3';
+    // Headings are short ("Usage", "Lifetimes"); short paragraphs are mostly chrome.
+    if (!rawText || rawText.length < (isHeading ? 2 : 15)) {
       return;
     }
 
-    if (tagName === 'h1' || tagName === 'h2' || tagName === 'h3') {
+    if (isHeading) {
       currentHeading = rawText;
       sections.push({
         id: `sec-${sectionIndex++}`,

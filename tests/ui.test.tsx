@@ -143,6 +143,8 @@ function installApi() {
         return json({ source: { kind: 'blog', url: body.url } });
       case 'GET /api/auth':
         return json({ required: passwordProtected, authenticated: false });
+      case 'GET /api/directory':
+        return json({ items: [{ title: 'Marginalia Search', url: 'https://marginalia-search.com', domain: 'marginalia-search.com', category: 'search-engines', description: 'Small-web search', tags: ['search'] }] });
       case 'POST /api/auth/login':
         return json({ error: 'Wrong password.' }, 401);
       case 'POST /api/research':

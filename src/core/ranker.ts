@@ -219,13 +219,21 @@ export function diversifyAndRankResults(
   const hasQuery = Boolean(query && query.trim().length > 0);
 
   const analysis = hasQuery ? analyzeQueryIntent(query!) : undefined;
+  const onlySites = config.onlySites ?? [];
+  const excludeSites = config.excludeSites ?? [];
+  const excludeWords = config.excludeWords ?? [];
+  const phrases = (config.phrases ?? []).map((p) => p.toLowerCase());
+  const textOf = (r: RawSearchResult) => `${r.title} ${r.snippet}`.toLowerCase();
+  const onSite = (r: ScoredSearchResult, sites: string[]) => sites.some((s) => r.domain === s || r.domain.endsWith(`.${s}`) || r.rootDomain === s);
   const scored: ScoredSearchResult[] = rawItems.map((raw) => {
     const item = scoreSearchResult(raw, config, query);
     const lensBonus = computeLensBonus(item, config.lens);
     const answerBonus = analysis ? computeAnswerBonus(item, analysis) : 0;
+    // "Exact phrases" you quoted: results that contain them all come first.
+    const phraseBonus = phrases.length > 0 && phrases.every((p) => textOf(item).includes(p)) ? 25 : 0;
     return {
       ...item,
-      netScore: item.netScore + lensBonus + answerBonus,
+      netScore: item.netScore + lensBonus + answerBonus + phraseBonus,
     };
   });
 
@@ -252,11 +260,26 @@ export function diversifyAndRankResults(
     }
     seenIds.add(dedupKey);
 
+    // The query's own operators come first: site:, -site: and -word.
+    if (onlySites.length > 0 && !onSite(item, onlySites)) {
+      filteredSlop.push({ ...item, demotedReason: `Not on ${onlySites.join(' or ')}` });
+      continue;
+    }
+    if (excludeSites.length > 0 && onSite(item, excludeSites)) {
+      filteredSlop.push({ ...item, demotedReason: `On ${item.rootDomain}, which your search leaves out` });
+      continue;
+    }
+    const excludedWord = excludeWords.find((w) => new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'iu').test(textOf(item)));
+    if (excludedWord) {
+      filteredSlop.push({ ...item, demotedReason: `Mentions “${excludedWord}”, which your search leaves out` });
+      continue;
+    }
+
     // Check user explicit block
     if (item.signals.some((s) => s.id === 'user-blocked-domain')) {
       filteredSlop.push({
         ...item,
-        demotedReason: `Blocked domain (${item.rootDomain})`,
+        demotedReason: `You hid ${item.rootDomain}`,
       });
       continue;
     }
@@ -272,7 +295,7 @@ export function diversifyAndRankResults(
       sponsoredRemovedCount += 1;
       filteredSlop.push({
         ...item,
-        demotedReason: `Sponsored / affiliate funnel stripped (${item.rootDomain})`,
+        demotedReason: 'Sponsored or affiliate',
       });
       continue;
     }
@@ -281,7 +304,7 @@ export function diversifyAndRankResults(
     if (item.slopScore > config.slopThreshold || item.verdict === 'slop-farm') {
       filteredSlop.push({
         ...item,
-        demotedReason: `SEO/Slop score ${item.slopScore}/100 exceeds threshold (${config.slopThreshold})`,
+        demotedReason: `Reads like an SEO or AI content farm (junk score ${item.slopScore})`,
       });
       continue;
     }
@@ -290,7 +313,7 @@ export function diversifyAndRankResults(
     if (!config.uncensoredMode && item.isNsfw) {
       filteredSlop.push({
         ...item,
-        demotedReason: `18+ / Uncensored content hidden (Enable 18+ Uncensored Mode to view)`,
+        demotedReason: '18+ (turn on 18+ mode in Settings to see it)',
       });
       continue;
     }
@@ -306,7 +329,7 @@ export function diversifyAndRankResults(
       if (item.relevanceScore < minRequiredRelevance) {
         filteredSlop.push({
           ...item,
-          demotedReason: `Off-topic noise removed (query relevance ${item.relevanceScore}/100 below ${minRequiredRelevance})`,
+          demotedReason: "Doesn't seem to be about your search",
         });
         continue;
       }
@@ -336,7 +359,7 @@ export function diversifyAndRankResults(
     if (config.obscureWebOnly && item.isBigTechMonoculture) {
       filteredSlop.push({
         ...item,
-        demotedReason: `Mega-platform filtered by Independent Web Only mode (${item.rootDomain})`,
+        demotedReason: `A big platform (${item.rootDomain}); you chose independent sites only`,
       });
       continue;
     }
@@ -345,7 +368,7 @@ export function diversifyAndRankResults(
     if ((config.preLlmOnly || config.lens === 'pre-llm') && item.publishedAt && !item.isPreLlm) {
       filteredSlop.push({
         ...item,
-        demotedReason: `Published after Nov 2022 cutoff (${item.publishedAt.slice(0, 10)})`,
+        demotedReason: `Published after Nov 2022 (${item.publishedAt.slice(0, 10)})`,
       });
       continue;
     }
@@ -355,14 +378,17 @@ export function diversifyAndRankResults(
     if (!item.p2p && !item.fediverse && titleFp.split(' ').length >= 4 && seenTitleFingerprints.has(titleFp)) {
       filteredSlop.push({
         ...item,
-        demotedReason: 'Near-duplicate / scraped title already surfaced from primary source',
+        demotedReason: 'A copy of a result shown above',
       });
       continue;
     }
 
     // Check Domain Diversity Cap for web sites
     const currentDomainCount = domainCounts.get(item.rootDomain) ?? 0;
-    const effectiveCap = item.p2p
+    // A site: search wants that site's pages, as many as there are.
+    const effectiveCap = onlySites.length > 0
+      ? 0
+      : item.p2p
       ? Math.max(config.maxPerDomain, 3)
       : item.rootDomain === 'wikipedia.org'
       ? Math.max(config.maxPerDomain, 2)
@@ -376,7 +402,7 @@ export function diversifyAndRankResults(
       filteredSlop.push({
         ...item,
         domainOccurrenceRank: currentDomainCount + 1,
-        demotedReason: `Domain diversity cap (${effectiveCap} max per site for ${item.rootDomain})`,
+        demotedReason: `More from ${item.rootDomain} (${effectiveCap} per site)`,
       });
       continue;
     }

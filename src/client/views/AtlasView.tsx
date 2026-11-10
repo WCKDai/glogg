@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Dices, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
-import { CURATED_INDIE_INDEX, IndieSiteEntry } from '../../core/browser.js';
+import type { IndieSiteEntry } from '../../core/browser.js';
 import { Favicon } from '../components/Favicon.js';
 import { api, plural, relativeDate } from '../lib.js';
 
@@ -132,6 +132,13 @@ export function AtlasView({
   }, []);
   const [status, setStatus] = useState<DeepStatus | null>(null);
   const [counts, setCounts] = useState<DirPage['counts']>({});
+  // The hand-picked sites come from the server, so the app doesn't carry them in every page load.
+  const [picked, setPicked] = useState<IndieSiteEntry[] | null>(null);
+  useEffect(() => {
+    api<{ items: IndieSiteEntry[] }>('/api/directory')
+      .then((r) => setPicked(r.items))
+      .catch(() => setPicked([]));
+  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -167,7 +174,7 @@ export function AtlasView({
         <div>
           <h1>Atlas</h1>
           <p>
-            {CURATED_INDIE_INDEX.length} hand-picked
+            {picked ? `${picked.length} hand-picked` : 'Hand-picked'}
             {total > 0 && (
               <>
                 {' '}
@@ -205,8 +212,37 @@ export function AtlasView({
         ))}
       </div>
 
+      {/* First run: thousands of sources and nothing indexed yet. Say what that means, and offer the start here. */}
+      {tab !== 'picked' && tab !== 'index' && status?.available && !status.crawling && !status.posts && (
+        <div className="notice atlas-first-run" role="note">
+          <p>
+            None of these are in your deep index yet. Build it to search their posts from glogg: it crawls politely in the background, about 3–4 hours and 1–1.5 GB for everything.
+          </p>
+          <div className="row-gap">
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={async () => {
+                try {
+                  await api('/api/deep/crawl', { method: 'POST', json: { action: 'start' } });
+                  onToast?.('Deep index crawling. It keeps going in the background.', 'ok');
+                  await loadStatus();
+                } catch (e) {
+                  onToast?.((e as Error).message, 'error');
+                }
+              }}
+            >
+              Build the deep index
+            </button>
+            <button type="button" className="link-btn" onClick={() => setTab('index')}>
+              More about it
+            </button>
+          </div>
+        </div>
+      )}
+
       {tab === 'picked' ? (
-        <HandPicked onRead={onRead} uncensored={uncensored} />
+        <HandPicked sites={picked ?? []} onRead={onRead} uncensored={uncensored} />
       ) : tab === 'index' ? (
         <DeepIndexPanel status={status} reload={loadStatus} onToast={onToast} uncensored={uncensored} />
       ) : (
@@ -216,14 +252,14 @@ export function AtlasView({
   );
 }
 
-function HandPicked({ onRead, uncensored }: { onRead: (url: string) => void; uncensored: boolean }) {
+function HandPicked({ sites, onRead, uncensored }: { sites: IndieSiteEntry[]; onRead: (url: string) => void; uncensored: boolean }) {
   const [cat, setCat] = useState<string>('all');
   const [q, setQ] = useState('');
   const [seed, setSeed] = useState(0);
 
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const list = CURATED_INDIE_INDEX.filter((s) => {
+    const list = sites.filter((s) => {
       if (!uncensored && s.is18Plus) return false;
       if (cat !== 'all' && s.category !== cat) return false;
       if (!needle) return true;
@@ -231,13 +267,13 @@ function HandPicked({ onRead, uncensored }: { onRead: (url: string) => void; unc
     });
     if (seed === 0) return list;
     return [...list].sort(() => Math.random() - 0.5);
-  }, [cat, q, seed, uncensored]);
+  }, [sites, cat, q, seed, uncensored]);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const s of CURATED_INDIE_INDEX) m[s.category] = (m[s.category] || 0) + 1;
+    for (const s of sites) m[s.category] = (m[s.category] || 0) + 1;
     return m;
-  }, []);
+  }, [sites]);
 
   return (
     <>

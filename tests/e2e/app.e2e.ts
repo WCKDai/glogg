@@ -181,6 +181,7 @@ describe.skipIf(!ready)('in a real browser', () => {
     await browser.waitFor(`document.querySelector('[role="dialog"][aria-label="Reader"]')?.innerText.includes('makes sure every reference')`, 'the cleaned article in the reader');
     const reader = await browser.eval<string>(`document.querySelector('[role="dialog"][aria-label="Reader"]').innerText`);
     expect(reader).toContain('A lifetime is the span of code');
+    expect(reader).toContain('Lifetimes');
     expect(reader).not.toContain('Subscribe');
     await browser.press('Escape');
     await browser.waitFor(`!document.querySelector('[role="dialog"][aria-label="Reader"]')`, 'the reader to close');

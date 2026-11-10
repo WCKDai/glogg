@@ -16,8 +16,9 @@ export function sourceSummary(timings: Record<string, Timing> = {}) {
   // Sources you turned off weren't asked.
   const all = Object.values(timings).filter((t) => t.status !== 'off');
   const answered = all.filter((t) => t.status === 'ok' || t.status === 'empty').length;
-  const late = all.filter((t) => t.status === 'late' || t.status === 'error').length;
-  return { total: all.length, answered, late, resting: all.filter((t) => t.status === 'resting').length };
+  const late = all.filter((t) => t.status === 'late').length;
+  const failed = all.filter((t) => t.status === 'error').length;
+  return { total: all.length, answered, late, failed, resting: all.filter((t) => t.status === 'resting').length };
 }
 
 export function StatusBar({
@@ -77,8 +78,9 @@ export function StatusBar({
           aria-expanded={open}
           title="Which sources answered, and how fast"
         >
-          <span className={`sb-dot ${summary.late ? 'warn' : 'ok'}`} aria-hidden />
+          <span className={`sb-dot ${summary.answered === 0 ? 'bad' : summary.late || summary.failed ? 'warn' : 'ok'}`} aria-hidden />
           {summary.answered}/{summary.total} sources
+          {summary.failed > 0 && <span className="sb-hide-sm">· {summary.failed} failed</span>}
           {summary.late > 0 && <span className="sb-hide-sm">· {summary.late} late</span>}
         </button>
       ) : (

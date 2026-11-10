@@ -143,6 +143,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
               <span className="mono">&gt;{t.tool.trigger}</span>
               <span>{t.tool.name}</span>
               <span className="bang-cat">{t.pluginName}</span>
+              {!t.configured && t.tool.requiresSettings && <span className="bang-cat bang-setup">needs setup</span>}
             </li>
           ))}
           <li className="bang-menu-foot">

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   isSearchLens,
+  botWall,
   cleanAndAutopsyHtml,
   CURATED_INDIE_INDEX,
   CustomEndpointsConfig,
@@ -646,6 +647,16 @@ export async function createGloggServer() {
           },
         });
         const html = await readTextCapped(upstream, 5_000_000);
+        // An error page or a bot check isn't the article: say so rather than "clean" it.
+        if (!upstream.ok) {
+          res.status(502).json({ error: `The page answered ${upstream.status}${upstream.statusText ? ` ${upstream.statusText}` : ''}. Open the original instead.`, status: upstream.status });
+          return;
+        }
+        const wall = botWall(html);
+        if (wall) {
+          res.status(502).json({ error: `This site shows readers like glogg a ${wall} check instead of the page. Open the original instead.`, botWall: wall });
+          return;
+        }
         const report = cleanAndAutopsyHtml(html, parsedUrl.toString());
         res.json(report);
       } finally {

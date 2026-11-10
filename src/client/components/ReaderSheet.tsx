@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Download, ExternalLink, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, ExternalLink, X } from 'lucide-react';
 import type { DownloadTargetId, PageAutopsyReport } from '../../core/browser.js';
-import { api } from '../lib.js';
+import { api, useFocusTrap } from '../lib.js';
 import { Favicon } from './Favicon.js';
 import { SendMenu } from './Results.js';
 
@@ -10,12 +10,16 @@ export function ReaderSheet({
   onClose,
   onNavigate,
   onSend,
+  onStep,
 }: {
   url: string;
   onClose: () => void;
   onNavigate: (url: string) => void;
   onSend: (url: string, title: string, target: DownloadTargetId) => void;
+  /** Read the previous (-1) or next (1) result without closing; absent when there's no list to step through. */
+  onStep?: (delta: -1 | 1) => void;
 }) {
+  const box = useFocusTrap<HTMLElement>();
   const [report, setReport] = useState<PageAutopsyReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showFluff, setShowFluff] = useState(false);
@@ -33,10 +37,17 @@ export function ReaderSheet({
   }, [url]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      // Step through the results from the reader: j/k like on the list, or [ and ].
+      else if (onStep && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target instanceof HTMLInputElement)) {
+        if (e.key === 'j' || e.key === ']') onStep(1);
+        else if (e.key === 'k' || e.key === '[') onStep(-1);
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, onStep]);
 
   let domain = '';
   try {
@@ -51,11 +62,21 @@ export function ReaderSheet({
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className="sheet" role="dialog" aria-label="Reader">
+      <aside className="sheet" role="dialog" aria-modal="true" aria-label="Reader" ref={box} tabIndex={-1}>
         <header className="sheet-bar">
           <Favicon domain={domain} />
           <span className="sheet-domain">{domain}</span>
           <div className="sheet-bar-actions">
+            {onStep && (
+              <>
+                <button type="button" className="icon-btn ghost" onClick={() => onStep(-1)} aria-label="Previous result (k)">
+                  <ChevronUp size={16} />
+                </button>
+                <button type="button" className="icon-btn ghost" onClick={() => onStep(1)} aria-label="Next result (j)">
+                  <ChevronDown size={16} />
+                </button>
+              </>
+            )}
             <SendMenu url={url} onSend={(t) => onSend(url, report?.title || domain, t)} label="Save" />
             <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noreferrer">
               Original <ExternalLink size={12} />

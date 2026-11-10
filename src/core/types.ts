@@ -126,6 +126,8 @@ export interface RawSearchResult {
   author?: string;
   points?: number;
   commentsCount?: number;
+  /** Where people discuss it (a Hacker News thread for a linked story). */
+  discussionUrl?: string;
   tags?: string[];
   isNsfw?: boolean;
   country?: string;
@@ -260,6 +262,11 @@ export interface SearchFilterConfig {
   blockedPhrases: string[];
   /** Sources (keys from SEARCH_SOURCES) a search doesn't ask. */
   disabledSources?: string[];
+  /** From the query's operators (parseQueryOperators): site:, -site:, -word and "phrase". */
+  onlySites?: string[];
+  excludeSites?: string[];
+  excludeWords?: string[];
+  phrases?: string[];
   endpoints?: CustomEndpointsConfig;
 }
 

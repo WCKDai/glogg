@@ -379,6 +379,46 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((p: T)
   return [value, setValue];
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * What a modal overlay does with the keyboard: focus moves into it (unless
+ * something inside already has it), Tab and Shift-Tab stay inside, and when
+ * it closes, focus goes back to where it was. Escape is the overlay's own.
+ */
+export function useFocusTrap<T extends HTMLElement>(): React.RefObject<T | null> {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const inside = () => [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !el.closest('[hidden], [inert]'));
+    if (!box.contains(document.activeElement)) (inside()[0] ?? box).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const all = inside();
+      if (all.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const [first, last] = [all[0], all[all.length - 1]];
+      if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+  return ref;
+}
+
 export function useClickOutside<T extends HTMLElement>(onOutside: () => void, active: boolean) {
   const ref = useRef<T>(null);
   useEffect(() => {

@@ -232,10 +232,10 @@ describe('domain rules', () => {
     await render('/');
     await search();
     const first = $$('article.result')[0];
-    await click(first.querySelector('button[aria-label="More actions"]'));
+    await click(first.querySelector('button[aria-label^="More actions"]'));
     await click(byText('[role="menuitem"]', 'Pin site1.example'));
     expect(stored<string[]>('glogg.pinned')).toEqual(['site1.example']);
-    await click(first.querySelector('button[aria-label="More actions"]'));
+    await click(first.querySelector('button[aria-label^="More actions"]'));
     await click(byText('[role="menuitem"]', 'Hide site1.example'));
     expect(stored<string[]>('glogg.pinned')).toEqual([]);
     expect(stored<string[]>('glogg.blocked')).toContain('site1.example');

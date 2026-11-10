@@ -4,6 +4,21 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Easier to use
+From a fresh UX review of the running app, with screenshots at desktop and phone sizes (`tests/ux.test.tsx`, `tests/ux-server.test.ts`).
+- **Answers cite the right sources.** When an accepted answer took citation [1], every other number shifted while the takeaways kept the old ones, so each pointed one source early. Numbers now follow their source, and a takeaway whose source didn't make the list goes with it.
+- **Search operators work:** `site:sqlite.org` keeps only that site, every page of it; `-site:`, `-word` and `"exact phrase"` too. Sources that don't understand operators get the words; web engines get the query as typed; a `site:` search skips the instant answer.
+- **The reader tells an error page or a bot check from an article** ("The page answered 404", "This site shows readers like glogg a Cloudflare check"), and keeps short headings like "Lifetimes" that it used to drop. Research skips bot checks too. In the reader, j/k (or the arrows in its bar) step to the next or previous result.
+- **Bangs from the address bar redirect** in the same tab, as DuckDuckGo's do, instead of opening a tab the popup blocker stops.
+- **Failures say what happened:** "Couldn't reach glogg" with Try again; "None of the sources answered" instead of blaming the query; the status bar counts failed sources apart from late ones; Downloads shows one line while offline instead of a toast every 4 s.
+- **A progress bar while searching**, on phones too (they have no status bar), and the command palette button stays on phones.
+- **Hacker News stories are one row:** the page linked, with "120 comments" a click away, instead of a "Web" row plus a "Discussion:" row.
+- **Hidden results say why in plain words** ("Doesn't seem to be about your search", "More from sqlite.org (2 per site)"), and **Show** puts one back in the list.
+- **Keyboard and screen readers:** the reader, palette and shortcuts sheet are modal (focus moves in, stays in, and returns where it was); a result's ⋯ menu takes the arrow keys and Escape; results are a list with a heading per title and a page heading; the selected scope is marked; moving with j/k is announced; buttons are named after their result ("Read …", "More actions for …"); the palette input is a labelled combobox; each palette group shows once.
+- The home screen's hints are buttons that do what they say, a line under the scopes says what the selected one searches, "Dig deeper" says it switches to Advanced, tools that need setup say so in `>` suggestions, and Atlas offers to build the deep index on first visit instead of listing 43,000 uncrawled blogs.
+- Touch targets: chips, their ×, scopes and the reader's buttons reach 44 px on touch screens.
+- The hand-picked Atlas sites load from the server instead of with every page (5 KB less script).
+
 ### Make it yours
 - **Settings, reorganized:** an index of its sections stays in view, every switch saves at once, and leaving with unsaved keys asks first.
 - **Junk filter strictness** (relaxed, balanced, strict) and **hidden phrases**: a result mentioning one is hidden, however good it looks otherwise.

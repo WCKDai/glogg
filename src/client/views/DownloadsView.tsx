@@ -25,13 +25,16 @@ export function DownloadsView({
   const targets = useDownloadTargets();
   const labelFor = (t: string) => targetLabel(t, targets);
 
+  // Polling every few seconds: one failure shows as a line on the page, not a toast each time.
+  const [offline, setOffline] = useState(false);
   const load = useCallback(async () => {
     try {
       setReport(await api<DownloadManagerReport>('/api/downloads'));
-    } catch (e) {
-      onToast((e as Error).message, 'error');
+      setOffline(false);
+    } catch {
+      setOffline(true);
     }
-  }, [onToast]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -72,6 +75,11 @@ export function DownloadsView({
 
   return (
     <div className="page">
+      {offline && (
+        <div className="notice notice-error" role="alert">
+          Can't reach glogg right now; trying again every few seconds.
+        </div>
+      )}
       <header className="page-head">
         <h1>Downloads</h1>
         <p>Paste a magnet, .torrent, .nzb or any file URL. glogg routes it to Offcloud, aria2, Nextcloud, or this machine.</p>

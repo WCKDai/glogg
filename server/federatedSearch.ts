@@ -7,6 +7,7 @@ import {
   diversifyAndRankResults,
   GENERIC_ATTRIBUTE_WORDS,
   RankedSearchResponse,
+  parseQueryOperators,
   RankOutput,
   RawSearchResult,
   SearchFilterConfig,
@@ -452,23 +453,24 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
     for (const hit of data.hits ?? []) {
       if (!hit.title) continue;
       const hnThreadUrl = `https://news.ycombinator.com/item?id=${hit.objectID}`;
+      // One row per story: the page it links to, with its discussion a click away.
       if (hit.url && hit.url.startsWith('http')) {
         results.push({
           id: `hn-ext-${hit.objectID}`,
           title: hit.title,
           url: hit.url,
           snippet: `${count(hit.points ?? 0, 'point')} · ${count(hit.num_comments ?? 0, 'comment')} on Hacker News`,
-          source: 'web',
+          source: 'hn',
           publishedAt: hit.created_at,
           author: hit.author,
           points: hit.points,
           commentsCount: hit.num_comments,
+          discussionUrl: hnThreadUrl,
         });
-      }
-      if ((hit.num_comments ?? 0) >= 15 || !hit.url) {
+      } else {
         results.push({
           id: `hn-disc-${hit.objectID}`,
-          title: `Discussion: ${hit.title}`,
+          title: hit.title,
           url: hnThreadUrl,
           snippet:
             hit.story_text?.replace(/<[^>]+>/g, ' ').slice(0, 260) ||
@@ -1169,12 +1171,17 @@ export async function executeFederatedSearch(
   opts: SearchRunOptions = {}
 ): Promise<RankedSearchResponse> {
   const startTime = Date.now();
-  const query = wellFormed(rawQuery).trim();
+  const raw = wellFormed(rawQuery).trim();
+  // site:, -site:, -word and "phrase" are glogg's to apply: most sources would search for them as words.
+  // Web engines still get the query as typed; everything else gets the words.
+  const ops = parseQueryOperators(raw);
+  const query = ops.text || raw;
+  const rankConfig: Partial<SearchFilterConfig> = { ...partialConfig, onlySites: ops.sites, excludeSites: ops.notSites, excludeWords: ops.without, phrases: ops.phrases };
   const uncensoredMode = Boolean(partialConfig?.uncensoredMode);
   const lens = isSearchLens(partialConfig?.lens) ? partialConfig.lens : 'all';
-  const compiledQuery = compileSearchQuery(query, partialConfig);
-  // Answer lookups need only the query, so they run while the sources are searched.
-  const answerLookups = prefetchInstantAnswer(query, { stackexchangeKey: partialConfig?.endpoints?.stackexchangeKey });
+  const compiledQuery = compileSearchQuery(raw, partialConfig);
+  // Answer lookups need only the query, so they run while the sources are searched. A site: search wants that site, not an answer.
+  const answerLookups = ops.sites.length ? null : prefetchInstantAnswer(query, { stackexchangeKey: partialConfig?.endpoints?.stackexchangeKey });
   const analysis = analyzeQueryIntent(query);
   const kwQuery = analysis.keywordQuery || query;
   const wantsWildWest = lens === 'wild-west' || lens === 'forums' || uncensoredMode;
@@ -1210,7 +1217,7 @@ export async function executeFederatedSearch(
   const tasks: Omit<SourceTask, 'core'>[] = [
     { key: 'marginalia', run: () => searchMarginalia(query, kwQuery, partialConfig?.endpoints?.marginaliaApiKey) },
     { key: 'wiby', run: () => searchWiby(query, kwQuery) },
-    { key: 'searxng', run: () => searchSearxngNode(query, partialConfig?.endpoints?.searxngUrl, uncensoredMode) },
+    { key: 'searxng', run: () => searchSearxngNode(raw, partialConfig?.endpoints?.searxngUrl, uncensoredMode) },
     { key: 'lemmy', run: () => searchLemmyFediverse(query, kwQuery) },
     { key: 'fediverse', run: () => executeFediverseSearch(query, uncensoredMode, partialConfig?.endpoints) },
     { key: 'gdelt', run: () => searchGdeltRawNews(query, kwQuery) },
@@ -1221,8 +1228,8 @@ export async function executeFederatedSearch(
     { key: 'se', run: () => searchStackExchange(query, kwQuery, analysis.isTechnical, partialConfig?.endpoints?.stackexchangeKey) },
     { key: 'arxiv', run: () => searchArxiv(query, kwQuery) },
     { key: 'github', run: () => searchGitHub(query, kwQuery, analysis.isTechnical) },
-    { key: 'ddg', run: () => searchDuckDuckGoHtml(query, uncensoredMode) },
-    { key: 'brave', run: () => searchBraveWebHtml(query, uncensoredMode) },
+    { key: 'ddg', run: () => searchDuckDuckGoHtml(raw, uncensoredMode) },
+    { key: 'brave', run: () => searchBraveWebHtml(raw, uncensoredMode) },
     { key: 'p2p', run: () => executeP2PAndUsenetSearch(query, partialConfig?.endpoints, uncensoredMode) },
     { key: 'mwmbl', run: () => searchMwmbl(query, kwQuery) },
   ];
@@ -1244,7 +1251,7 @@ export async function executeFederatedSearch(
 
   const sourceTimings: Record<string, SourceTiming> = {};
   const endpointsSig = createHash('sha1').update(JSON.stringify(partialConfig?.endpoints || {})).digest('hex').slice(0, 12);
-  const cacheKey = (key: string) => `${key}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${query.toLowerCase()}`;
+  const cacheKey = (key: string) => `${key}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${(['ddg', 'brave', 'searxng'].includes(key) ? raw : query).toLowerCase()}`;
   const disabled = new Set(partialConfig?.disabledSources ?? []);
   const runnable = tasks.filter((t) => {
     if (disabled.has(t.key)) {
@@ -1286,7 +1293,8 @@ export async function executeFederatedSearch(
     ];
   };
   const respond = (allRaw: RawSearchResult[], ranked: RankOutput, instantAnswer: RankedSearchResponse['instantAnswer'], partial: boolean): RankedSearchResponse => ({
-    query,
+    // The query as typed, operators and all.
+    query: raw,
     lens,
     uncensoredMode,
     compiledQuery,
@@ -1324,19 +1332,19 @@ export async function executeFederatedSearch(
       onFirstBatch: opts.onPartial
         ? (sofar) => {
             const early = combine(sofar);
-            opts.onPartial!(respond(early, diversifyAndRankResults(early, partialConfig, query), undefined, true));
+            opts.onPartial!(respond(early, diversifyAndRankResults(early, rankConfig, query), undefined, true));
           }
         : undefined,
     }
   );
   const allRaw = combine(got);
 
-  const ranked = diversifyAndRankResults(allRaw, partialConfig, query);
+  const ranked = diversifyAndRankResults(allRaw, rankConfig, query);
   // The answer started with the search; give it what's left of its budget.
   const answerWaitMs = Math.max(50, ANSWER_BUDGET_MS - (Date.now() - startTime));
   let answerTimer: NodeJS.Timeout | undefined;
   const instantAnswer = await Promise.race([
-    buildInstantAnswer(query, ranked.surfaced, answerLookups),
+    answerLookups ? buildInstantAnswer(query, ranked.surfaced, answerLookups) : Promise.resolve(undefined),
     new Promise<undefined>((resolve) => {
       answerTimer = setTimeout(() => resolve(undefined), answerWaitMs);
     }),

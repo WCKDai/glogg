@@ -234,3 +234,47 @@ export function compileSearchQuery(
     escapeUrls,
   };
 }
+
+/** A query's operators, which glogg applies itself (most sources don't understand them). */
+export interface QueryOperators {
+  /** The words to search for: operators taken out, quoted phrases kept as words. */
+  text: string;
+  /** site:example.com — only results from these sites. */
+  sites: string[];
+  /** -site:example.com — never results from these. */
+  notSites: string[];
+  /** -word — no results that mention these. */
+  without: string[];
+  /** "exact phrase" — results containing these go first. */
+  phrases: string[];
+}
+
+export function parseQueryOperators(raw: string): QueryOperators {
+  const ops: QueryOperators = { text: '', sites: [], notSites: [], without: [], phrases: [] };
+  const rest: string[] = [];
+  // Quotes first, so a "-" inside a phrase isn't an exclusion.
+  for (const tok of raw.match(/"[^"]*"?|\S+/g) || []) {
+    if (tok.startsWith('"')) {
+      const phrase = tok.replace(/^"|"$/g, '').trim();
+      if (phrase) {
+        ops.phrases.push(phrase);
+        rest.push(phrase);
+      }
+      continue;
+    }
+    const site = /^(-?)site:([^\s/?#]+)/i.exec(tok);
+    if (site) {
+      const domain = site[2].toLowerCase().replace(/^www\./, '');
+      if (domain.includes('.')) (site[1] ? ops.notSites : ops.sites).push(domain);
+      continue;
+    }
+    // "-word" is an exclusion; "-40f" or "-5" (numbers) stay words.
+    if (/^-\p{L}/u.test(tok) && tok.length > 2) {
+      ops.without.push(tok.slice(1).toLowerCase());
+      continue;
+    }
+    rest.push(tok);
+  }
+  ops.text = rest.join(' ').trim();
+  return ops;
+}

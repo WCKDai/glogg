@@ -395,6 +395,32 @@ export function prefetchInstantAnswer(rawQuery: string, opts: { stackexchangeKey
   return value;
 }
 
+/**
+ * Puts the answer's own source first as [1] and renumbers the others after
+ * it, at most five in all. Each takeaway's number follows its source, and a
+ * takeaway whose source didn't make the list goes with it, so every number
+ * points at the source it quotes.
+ */
+function withPrimary(
+  primary: InstantCitation,
+  citations: InstantCitation[],
+  takeaways: { text: string; citationIndex: number }[]
+): { citations: InstantCitation[]; takeaways: { text: string; citationIndex: number }[] } {
+  const merged: InstantCitation[] = [primary];
+  const renumbered = new Map<number, number>();
+  for (const c of citations) {
+    if (c.url === primary.url) renumbered.set(c.index, 1);
+    else if (merged.length < 5) {
+      merged.push({ ...c, index: merged.length + 1 });
+      renumbered.set(c.index, merged.length);
+    }
+  }
+  return {
+    citations: merged,
+    takeaways: takeaways.flatMap((t) => (renumbered.has(t.citationIndex) ? [{ ...t, citationIndex: renumbered.get(t.citationIndex)! }] : [])),
+  };
+}
+
 export async function buildInstantAnswer(
   rawQuery: string,
   surfacedResults: ScoredSearchResult[],
@@ -426,12 +452,7 @@ export async function buildInstantAnswer(
       domain: new URL(techCandidate.questionUrl).hostname.replace(/^www\./, ''),
       source: 'stackexchange',
     };
-    const mergedCitations: InstantCitation[] = [primaryCitation];
-    for (const c of citations) {
-      if (c.url !== primaryCitation.url && mergedCitations.length < 5) {
-        mergedCitations.push({ ...c, index: mergedCitations.length + 1 });
-      }
-    }
+    const merged = withPrimary(primaryCitation, citations, takeaways);
 
     return {
       kind: 'technical-answer',
@@ -442,11 +463,11 @@ export async function buildInstantAnswer(
         : techCandidate.answerText,
       confidence: 'verified',
       codeBlock: techCandidate.codeBlock,
-      takeaways: takeaways.slice(0, 3),
+      takeaways: merged.takeaways.slice(0, 3),
       primarySourceUrl: techCandidate.questionUrl,
       primarySourceTitle: techCandidate.questionTitle,
       primarySourceDomain: primaryCitation.domain,
-      citations: mergedCitations,
+      citations: merged.citations,
     };
   }
 
@@ -467,12 +488,7 @@ export async function buildInstantAnswer(
       source: 'wikipedia',
     };
 
-    const mergedCitations: InstantCitation[] = [primaryCitation];
-    for (const c of citations) {
-      if (c.url !== primaryCitation.url && mergedCitations.length < 5) {
-        mergedCitations.push({ ...c, index: mergedCitations.length + 1 });
-      }
-    }
+    const merged = withPrimary(primaryCitation, citations, takeaways);
 
     return {
       kind: 'direct-fact',
@@ -482,11 +498,11 @@ export async function buildInstantAnswer(
       confidence: 'verified',
       codeBlock: techCandidate?.codeBlock,
       keyFacts: ddgCandidate?.keyFacts?.length ? ddgCandidate.keyFacts : undefined,
-      takeaways: takeaways.slice(0, 3),
+      takeaways: merged.takeaways.slice(0, 3),
       primarySourceUrl: bestUrl,
       primarySourceTitle: bestTitle,
       primarySourceDomain: primaryCitation.domain,
-      citations: mergedCitations,
+      citations: merged.citations,
     };
   }
 

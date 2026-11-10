@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Search } from 'lucide-react';
 import { BangDefinition, mergeBangs } from '../../core/browser.js';
+import { useFocusTrap } from '../lib.js';
 
 export interface PaletteCommand {
   id: string;
@@ -26,6 +27,7 @@ export function CommandPalette({
   const [hi, setHi] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const box = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => inputRef.current?.focus(), []);
 
@@ -60,7 +62,9 @@ export function CommandPalette({
     const filtered = t
       ? commands.filter((c) => `${c.label} ${c.group} ${c.keywords || ''}`.toLowerCase().includes(t))
       : commands;
-    return [...out, ...filtered];
+    // Each group once, in the order the groups first appear.
+    const groups = [...new Set(filtered.map((c) => c.group))];
+    return [...out, ...groups.flatMap((g) => filtered.filter((c) => c.group === g))];
   }, [text, commands, customBangs, onSearch]);
 
   useEffect(() => setHi(0), [text]);
@@ -78,13 +82,18 @@ export function CommandPalette({
   return (
     <>
       <div className="scrim scrim-soft" onClick={onClose} />
-      <div className="palette" role="dialog" aria-label="Command palette">
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" ref={box}>
         <div className="palette-input">
           <Search size={16} />
           <input
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            aria-label="Search or type a command"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="palette-list"
+            aria-activedescendant={items[hi] ? `palette-${items[hi].id}` : undefined}
             placeholder="Search, jump with !bang, or run a command…"
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
@@ -103,15 +112,20 @@ export function CommandPalette({
           />
           <kbd>esc</kbd>
         </div>
-        <ul className="palette-list" ref={listRef} role="listbox">
+        <ul className="palette-list" ref={listRef} role="listbox" id="palette-list" aria-label="Commands">
           {items.length === 0 && <li className="palette-empty">Nothing matches.</li>}
           {items.map((c, i) => {
             const header = c.group !== lastGroup ? c.group : null;
             lastGroup = c.group;
             return (
               <React.Fragment key={c.id}>
-                {header && <li className="palette-group">{header}</li>}
+                {header && (
+                  <li className="palette-group" role="presentation">
+                    {header}
+                  </li>
+                )}
                 <li
+                  id={`palette-${c.id}`}
                   role="option"
                   aria-selected={i === hi}
                   className={i === hi ? 'active' : ''}

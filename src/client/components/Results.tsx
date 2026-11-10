@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -20,6 +20,7 @@ import type {
 import { Favicon } from './Favicon.js';
 import {
   DOMAIN_RULES,
+  plural,
   relativeDate,
   SOURCE_LABELS,
   urlCrumb,
@@ -206,6 +207,25 @@ export function ResultItem({
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
   const moreRef = useClickOutside<HTMLDivElement>(closeMore, moreOpen);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  // An open menu takes the keyboard: arrows move through it, Escape closes it and returns to its button.
+  useEffect(() => {
+    if (moreOpen) moreRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [moreOpen, moreRef]);
+  const menuKeys = (e: React.KeyboardEvent) => {
+    const items = [...(moreRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') {
+      setMoreOpen(false);
+      moreButton.current?.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      items[e.key === 'Home' ? 0 : items.length - 1]?.focus();
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
   const crumb = urlCrumb(item.url);
   const when = relativeDate(item.publishedAt);
   const isMagnet = item.url.startsWith('magnet:');
@@ -213,6 +233,8 @@ export function ResultItem({
 
   return (
     <article
+      role="listitem"
+      aria-current={active ? 'true' : undefined}
       className={`result ${active ? 'active' : ''}`}
       onMouseEnter={onHover}
       data-result-id={item.id}
@@ -229,9 +251,11 @@ export function ResultItem({
         )}
       </div>
 
-      <a className="result-title" href={item.url} target={newTab ? '_blank' : undefined} rel="noreferrer">
-        {item.title}
-      </a>
+      <h2 className="result-h">
+        <a className="result-title" href={item.url} target={newTab ? '_blank' : undefined} rel="noreferrer">
+          {item.title}
+        </a>
+      </h2>
 
       <p className="result-snippet">{item.snippet}</p>
 
@@ -260,6 +284,14 @@ export function ResultItem({
               {item.p2p.seeders !== undefined && <> · {item.p2p.seeders} seeds</>}
             </>
           )}
+          {item.discussionUrl && /^https?:\/\//.test(item.discussionUrl) && (
+            <>
+              {' · '}
+              <a className="result-discussion" href={item.discussionUrl} target={newTab ? '_blank' : undefined} rel="noreferrer">
+                {item.commentsCount ? plural(item.commentsCount, 'comment') : 'discussion'}
+              </a>
+            </>
+          )}
         </span>
 
         <div className="result-actions">
@@ -267,22 +299,24 @@ export function ResultItem({
             <SendMenu url={item.p2p?.magnetUri || item.p2p?.nzbUrl || item.p2p?.torrentUrl || item.url} onSend={(t) => onSend(item, t)} />
           )}
           {!isMagnet && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRead(item.url)} title="Read clean (r)">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRead(item.url)} title="Read clean (r)" aria-label={`Read ${item.title}`}>
               <BookOpen size={13} /> Read
             </button>
           )}
           <div className="menu-wrap" ref={moreRef}>
             <button
+              ref={moreButton}
               type="button"
               className="icon-btn ghost"
               onClick={() => setMoreOpen((o) => !o)}
-              aria-label="More actions"
+              aria-label={`More actions for ${item.title}`}
+              aria-haspopup="menu"
               aria-expanded={moreOpen}
             >
               <MoreHorizontal size={15} />
             </button>
             {moreOpen && (
-              <div className="menu menu-right" role="menu">
+              <div className="menu menu-right" role="menu" aria-label={`Actions for ${item.rootDomain}`} onKeyDown={menuKeys}>
                 {!downloadable && !isMagnet && (
                   <button type="button" role="menuitem" onClick={() => { onSend(item, 'auto'); setMoreOpen(false); }}>
                     <span>Save page</span>

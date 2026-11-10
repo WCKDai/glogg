@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useFocusTrap } from '../lib.js';
 
 /** Every key glogg answers to, one press of "?" away. */
 const SHORTCUTS: [keys: string[], what: string][] = [
@@ -15,6 +16,7 @@ const SHORTCUTS: [keys: string[], what: string][] = [
 ];
 
 export function Shortcuts({ onClose }: { onClose: () => void }) {
+  const box = useFocusTrap<HTMLDivElement>();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === '?') {
@@ -29,7 +31,7 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="scrim scrim-soft" onClick={onClose} />
-      <div className="palette shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div className="palette shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" ref={box} tabIndex={-1}>
         <h2 id="shortcuts-title">Keyboard shortcuts</h2>
         <dl>
           {SHORTCUTS.map(([keys, what]) => (
