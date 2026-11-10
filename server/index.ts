@@ -69,6 +69,9 @@ async function checkNodeReachable(url: string, timeoutMs = 1000): Promise<boolea
 
 export async function createGloggServer() {
   const app = express();
+  // Only the exact lower-case "/api/…" routes exist. Express would otherwise also route "/API/…",
+  // which the guard's prefix check never sees.
+  app.set('case sensitive routing', true);
   app.use(express.json({ limit: '5mb' }));
   app.use(apiGuard);
   await loadPlugins();

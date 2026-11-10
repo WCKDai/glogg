@@ -105,6 +105,13 @@ describe('request guard: enforced by the server', () => {
     expect(JSON.parse(r.body).error).toContain('GLOGG_ALLOWED_HOSTS');
   });
 
+  it('routes only exact lower-case API paths, so "/API/…" can\'t slip past the guard', async () => {
+    for (const p of ['/API/plugins', '/Api/plugins', '/api/PLUGINS', '/API/integrations']) {
+      const r = await rawRequest(port, { path: p, headers: { Host: `evil.example:${port}`, Origin: `http://evil.example:${port}` } });
+      expect(r.body).not.toMatch(/"plugins"|"config"/);
+    }
+  });
+
   it('serves glogg itself, the CLI and extensions', async () => {
     const same = await rawRequest(port, { path: '/api/plugins', headers: { Origin: `http://127.0.0.1:${port}` } });
     expect(same.status).toBe(200);
