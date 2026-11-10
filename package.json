@@ -51,6 +51,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:perf": "GLOGG_PERF_REPORT=1 vitest run tests/perf.test.tsx",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
