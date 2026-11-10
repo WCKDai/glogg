@@ -3,6 +3,8 @@
  * Works at the start or end of a query: "!w turing" or "turing !w".
  * Users can add their own; custom bangs override built-ins with the same trigger.
  */
+import { wellFormed } from './text.js';
+
 export interface BangDefinition {
   trigger: string; // without the "!"
   name: string;
@@ -87,7 +89,8 @@ export function mergeBangs(custom: BangDefinition[] = []): BangDefinition[] {
 }
 
 /** Returns a redirect target if the query contains a known !bang, otherwise null. */
-export function resolveBang(rawQuery: string, custom: BangDefinition[] = []): BangMatch | null {
+export function resolveBang(input: string, custom: BangDefinition[] = []): BangMatch | null {
+  const rawQuery = wellFormed(input);
   const m = rawQuery.match(BANG_TOKEN);
   if (!m) return null;
   const trigger = m[1].toLowerCase();

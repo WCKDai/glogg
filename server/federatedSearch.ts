@@ -11,6 +11,7 @@ import {
   SearchFilterConfig,
   SearchLensId,
   SourceConnectorId,
+  wellFormed,
 } from '../src/core/index.js';
 import { createHash } from 'node:crypto';
 import { buildInstantAnswer, prefetchInstantAnswer, stackExchangeKeyParam } from './answerEngine.js';
@@ -1100,7 +1101,7 @@ export async function executeFederatedSearch(
   partialConfig?: Partial<SearchFilterConfig>
 ): Promise<RankedSearchResponse> {
   const startTime = Date.now();
-  const query = rawQuery.trim();
+  const query = wellFormed(rawQuery).trim();
   const uncensoredMode = Boolean(partialConfig?.uncensoredMode);
   const lens = partialConfig?.lens ?? 'all';
   const compiledQuery = compileSearchQuery(query, partialConfig);

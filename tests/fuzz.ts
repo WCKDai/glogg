@@ -21,6 +21,8 @@ export function rng(seed: number): Rng {
 
 export const BASE_SEED = Number(process.env.GLOGG_FUZZ_SEED) || 0x9106;
 export const RUNS = Number(process.env.GLOGG_FUZZ_RUNS) || 300;
+/** Test timeout that grows with RUNS, for the heavier properties. */
+export const TIMEOUT = Math.max(5_000, RUNS * 25);
 
 export const int = (r: Rng, min: number, max: number) => min + Math.floor(r() * (max - min + 1));
 export const pick = <T>(r: Rng, items: readonly T[]): T => items[Math.floor(r() * items.length)];

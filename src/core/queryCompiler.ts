@@ -1,4 +1,5 @@
 import { DEFAULT_SLOP_DOMAINS } from './curatedLists.js';
+import { wellFormed } from './text.js';
 import { CompiledQueryPlan, SearchFilterConfig, SearchLensId } from './types.js';
 
 const CORE_NEGATIVE_DOMAINS = [
@@ -18,7 +19,7 @@ export function compileSearchQuery(
   rawQuery: string,
   config?: Partial<SearchFilterConfig>
 ): CompiledQueryPlan {
-  const trimmed = rawQuery.trim();
+  const trimmed = wellFormed(rawQuery).trim();
   const lens: SearchLensId = config?.lens ?? 'all';
   const preLlm = Boolean(config?.preLlmOnly || lens === 'pre-llm');
 

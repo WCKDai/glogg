@@ -23,24 +23,31 @@ export interface ParsedFeed {
 
 const SUMMARY_MAX = 600;
 
-export function htmlToText(html: string, max = SUMMARY_MAX): string {
-  if (!html) return '';
-  const text = cheerio
-    .load(`<div>${html.replace(/<br\s*\/?>/gi, ' ').replace(/<\/(p|div|li|h\d)>/gi, ' ')}</div>`)
-    .text()
-    .replace(/\s+/g, ' ')
-    .trim();
+/** Plain text of a fragment from a feed or catalog. Anything but a string (malformed JSON) reads as empty. */
+export function htmlToText(html: unknown, max = SUMMARY_MAX): string {
+  if (typeof html !== 'string' || !html) return '';
+  let text: string;
+  try {
+    const $ = cheerio.load(`<div>${html.replace(/<br\s*\/?>/gi, ' ').replace(/<\/(p|div|li|h\d)>/gi, ' ')}</div>`);
+    // Their contents are code or markup, not words.
+    $('script, style, noscript, iframe, template, textarea').remove();
+    text = $.text().replace(/\s+/g, ' ').trim();
+  } catch (e) {
+    // Thousands of nested elements overflow the parser's recursion: no summary rather than no feed.
+    if (e instanceof RangeError) return '';
+    throw e;
+  }
   return text.length > max ? `${text.slice(0, max).replace(/\s+\S*$/, '')}…` : text;
 }
 
-function toTime(value?: string): number | undefined {
-  if (!value) return undefined;
+function toTime(value?: unknown): number | undefined {
+  if (typeof value !== 'string' || !value) return undefined;
   const t = Date.parse(value.trim());
   return Number.isFinite(t) ? t : undefined;
 }
 
-function absolute(href: string | undefined, base: string): string | undefined {
-  if (!href) return undefined;
+function absolute(href: unknown, base: string): string | undefined {
+  if (typeof href !== 'string' || !href) return undefined;
   try {
     const u = new URL(href.trim(), base);
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : undefined;
@@ -107,7 +114,8 @@ export function parseJsonFeed(data: unknown, feedUrl: string): ParsedFeed {
   };
   const siteUrl = absolute(f?.home_page_url, feedUrl);
   const posts: DeepPost[] = [];
-  for (const it of f?.items || []) {
+  for (const it of Array.isArray(f?.items) ? f.items : []) {
+    if (!it || typeof it !== 'object') continue;
     const url = absolute(it.url || it.external_url, siteUrl || feedUrl);
     if (!url) continue;
     posts.push({

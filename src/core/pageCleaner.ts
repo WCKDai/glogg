@@ -111,7 +111,20 @@ function classifyPrimarySourceLink(url: string, domain: string): string | undefi
   return undefined;
 }
 
+/** Only links a reader can follow safely: no javascript:, data: or app-launching schemes. */
+const FOLLOWABLE = new Set(['http:', 'https:', 'magnet:']);
+
 export function cleanAndAutopsyHtml(rawHtml: string, pageUrl: string): PageAutopsyReport {
+  try {
+    return autopsy(rawHtml, pageUrl);
+  } catch (e) {
+    // The HTML parser walks the page recursively, so a few thousand nested elements overflow the stack.
+    if (e instanceof RangeError) throw new Error('This page is nested too deeply to clean. Open the original instead.');
+    throw e;
+  }
+}
+
+function autopsy(rawHtml: string, pageUrl: string): PageAutopsyReport {
   const rawHtmlBytes = Buffer.byteLength(rawHtml, 'utf8');
   const $ = cheerio.load(rawHtml);
   const { domain, rootDomain } = extractDomainInfo(pageUrl);
@@ -143,9 +156,10 @@ export function cleanAndAutopsyHtml(rawHtml: string, pageUrl: string): PageAutop
   let rssFeedUrl = rssEl.attr('href');
   if (rssFeedUrl) {
     try {
-      rssFeedUrl = new URL(rssFeedUrl, pageUrl).toString();
+      const feed = new URL(rssFeedUrl, pageUrl);
+      rssFeedUrl = feed.protocol === 'http:' || feed.protocol === 'https:' ? feed.toString() : undefined;
     } catch {
-      // keep raw
+      rssFeedUrl = undefined;
     }
   }
 
@@ -185,19 +199,15 @@ export function cleanAndAutopsyHtml(rawHtml: string, pageUrl: string): PageAutop
   $('a[href]').each((_, el) => {
     const rawHref = ($(el).attr('href') || '').trim();
     const linkText = $(el).text().replace(/\s+/g, ' ').trim();
-    if (
-      !rawHref ||
-      rawHref.startsWith('#') ||
-      rawHref.startsWith('javascript:') ||
-      rawHref.startsWith('mailto:') ||
-      linkText.length < 2
-    ) {
+    if (!rawHref || rawHref.startsWith('#') || linkText.length < 2) {
       return;
     }
 
     let resolvedUrl: string;
     try {
-      resolvedUrl = new URL(rawHref, pageUrl).toString();
+      const resolved = new URL(rawHref, pageUrl);
+      if (!FOLLOWABLE.has(resolved.protocol)) return;
+      resolvedUrl = resolved.toString();
     } catch {
       return;
     }
