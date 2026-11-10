@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { OutputAction, OutputBlock, PluginCategory, PluginField, ToolResult, Tone } from '../../core/browser.js';
-import { copyText } from '../lib.js';
+import { copyText, useLater } from '../lib.js';
 import type { ToolRef } from '../lib.js';
 import { Markdown } from './Markdown.js';
 
@@ -190,6 +190,7 @@ function toneClass(tone?: Tone): string {
 
 function CopyButton({ text, onCopied }: { text: string; onCopied?: () => void }) {
   const [done, setDone] = useState(false);
+  const later = useLater();
   return (
     <button
       type="button"
@@ -200,7 +201,7 @@ function CopyButton({ text, onCopied }: { text: string; onCopied?: () => void })
         copyText(text);
         setDone(true);
         onCopied?.();
-        setTimeout(() => setDone(false), 1200);
+        later(() => setDone(false), 1200);
       }}
     >
       {done ? <Check size={13} /> : <Copy size={13} />}

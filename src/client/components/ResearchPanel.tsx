@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowUp, Check, Copy, RotateCcw, Sparkles } from 'lucide-react';
-import { copyText } from '../lib.js';
+import { copyText, useLater } from '../lib.js';
 import { Favicon } from './Favicon.js';
 import type { ResearchState } from '../lib.js';
 import { Markdown } from './Markdown.js';
@@ -24,6 +24,7 @@ function Turn({
   onRetry?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const later = useLater();
   const busy = state.stage !== 'done' && state.stage !== 'error';
   return (
     <div className="research-turn">
@@ -42,7 +43,7 @@ function Turn({
                 const refs = state.sources.map((s) => `[${s.index}]: ${s.url}`).join('\n');
                 copyText(`${state.answer}\n\n${refs}`);
                 setCopied(true);
-                setTimeout(() => setCopied(false), 1400);
+                later(() => setCopied(false), 1400);
               }}
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}

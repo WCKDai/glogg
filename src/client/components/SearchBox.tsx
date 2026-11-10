@@ -1,7 +1,7 @@
 import React, { forwardRef, useMemo, useState } from 'react';
 import { ArrowRight, CornerDownLeft, Search, Wrench, X } from 'lucide-react';
 import { BangDefinition, parseToolTrigger, resolveBang, suggestBangs } from '../../core/browser.js';
-import { suggestTools } from '../lib.js';
+import { suggestTools, useLater } from '../lib.js';
 import type { ToolRef } from '../lib.js';
 
 interface Props {
@@ -22,6 +22,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
   ref
 ) {
   const [focused, setFocused] = useState(false);
+  const later = useLater();
   const [hi, setHi] = useState(0);
   const toolSuggestions = useMemo(() => (focused ? suggestTools(tools, value) : []), [value, tools, focused]);
   const suggestions = useMemo(
@@ -100,7 +101,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
           setHi(0);
         }}
         onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 120)}
+        onBlur={() => later(() => setFocused(false), 120)}
         onKeyDown={onKeyDown}
         placeholder="Search anything, !bang or >tool"
         autoFocus={autoFocus}

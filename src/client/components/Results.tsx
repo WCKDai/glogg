@@ -22,6 +22,7 @@ import {
   urlCrumb,
   useClickOutside,
   useDownloadTargets,
+  useLater,
 } from '../lib.js';
 
 // ── Answer ─────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export function SendMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const later = useLater();
   const close = useCallback(() => setOpen(false), []);
   const ref = useClickOutside<HTMLDivElement>(close, open);
   const targets = useDownloadTargets();
@@ -159,7 +161,7 @@ export function SendMenu({
             onClick={() => {
               void navigator.clipboard?.writeText(url);
               setCopied(true);
-              setTimeout(() => setCopied(false), 1400);
+              later(() => setCopied(false), 1400);
             }}
           >
             <span>{copied ? 'Copied' : 'Copy link'}</span>

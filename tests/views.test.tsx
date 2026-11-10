@@ -2924,3 +2924,30 @@ describe('found by these tests, and fixed', () => {
     expect($('.sheet [aria-busy="true"]')).toBeTruthy();
   });
 });
+
+describe('nothing left running after a view goes away', () => {
+  it('useLater runs what is due, and drops what is still pending when the component unmounts', async () => {
+    const { useLater } = await import('../src/client/lib.js');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const fired: string[] = [];
+      let later!: (fn: () => void, ms: number) => void;
+      function Probe() {
+        later = useLater();
+        return null;
+      }
+      await mount(<Probe />);
+      later(() => fired.push('soon'), 50);
+      later(() => fired.push('later'), 500);
+      await act(async () => vi.advanceTimersByTime(60));
+      expect(fired).toEqual(['soon']);
+      // The search box's blur, a "Copied" or a toast scheduled like this used to fire after the view
+      // was gone (on CI: after the test's window was torn down).
+      await unmount();
+      await act(async () => vi.advanceTimersByTime(1000));
+      expect(fired).toEqual(['soon']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

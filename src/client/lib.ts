@@ -375,13 +375,39 @@ export interface Toast {
   tone?: 'ok' | 'error' | 'info';
 }
 
+/**
+ * setTimeout for a component: callbacks still pending when it unmounts are
+ * dropped, so a "Copied" or a closing menu never updates a component that's gone.
+ */
+export function useLater(): (fn: () => void, ms: number) => void {
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const t of pending) clearTimeout(t);
+      pending.clear();
+    };
+  }, []);
+  return useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timers.current.delete(t);
+      fn();
+    }, ms);
+    timers.current.add(t);
+  }, []);
+}
+
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((text: string, tone: Toast['tone'] = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t.slice(-2), { id, text, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3600);
-  }, []);
+  const later = useLater();
+  const push = useCallback(
+    (text: string, tone: Toast['tone'] = 'info') => {
+      const id = Date.now() + Math.random();
+      setToasts((t) => [...t.slice(-2), { id, text, tone }]);
+      later(() => setToasts((t) => t.filter((x) => x.id !== id)), 3600);
+    },
+    [later]
+  );
   return { toasts, push };
 }
 
