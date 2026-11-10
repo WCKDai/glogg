@@ -55,8 +55,8 @@
     "test:perf": "GLOGG_PERF_REPORT=1 vitest run tests/perf.test.tsx",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
-    "services:up": "docker compose -f infra/docker-compose.services.yml up -d",
-    "services:down": "docker compose -f infra/docker-compose.services.yml down"
+    "services:up": "tsx scripts/services.ts up -d",
+    "services:down": "tsx scripts/services.ts down"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

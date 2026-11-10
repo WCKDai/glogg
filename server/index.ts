@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,8 +51,10 @@ import {
   USER_PLUGIN_DIR,
 } from './plugins/runtime.js';
 import { configureNetwork } from './net.js';
+import { publicFetch, readTextCapped } from './publicFetch.js';
 import { runResearch } from './research.js';
-import { apiGuard } from './security.js';
+import { apiGuard, contentSecurityPolicy, securityHeaders } from './security.js';
+import { isIconDomain, siteIcon } from './favicons.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -82,6 +85,15 @@ export function checkSearchConfig(input: unknown): { config: Partial<SearchFilte
   if (!isSearchLens(c.lens)) delete c.lens;
   return { config: c as Partial<SearchFilterConfig> };
 }
+
+/** Which stored secrets belong to which service address. */
+const SECRET_OWNERS: [keyof CustomEndpointsConfig, (keyof CustomEndpointsConfig)[]][] = [
+  ['torznabUrl', ['torznabApiKey']],
+  ['newznabUrl', ['newznabApiKey']],
+  ['nzbLifeUrl', ['nzbLifeApiKey']],
+  ['nextcloudUrl', ['nextcloudUser', 'nextcloudAppPassword']],
+  ['aria2RpcUrl', ['aria2RpcSecret']],
+];
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 GloggReader/0.3';
 
@@ -104,12 +116,25 @@ export async function createGloggServer() {
   // which the guard's prefix check never sees.
   app.set('case sensitive routing', true);
   app.set('trust proxy', trustProxySetting(process.env.GLOGG_TRUST_PROXY));
+  app.disable('x-powered-by');
+  const isProd = process.env.NODE_ENV === 'production';
+  const distPath = path.resolve(__dirname, '../dist');
+  // The built page gets a policy matching its scripts; Vite's dev server injects its own, so it gets none.
+  let csp: string | undefined;
+  try {
+    if (isProd) csp = contentSecurityPolicy(fs.readFileSync(path.join(distPath, 'index.html'), 'utf8'));
+  } catch {
+    csp = contentSecurityPolicy('');
+  }
+  app.use(securityHeaders(csp));
   app.use(express.json({ limit: '5mb' }));
   // A password, when set, comes first: without a session nothing else answers, not even the public routes.
   const password = configuredPassword();
+  const home = process.env.GLOGG_HOME || path.join(os.homedir(), '.glogg');
   const auth = createAuth({
     password,
-    secret: password ? sessionSecret(process.env.GLOGG_HOME || path.join(os.homedir(), '.glogg')) : Buffer.alloc(32),
+    secret: password ? sessionSecret(home) : Buffer.alloc(32),
+    revokedFile: password ? path.join(home, 'revoked-sessions.json') : undefined,
   });
   app.use(auth.middleware);
   app.use(apiGuard);
@@ -243,15 +268,25 @@ export async function createGloggServer() {
     res.json({ config: maskConfig(saveIntegrationConfig(patch as CustomEndpointsConfig)) });
   });
 
-  /** Client endpoints win, but secrets saved server-side fill in the gaps. */
+  /**
+   * Client endpoints win, but secrets saved server-side fill in the gaps. A
+   * stored key only goes with the address it was saved for: a request naming
+   * another indexer gets no key, so it can't collect yours.
+   */
   const mergeEndpoints = (config?: Partial<SearchFilterConfig>): Partial<SearchFilterConfig> => {
     const stored = loadIntegrationConfig();
-    const clientEndpoints = Object.fromEntries(
+    const clientEndpoints: CustomEndpointsConfig = Object.fromEntries(
       Object.entries(config?.endpoints || {}).filter(
         ([, v]) => typeof v === 'string' && v.trim() !== '' && !v.startsWith('••••')
       )
     );
-    return { ...config, endpoints: { ...stored, ...clientEndpoints } };
+    const merged: CustomEndpointsConfig = { ...stored, ...clientEndpoints };
+    for (const [urlKey, secretKeys] of SECRET_OWNERS) {
+      const asked = clientEndpoints[urlKey]?.trim().replace(/\/+$/, '');
+      if (!asked || asked === stored[urlKey]?.trim().replace(/\/+$/, '')) continue;
+      for (const k of secretKeys) if (!clientEndpoints[k]) delete merged[k];
+    }
+    return { ...config, endpoints: merged };
   };
 
   app.post('/api/search', async (req, res) => {
@@ -387,7 +422,7 @@ export async function createGloggServer() {
       return;
     }
     try {
-      res.json({ source: await addUserSource(url, fetch, { nsfw: req.body?.nsfw === true }) });
+      res.json({ source: await addUserSource(url, undefined, { nsfw: req.body?.nsfw === true }) });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Could not add that source' });
     }
@@ -454,10 +489,26 @@ export async function createGloggServer() {
     }
   });
 
+  // Result icons come through glogg, so the browser never tells a third party which sites you're looking at.
+  app.get('/api/favicon/:domain', async (req, res) => {
+    const domain = req.params.domain;
+    if (!isIconDomain(domain)) {
+      res.status(400).end();
+      return;
+    }
+    const icon = await siteIcon(domain);
+    res.setHeader('Cache-Control', 'private, max-age=604800');
+    if (!icon.body) {
+      res.status(404).end();
+      return;
+    }
+    res.type(icon.type).send(icon.body);
+  });
+
   app.get('/opensearch.xml', (req, res) => {
-    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers.host || 'localhost:4173';
-    const baseUrl = `${proto}://${host}`;
+    // req.protocol believes X-Forwarded-Proto only from a trusted proxy; a Host that isn't a plain name:port isn't echoed.
+    const host = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(req.headers.host || '') ? req.headers.host! : 'localhost:4173';
+    const baseUrl = `${req.protocol === 'https' ? 'https' : 'http'}://${host}`;
     res.setHeader('Content-Type', 'application/opensearchdescription+xml; charset=utf-8');
     res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
@@ -540,14 +591,15 @@ export async function createGloggServer() {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 7500);
       try {
-        const upstream = await fetch(parsedUrl.toString(), {
+        // Public addresses only, and at most 5 MB of the page.
+        const upstream = await publicFetch(parsedUrl.toString(), {
           signal: controller.signal,
           headers: {
             'User-Agent': USER_AGENT,
             Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           },
         });
-        const html = await upstream.text();
+        const html = await readTextCapped(upstream, 5_000_000);
         const report = cleanAndAutopsyHtml(html, parsedUrl.toString());
         res.json(report);
       } finally {
@@ -559,7 +611,6 @@ export async function createGloggServer() {
     }
   });
 
-  const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -568,7 +619,6 @@ export async function createGloggServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, '../dist');
     app.use(express.static(distPath));
     app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -583,12 +633,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 4173);
   createGloggServer()
     .then((app) => {
-      app.listen(port, process.env.HOST || '0.0.0.0', () => {
+      // This machine only, unless HOST says otherwise (the Docker image listens on all interfaces).
+      const host = process.env.HOST || '127.0.0.1';
+      app.listen(port, host, () => {
         console.log(`glogg engine listening on http://localhost:${port}`);
         const password = configuredPassword();
         if (password) {
           console.log('Password protection is on.');
           if (password.length < 12) console.warn('GLOGG_PASSWORD is shorter than 12 characters; use a longer one on a public address.');
+        } else if (!process.env.GLOGG_IN_CONTAINER && !['127.0.0.1', 'localhost', '::1'].includes(host)) {
+          console.warn(`glogg answers anyone who can reach ${host}:${port}, with no password. Set GLOGG_PASSWORD, or HOST=127.0.0.1 to keep it on this machine.`);
         }
         // Pick up a deep-index crawl you started before the last restart.
         resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));

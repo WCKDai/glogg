@@ -34,8 +34,9 @@ describe('request guard: decisions', () => {
   it.each([
     [undefined, true],
     ['http://localhost:4173', true],
-    ['chrome-extension://abcdefghijklmnop', true],
-    ['moz-extension://1234-5678', true],
+    // Any installed extension could otherwise use your keys; list your own in GLOGG_ALLOWED_ORIGINS.
+    ['chrome-extension://abcdefghijklmnop', false],
+    ['moz-extension://1234-5678', false],
     ['http://localhost:9999', false],
     ['https://evil.example', false],
     ['null', false],
@@ -44,8 +45,10 @@ describe('request guard: decisions', () => {
     expect(isAllowedOrigin(origin, 'localhost:4173', {})).toBe(ok);
   });
 
-  it('allows extra origins from the environment', () => {
+  it('allows extra origins from the environment, extensions included', () => {
     expect(isAllowedOrigin('https://glogg.example.com', 'localhost:4173', { GLOGG_ALLOWED_ORIGINS: 'https://glogg.example.com' })).toBe(true);
+    expect(isAllowedOrigin('chrome-extension://abcdefghijklmnop', 'localhost:4173', { GLOGG_ALLOWED_ORIGINS: 'chrome-extension://abcdefghijklmnop' })).toBe(true);
+    expect(isAllowedOrigin('chrome-extension://otherextension', 'localhost:4173', { GLOGG_ALLOWED_ORIGINS: 'chrome-extension://abcdefghijklmnop' })).toBe(false);
   });
 
   it('refuses cross-site requests that carry no Origin', () => {
@@ -120,14 +123,21 @@ describe('request guard: enforced by the server', () => {
     }
   });
 
-  it('serves glogg itself, the CLI and extensions', async () => {
+  it('serves glogg itself and the CLI, and an extension only when you list it', async () => {
     const same = await rawRequest(port, { path: '/api/plugins', headers: { Origin: `http://127.0.0.1:${port}` } });
     expect(same.status).toBe(200);
     const cli = await rawRequest(port, { path: '/api/plugins' });
     expect(cli.status).toBe(200);
-    const ext = await rawRequest(port, { path: '/api/plugins', headers: { Origin: 'chrome-extension://abcdefghijklmnop' } });
-    expect(ext.status).toBe(200);
-    expect(ext.headers['access-control-allow-origin']).toBe('chrome-extension://abcdefghijklmnop');
+    const stranger = await rawRequest(port, { path: '/api/plugins', headers: { Origin: 'chrome-extension://abcdefghijklmnop' } });
+    expect(stranger.status).toBe(403);
+    process.env.GLOGG_ALLOWED_ORIGINS = 'chrome-extension://abcdefghijklmnop';
+    try {
+      const listed = await rawRequest(port, { path: '/api/plugins', headers: { Origin: 'chrome-extension://abcdefghijklmnop' } });
+      expect(listed.status).toBe(200);
+      expect(listed.headers['access-control-allow-origin']).toBe('chrome-extension://abcdefghijklmnop');
+    } finally {
+      delete process.env.GLOGG_ALLOWED_ORIGINS;
+    }
   });
 
   it('never returns stored secrets to the browser', async () => {

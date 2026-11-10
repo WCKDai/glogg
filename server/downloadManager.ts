@@ -1,8 +1,12 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { once } from 'node:events';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { promisify } from 'node:util';
 import {
   CustomEndpointsConfig,
@@ -32,7 +36,6 @@ const SECRET_KEYS: (keyof CustomEndpointsConfig)[] = [
 
 const DEFAULT_CONFIG: CustomEndpointsConfig = {
   aria2RpcUrl: 'http://localhost:6800/jsonrpc',
-  aria2RpcSecret: 'glogg-secret',
   nzbLifeUrl: 'https://api.nzb.life/api',
   nextcloudFolder: 'glogg',
 };
@@ -56,6 +59,19 @@ function writeJson(file: string, data: unknown): void {
 
 export function loadIntegrationConfig(): CustomEndpointsConfig {
   return { ...DEFAULT_CONFIG, ...readJson<CustomEndpointsConfig>(CONFIG_PATH, {}) };
+}
+
+/**
+ * The secret for the aria2 that glogg's services stack runs, made once per
+ * install. A fixed one would let any web page you visit drive aria2 on
+ * localhost:6800, since aria2 answers whoever knows it.
+ */
+export function aria2Secret(): string {
+  const saved = loadIntegrationConfig().aria2RpcSecret;
+  if (saved) return saved;
+  const secret = randomBytes(24).toString('base64url');
+  saveIntegrationConfig({ aria2RpcSecret: secret });
+  return secret;
 }
 
 /** Never ship secrets back to the browser. */
@@ -117,19 +133,60 @@ export function detectKind(url: string): DownloadJob['kind'] {
   return 'web-archive';
 }
 
-function filenameFor(url: string, title: string, kind: DownloadJob['kind']): string {
-  const safeTitle = title.replace(/[^\w.\- ()[\]]+/g, '_').slice(0, 120).trim() || 'download';
+/** A name that stays a name: no folders, control characters or leading dots. */
+export function safeFileName(name: string): string {
+  const base = name.replace(/[\u0000-\u001f\u007f]/g, '').split(/[\\/]/).pop() ?? '';
+  return base.replace(/^[.\s]+/, '').slice(0, 160).trim();
+}
+
+export function filenameFor(url: string, title: string, kind: DownloadJob['kind']): string {
+  const safeTitle = safeFileName(title.replace(/[^\w.\- ()[\]]+/g, '_').slice(0, 120)) || 'download';
   if (kind === 'nzb') return safeTitle.endsWith('.nzb') ? safeTitle : `${safeTitle}.nzb`;
   if (kind === 'torrent') return safeTitle.endsWith('.torrent') ? safeTitle : `${safeTitle}.torrent`;
   if (kind === 'magnet') return `${safeTitle}.magnet`;
   try {
-    const base = path.basename(new URL(url).pathname);
-    if (base && base.includes('.')) return decodeURIComponent(base).slice(0, 160);
+    // Decoded before it's cleaned, so "..%2F" in an address can't climb out of the folder.
+    const base = safeFileName(decodeURIComponent(new URL(url).pathname.split('/').pop() || ''));
+    if (base.includes('.')) return base;
   } catch {
     // fall through
   }
   return `${safeTitle}.html`;
 }
+
+/**
+ * Streams a response into `dir` under `name`, never outside it and never over
+ * an existing file: a taken name becomes "name (1).ext". A failed transfer
+ * leaves nothing behind.
+ */
+export async function saveNew(dir: string, name: string, res: Response): Promise<string> {
+  const root = path.resolve(dir);
+  const ext = path.extname(name);
+  const stem = name.slice(0, name.length - ext.length);
+  for (let n = 0; n < 1000; n++) {
+    const dest = path.resolve(root, n ? `${stem} (${n})${ext}` : name);
+    if (path.dirname(dest) !== root) throw new Error('Refusing a file name that leaves the downloads folder');
+    const out = fs.createWriteStream(dest, { flags: 'wx' });
+    try {
+      await once(out, 'open');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw e;
+    }
+    try {
+      if (res.body) await pipeline(Readable.fromWeb(res.body as unknown as WebReadableStream), out);
+      else out.end();
+    } catch (e) {
+      out.destroy();
+      fs.rmSync(dest, { force: true });
+      throw e;
+    }
+    return dest;
+  }
+  throw new Error(`Too many files named ${name}`);
+}
+
+const BUILTIN_TARGETS = new Set(['auto', 'offcloud', 'nextcloud', 'aria2-rpc', 'local-vault']);
 
 async function timedFetch(url: string, init: RequestInit = {}, ms = 8000): Promise<Response> {
   const c = new AbortController();
@@ -154,7 +211,7 @@ async function jsonFrom<T>(res: Response, service: string): Promise<T> {
 // ── aria2 JSON-RPC ──────────────────────────────────────────────────────────
 async function aria2Call<T>(cfg: CustomEndpointsConfig, method: string, params: unknown[]): Promise<T> {
   const url = cfg.aria2RpcUrl || 'http://localhost:6800/jsonrpc';
-  const token = cfg.aria2RpcSecret ? [`token:${cfg.aria2RpcSecret}`] : [];
+  const token = [`token:${cfg.aria2RpcSecret || aria2Secret()}`];
   const res = await timedFetch(
     url,
     {
@@ -295,6 +352,9 @@ export async function enqueueDownload(params: {
   if (!/^(https?:|magnet:)/i.test(url)) {
     throw new Error('Only http(s) and magnet: URLs are supported');
   }
+  if (params.target && !BUILTIN_TARGETS.has(params.target) && !/^plugin:[\w-]+$/.test(params.target)) {
+    throw new Error(`Unknown download target "${String(params.target).slice(0, 40)}"`);
+  }
   const kind = detectKind(url);
   const title = params.title?.trim() || url.slice(0, 80);
   const aria2Up = await isAria2Reachable(cfg);
@@ -361,10 +421,9 @@ export async function enqueueDownload(params: {
         job.statusDetail = 'Handed to your default torrent client';
       } else {
         fs.mkdirSync(LOCAL_DOWNLOADS_DIR, { recursive: true });
-        const filename = filenameFor(url, title, kind);
-        const dest = path.join(LOCAL_DOWNLOADS_DIR, filename);
-        fs.writeFileSync(dest, await fetchBytes(url));
-        job.destinationUrl = dest;
+        const res = await timedFetch(url, { headers: { 'User-Agent': 'glogg/0.4' } }, 60000);
+        if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+        job.destinationUrl = await saveNew(LOCAL_DOWNLOADS_DIR, filenameFor(url, title, kind), res);
         job.status = 'completed';
         job.progressPercent = 100;
         job.statusDetail =

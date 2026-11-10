@@ -94,6 +94,8 @@ npm install
 npm run dev     # http://localhost:4173, reloads as you edit
 ```
 
+Run this way, glogg answers on this machine only. To use it from your phone or another computer, set `HOST=0.0.0.0` and `GLOGG_PASSWORD`.
+
 `npm run build && npm start` runs the production build. Run that way, glogg can also start optional services next to it from its **Services** page:
 
 - SearXNG
@@ -180,9 +182,10 @@ Everything is optional. In Docker, put these in `.env` (see [`.env.example`](./.
 | `GLOGG_PASSWORD` | unset | Require this password to use glogg; see [Security](#security) |
 | `GLOGG_PASSWORD_FILE` | unset | Read the password from a file, such as a Docker secret |
 | `GLOGG_ALLOWED_HOSTS` | | Host names or URLs glogg may be reached under, besides `localhost` and IP addresses (`*` turns the check off) |
-| `GLOGG_ALLOWED_ORIGINS` | | Other origins allowed to call the API |
-| `GLOGG_TRUST_PROXY` | private networks | Proxies whose `X-Forwarded-For` / `-Proto` glogg believes (Express syntax: `1`, `true`, a subnet) |
-| `HOST`, `PORT` | `0.0.0.0`, `4173` | Where glogg listens (from source; Docker publishes on `127.0.0.1`) |
+| `GLOGG_ALLOWED_ORIGINS` | | Other origins allowed to call the API, such as `chrome-extension://<id>` for an extension of your own |
+| `GLOGG_TRUST_PROXY` | `loopback` (`uniquelocal` in the Docker setups) | Proxies whose `X-Forwarded-For` / `-Proto` glogg believes (Express syntax: `1`, `true`, a subnet) |
+| `GLOGG_ALLOW_PRIVATE_FETCH` | unset | `1` lets the reader, research and the deep index fetch private and local addresses |
+| `HOST`, `PORT` | `127.0.0.1`, `4173` | Where glogg listens; set `HOST=0.0.0.0` (and a password) to reach it from other devices. The Docker image listens on all interfaces and Compose publishes on `127.0.0.1` |
 | `GLOGG_HOME` | `~/.glogg` (`/data` in Docker) | Settings, keys, plugins and the deep index |
 | `GLOGG_DOWNLOADS_DIR` | `~/Downloads/glogg` | Where Send saves files when nothing else is set up |
 | `SEARXNG_URL` | `http://localhost:8080` | Your SearXNG (Docker Compose sets its own) |
@@ -213,20 +216,25 @@ A search asks every source at once and returns as soon as the main sources for t
 
 glogg holds your keys (debrid, cloud storage, AI) and can run tools, so it guards its API.
 
-**On your own machine** it needs no password, but other websites can't use it:
+**On your own machine** it needs no password, but other websites and other devices can't use it:
 
-- The API answers glogg itself, browser extensions and local tools (curl, the CLI). Requests from other sites are refused.
-- A `Host` check stops DNS-rebinding pages from posing as glogg.
-- Docker Compose publishes glogg on `127.0.0.1` only.
+- glogg listens on `127.0.0.1` unless you set `HOST`, and Docker Compose publishes it on `127.0.0.1` only.
+- The API answers glogg itself and local tools (curl, the CLI). Other sites may only search, with GET; everything else from them is refused, and so are browser extensions unless you list one in `GLOGG_ALLOWED_ORIGINS`.
+- A `Host` check stops DNS-rebinding pages from posing as glogg, whatever the case of the path.
+- Pages, feeds and research sources are fetched only from public addresses, checked at every redirect, so a search result or a directory entry can't make glogg read your router, a cloud metadata service or services on this machine (`GLOGG_ALLOW_PRIVATE_FETCH=1` allows it).
+- Your browser talks to glogg alone: site icons come through glogg, and no page sends a `Referer`, so the sites you open never see your search.
+- The page runs under a Content Security Policy that allows only glogg's own code, and can't be framed.
+- Downloads stay in the downloads folder whatever the link's name, and never replace a file.
+- aria2 in the services stack gets a random secret per install, so no web page can drive it.
 
 **On a network or a public address, set a password** (`GLOGG_PASSWORD`, or `GLOGG_PASSWORD_FILE`). The Coolify setup does this for you.
 
 - Every route except health and sign-in then needs a session, including search.
-- Sessions are HttpOnly, SameSite=Strict cookies, Secure over HTTPS, valid for 30 days. They're signed with a key derived from the password and a random secret in glogg's data folder, so changing the password signs everyone out.
+- Sessions are HttpOnly, SameSite=Strict cookies, Secure over HTTPS, valid for 30 days. They're signed with a key derived from the password and a random secret in glogg's data folder, so changing the password signs everyone out. Signing out revokes that session, so a copied cookie stops working too.
 - Ten wrong passwords lock an address out for 15 minutes.
 - If the password file can't be read, glogg refuses to start rather than run open.
 
-Behind a reverse proxy, glogg believes forwarded addresses only from private-network proxies, so the rate limit can't be dodged from outside.
+glogg believes a forwarded client address (`X-Forwarded-For`) only from a proxy on the same machine, so nobody on your network can dodge the sign-in limit by sending their own. The Docker setups trust the proxy in front of glogg; set `GLOGG_TRUST_PROXY` if yours is elsewhere.
 
 Page text is treated as untrusted: Research tells the model never to follow instructions found in sources. To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 

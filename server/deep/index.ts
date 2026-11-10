@@ -25,6 +25,7 @@ import {
   sourcesFromWebring,
 } from './sources.js';
 import { DeepStore, openDeepStore } from './store.js';
+import { publicFetch } from '../publicFetch.js';
 import type { SourceInput, SourceRow } from './store.js';
 
 const RESEED_MS = 7 * 24 * 60 * 60_000;
@@ -251,7 +252,7 @@ export async function randomDeep(opts: { nsfw?: boolean; kinds?: DeepKind[] } = 
  * whose feed can be discovered. `nsfw` keeps it behind the 18+ switch.
  * Returns the stored source.
  */
-export async function addUserSource(raw: string, fetchImpl: typeof fetch = fetch, opts: { nsfw?: boolean } = {}): Promise<SourceRow> {
+export async function addUserSource(raw: string, fetchImpl: typeof fetch = (input, init) => publicFetch(input as string, init), opts: { nsfw?: boolean } = {}): Promise<SourceRow> {
   const s = await getDeepStore();
   if (!s) throw new Error(unavailable);
   let url: URL;

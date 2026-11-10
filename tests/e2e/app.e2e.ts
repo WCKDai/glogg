@@ -234,13 +234,28 @@ describe.skipIf(!ready)('in a real browser', () => {
     }
   });
 
-  it('nothing but favicons is fetched from anywhere but this glogg', async () => {
+  it('fetches nothing from anywhere but this glogg, site icons included', async () => {
     thirdParty.length = 0;
     await search(QUERY);
+    await browser.waitFor(`[...document.querySelectorAll('.favicon img')].length > 0 || document.querySelectorAll('.favicon').length > 0`, 'result icons');
     await browser.goto(`${glogg.url}/atlas`);
     await browser.waitFor('document.querySelector("main")');
-    const others = thirdParty.filter((u) => !u.startsWith('https://icons.duckduckgo.com/'));
-    expect(others).toEqual([]);
+    expect(thirdParty).toEqual([]);
+  });
+
+  it('runs under a Content Security Policy without breaking it', async () => {
+    const headers = await browser.eval<Record<string, string>>(`fetch('/').then((r) => Object.fromEntries(r.headers))`);
+    expect(headers['content-security-policy']).toMatch(/script-src 'self' 'sha256-[^']+'/);
+    expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(headers['referrer-policy']).toBe('no-referrer');
+    expect(headers['x-content-type-options']).toBe('nosniff');
+    await search(QUERY);
+    await browser.click('article.result:has(a.result-title[href^="https://tiny.example/"]) button[title^="Read clean"]');
+    await browser.waitFor(`document.querySelector('[role="dialog"][aria-label="Reader"]')?.innerText.includes('makes sure every reference')`, 'the reader');
+    await browser.press('Escape');
+    // The theme script ran (it's allowed by its hash), and nothing was refused.
+    expect(await browser.eval(`document.documentElement.classList.contains('light') || document.documentElement.classList.contains('dark')`)).toBe(true);
+    expect(browser.errors).toEqual([]);
   });
 });
 

@@ -10,6 +10,7 @@ import { discoverFeeds, isDiscourse, parseChanCatalog, parseFeed, parseJsonFeed 
 import type { DeepPost } from './parse.js';
 import { hostOf, INTERVAL_MIN } from './sources.js';
 import type { DeepStore, SourceRow } from './store.js';
+import { publicFetch } from '../publicFetch.js';
 
 export const CRAWLER_UA = 'glogg-deep/0.4 (+https://github.com/WCKDai/glogg; self-hosted feed reader)';
 const MINUTE = 60_000;
@@ -116,7 +117,8 @@ export class DeepCrawler {
 
   constructor(store: DeepStore, opts: CrawlerOptions = {}) {
     this.store = store;
-    this.fetchImpl = opts.fetch ?? fetch;
+    // Feeds come from public directories, so only public addresses are crawled.
+    this.fetchImpl = opts.fetch ?? ((input, init) => publicFetch(input as string, init));
     this.now = opts.now ?? Date.now;
     this.concurrency = opts.concurrency ?? 6;
     this.hostGapMs = opts.hostGapMs ?? 1000;

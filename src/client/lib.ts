@@ -273,7 +273,8 @@ export function copyText(text: string): void {
 }
 
 export function faviconUrl(domain: string): string {
-  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
+  // Through glogg, so the icon service never learns which sites are on your results page.
+  return `/api/favicon/${encodeURIComponent(domain)}`;
 }
 
 export function urlCrumb(url: string): string {

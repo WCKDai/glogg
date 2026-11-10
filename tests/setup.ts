@@ -6,6 +6,9 @@
  */
 const realFetch = globalThis.fetch;
 
+// Fixtures live on 127.0.0.1, so glogg may fetch private addresses here; tests of that guard turn it back off.
+process.env.GLOGG_ALLOW_PRIVATE_FETCH ??= '1';
+
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 export function isLocalUrl(input: string | URL | Request): boolean {

@@ -4,6 +4,22 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Security
+A security review found these; each now has a test that failed before its fix (`tests/hardening.test.ts`, `tests/auth.test.ts`, `tests/security.test.ts`).
+- **Critical:** `/API/...` in capitals reached the API past the request guard and the password, because Express matched routes regardless of case. Routing is now case-sensitive (fixed in the import PR), and both checks ignore case.
+- **Stored indexer keys stay home.** A cross-site `POST /api/search` could name its own Torznab/Newznab address and receive your stored key. Cross-site search is GET only, and a stored key only goes to the address it was saved with.
+- **Downloads stay in their folder.** A link ending in `..%2Fname` was decoded after the folder check and written outside the downloads folder. Names are cleaned after decoding, saves stream to disk, never replace a file, and unknown targets are refused.
+- **glogg listens on this machine by default** (`HOST=127.0.0.1`) instead of every interface; it warns when it's reachable without a password.
+- **The sign-in limit can't be dodged** with a made-up `X-Forwarded-For`: only a proxy on the same machine is believed by default. The Docker setups trust the proxy in front of glogg.
+- **Queries are text, never patterns.** "what is the capital of (a+)+$" was compiled into a regular expression and run over every result: an unbalanced `(` failed the search and nested quantifiers took exponential time.
+- **Sign-out revokes the session**, so a copied cookie stops working, also after a restart. Each sign-in is now its own session (tokens issued in the same second used to be identical).
+- **Private addresses are off limits** for the reader, research and the deep index: a search result or directory entry pointing at `169.254.169.254`, `localhost` or your LAN is refused, at every redirect (`GLOGG_ALLOW_PRIVATE_FETCH=1` allows it). The reader reads at most 5 MB of a page.
+- **Your browser talks to glogg alone.** Site icons come through glogg (`/api/favicon/:domain`), so the icon service no longer sees which sites are on your results page; `Referrer-Policy: no-referrer` keeps your search out of the sites you open.
+- **Headers:** a Content Security Policy allowing only glogg's own code (the inline theme script by hash), `nosniff`, no framing, `Cross-Origin-Opener-Policy`, and no `X-Powered-By`.
+- **Browser extensions** are no longer trusted wholesale (glogg's own extension doesn't use the API); list one in `GLOGG_ALLOWED_ORIGINS`.
+- **aria2** in the services stack gets a random secret per install instead of a fixed one any web page could use. `npm run services:up` and the Services page pass it along; restart aria2 there once to pick it up.
+- The OpenSearch descriptor no longer echoes an odd `Host` or `X-Forwarded-Proto`.
+- CI pins `actions/setup-node` to a commit.
 ### Tests
 - **Hermetic:** a test can't reach the internet (a fetch to anything but this machine fails at once, naming it), and each run keeps its temporary homes in one folder that it removes; 466 leftover folders had piled up in `.tmp/`.
 - **Property tests** on seeded random input (`tests/properties.test.ts`, `tests/fuzz.ts`): the query compiler, bangs, scorer, ranker, instant answers (checked against arithmetic), the reader and the deep-index parsers on hostile HTML/XML/JSON, Markdown, the request guard and sessions. They found five bugs, fixed here: a half-emoji query failed the search, a deeply nested page crashed the reader, odd link schemes (`JAVASCRIPT:`, `ms-msdt:`) got through, scripts and styles leaked into feed summaries, and one malformed item broke a whole JSON feed.

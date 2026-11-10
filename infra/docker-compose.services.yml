@@ -83,7 +83,8 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - RPC_SECRET=glogg-secret
+      # Made by glogg for this install: start the stack from glogg (Services) or `npm run services:up`.
+      - RPC_SECRET=${ARIA2_RPC_SECRET:?start this stack from glogg or with npm run services:up, which set aria2's secret}
       - RPC_PORT=6800
       - LISTEN_PORT=6888
     volumes:

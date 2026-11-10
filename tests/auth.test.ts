@@ -25,13 +25,19 @@ describe('sessions', () => {
 
   it('rejects tampered tokens, and tokens from another secret or an old password', () => {
     const token = auth.issue();
-    const [expires, mac] = token.split('.');
-    expect(auth.verify(`${Number(expires) + 86_400}.${mac}`)).toBe(false);
-    expect(auth.verify(`${expires}.${mac.slice(0, -1)}${mac.endsWith('A') ? 'B' : 'A'}`)).toBe(false);
+    const [expires, nonce, mac] = token.split('.');
+    expect(auth.verify(`${Number(expires) + 86_400}.${nonce}.${mac}`)).toBe(false);
+    expect(auth.verify(`${expires}.${nonce}.${mac.slice(0, -1)}${mac.endsWith('A') ? 'B' : 'A'}`)).toBe(false);
+    expect(auth.verify(`${expires}.${nonce.slice(0, -1)}${nonce.endsWith('A') ? 'B' : 'A'}.${mac}`)).toBe(false);
+    expect(auth.verify(`${expires}.${mac}`)).toBe(false);
     expect(auth.verify('')).toBe(false);
     expect(auth.verify(undefined)).toBe(false);
     expect(createAuth({ password: PASSWORD, secret: Buffer.alloc(32, 8), now: () => now }).verify(token)).toBe(false);
     expect(createAuth({ password: 'a different password', secret, now: () => now }).verify(token)).toBe(false);
+  });
+
+  it('makes every sign-in a different session, even within a second', () => {
+    expect(auth.issue()).not.toBe(auth.issue());
   });
 
   it('checks the password exactly', () => {
@@ -68,7 +74,7 @@ describe('configuration', () => {
   });
 
   it.each([
-    [undefined, 'loopback, linklocal, uniquelocal'],
+    [undefined, 'loopback'],
     ['1', 1],
     ['false', false],
     ['10.0.0.0/8', '10.0.0.0/8'],
@@ -117,12 +123,29 @@ describe('a password-protected server', () => {
     expect(ok.status).toBe(204);
     const setCookie = String(ok.headers['set-cookie']);
     // No Secure flag over plain HTTP, or the browser would drop the cookie.
-    expect(setCookie).toMatch(/^glogg_session=\d+\.[\w-]{43}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=2592000$/);
+    expect(setCookie).toMatch(/^glogg_session=\d+\.[\w-]{22}\.[\w-]{43}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=2592000$/);
     const cookie = setCookie.split(';')[0];
     expect((await request('/api/plugins', { headers: { Cookie: cookie } })).status).toBe(200);
     expect(JSON.parse((await request('/api/auth', { headers: { Cookie: cookie } })).body)).toEqual({ required: true, authenticated: true });
     const out = await request('/api/auth/logout', { method: 'POST', headers: { Cookie: cookie } });
     expect(String(out.headers['set-cookie'])).toMatch(/^glogg_session=; .*Max-Age=0/);
+    // Signing out revokes the session: a copy of the cookie no longer works.
+    expect((await request('/api/plugins', { headers: { Cookie: cookie } })).status).toBe(401);
+  });
+
+  it('keeps a signed-out session revoked after a restart', async () => {
+    const cookie = String((await signIn(PASSWORD)).headers['set-cookie']).split(';')[0];
+    await request('/api/auth/logout', { method: 'POST', headers: { Cookie: cookie } });
+    const again = await startGloggServer();
+    try {
+      const r = await rawRequest(again.port, { path: '/api/plugins', headers: { Host: `127.0.0.1:${again.port}`, Cookie: cookie } });
+      expect(r.status).toBe(401);
+      const fresh = String((await signIn(PASSWORD)).headers['set-cookie']).split(';')[0];
+      expect((await rawRequest(again.port, { path: '/api/plugins', headers: { Host: `127.0.0.1:${again.port}`, Cookie: fresh } })).status).toBe(200);
+    } finally {
+      await again.close();
+    }
+    expect(fs.statSync(path.join(home, 'revoked-sessions.json')).mode & 0o777).toBe(0o600);
   });
 
   it('marks the cookie Secure behind an HTTPS proxy', async () => {

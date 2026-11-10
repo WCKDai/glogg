@@ -3,19 +3,25 @@
  *
  * glogg runs on your machine and holds your keys (debrid, cloud storage, AI),
  * and any page you visit can send requests to localhost. So apart from a few
- * read-only public routes, the API only answers glogg itself (same origin),
- * browser extensions, clients that send no Origin (the CLI, curl, scripts) and
- * origins you allow. The Host check stops DNS-rebinding pages from posing as
- * same-origin.
+ * read-only public routes (GET only), the API only answers glogg itself (same
+ * origin), clients that send no Origin (the CLI, curl, scripts) and origins
+ * you allow, browser extensions included. The Host check stops DNS-rebinding
+ * pages from posing as same-origin.
  *
- *   GLOGG_ALLOWED_ORIGINS  extra origins, comma-separated (https://glogg.example.com)
+ *   GLOGG_ALLOWED_ORIGINS  extra origins, comma-separated (https://glogg.example.com,
+ *                          chrome-extension://<id> for an extension of your own)
  *   GLOGG_ALLOWED_HOSTS    extra Host names behind a proxy or custom domain, or URLs (https://glogg.example.com,
  *                          as Coolify's SERVICE_FQDN_* gives them); "*" disables the check
  */
+import crypto from 'node:crypto';
 import net from 'node:net';
 import type { NextFunction, Request, Response } from 'express';
 
-/** Read-only routes any site may call: OpenSearch, suggestions, the Atlas, health. */
+/**
+ * Read-only routes any site may call, with GET: OpenSearch, suggestions, the
+ * Atlas, health. Only GET, because a POST to /api/search can carry indexer
+ * addresses, and glogg would send your stored keys along to them.
+ */
 const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/health$/,
   /^\/api\/search$/,
@@ -25,7 +31,7 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/opensearch\.xml$/,
 ];
 
-const EXTENSION_PROTOCOLS = new Set(['chrome-extension:', 'moz-extension:', 'safari-web-extension:']);
+const PUBLIC_METHODS = new Set(['GET', 'HEAD']);
 
 type Env = Record<string, string | undefined>;
 
@@ -36,8 +42,9 @@ function envList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function isPublicPath(path: string): boolean {
-  return PUBLIC_PATHS.some((re) => re.test(path));
+/** `method` is the one the request makes, or for a preflight, the one it asks to make. */
+export function isPublicPath(path: string, method = 'GET'): boolean {
+  return PUBLIC_METHODS.has(method.toUpperCase()) && PUBLIC_PATHS.some((re) => re.test(path.toLowerCase()));
 }
 
 /** "[::1]:4173" → "::1", "Localhost:4173" → "localhost" */
@@ -77,7 +84,6 @@ export function isAllowedOrigin(origin: string | undefined, hostHeader: string |
   } catch {
     return false;
   }
-  if (EXTENSION_PROTOCOLS.has(url.protocol)) return true;
   if (hostHeader && url.host === hostHeader.trim().toLowerCase()) return true;
   return envList(env.GLOGG_ALLOWED_ORIGINS).includes(origin.toLowerCase());
 }
@@ -106,12 +112,15 @@ export function rejectReason(
 }
 
 export function apiGuard(req: Request, res: Response, next: NextFunction): void {
-  const isApi = req.path.startsWith('/api/');
-  if (isPublicPath(req.path)) {
+  // Routes are case-sensitive, but "/API/…" is still treated as the API here.
+  const isApi = req.path.toLowerCase().startsWith('/api/');
+  const preflight = req.method === 'OPTIONS';
+  const method = preflight ? String(req.headers['access-control-request-method'] || 'GET') : req.method;
+  if (isPublicPath(req.path, method)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') {
+    if (preflight) {
       res.status(204).end();
       return;
     }
@@ -127,7 +136,7 @@ export function apiGuard(req: Request, res: Response, next: NextFunction): void 
     res.status(403).json({ error: reason });
     return;
   }
-  // Allowed cross-origin callers (an extension, GLOGG_ALLOWED_ORIGINS) get their own origin back.
+  // Allowed cross-origin callers (GLOGG_ALLOWED_ORIGINS) get their own origin back.
   const origin = req.headers.origin;
   if (origin && origin !== `${req.protocol}://${req.headers.host}`) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -140,4 +149,42 @@ export function apiGuard(req: Request, res: Response, next: NextFunction): void 
     return;
   }
   next();
+}
+
+/**
+ * The page's Content Security Policy: only glogg's own scripts (the inline
+ * theme script by its hash), styles and images; no framing, plugins or <base>.
+ */
+export function contentSecurityPolicy(indexHtml: string): string {
+  const inline = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(
+    (m) => `'sha256-${crypto.createHash('sha256').update(m[1]).digest('base64')}'`
+  );
+  return [
+    "default-src 'self'",
+    ["script-src 'self'", ...inline].join(' '),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "font-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
+/**
+ * On every response: no MIME sniffing, no framing, and no Referer, so the
+ * sites you open from glogg never see the search that led there.
+ */
+export function securityHeaders(csp?: string) {
+  return (_req: Request, res: Response, next: NextFunction): void => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    if (csp) res.setHeader('Content-Security-Policy', csp);
+    next();
+  };
 }

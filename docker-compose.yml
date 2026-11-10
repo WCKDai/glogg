@@ -20,6 +20,9 @@ services:
     environment:
       GLOGG_PASSWORD: ${GLOGG_PASSWORD:-}
       GLOGG_ALLOWED_HOSTS: ${GLOGG_ALLOWED_HOSTS:-}
+      # Only this machine reaches the port, so believe the client address a local proxy forwards.
+      # If you publish the port to your network instead, set GLOGG_TRUST_PROXY=loopback.
+      GLOGG_TRUST_PROXY: ${GLOGG_TRUST_PROXY:-uniquelocal}
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
     volumes:
       - glogg-data:/data

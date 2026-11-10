@@ -23,6 +23,8 @@ services:
       - GLOGG_PASSWORD=${SERVICE_PASSWORD_GLOGG}
       # Answer only under glogg's own domain.
       - GLOGG_ALLOWED_HOSTS=${SERVICE_FQDN_GLOGG}
+      # Only Coolify's proxy reaches glogg (no published port), so believe the address it forwards.
+      - GLOGG_TRUST_PROXY=uniquelocal
       - SEARXNG_URL=http://searxng:8080
     volumes:
       - glogg-data:/data

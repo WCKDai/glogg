@@ -2,7 +2,7 @@
 
 Everything the web app does goes through this API, so scripts can do it too. Request and response bodies are JSON unless noted.
 
-On an open glogg (no password), `/api/health`, `/api/search`, `/api/opensearch/suggest`, `/api/directory`, `/api/ipfs/:cid` and `/opensearch.xml` are public. Every other route answers only glogg itself, browser extensions, local tools without an `Origin` header (curl, the CLI) and origins in `GLOGG_ALLOWED_ORIGINS`.
+On an open glogg (no password), `GET` on `/api/health`, `/api/search`, `/api/opensearch/suggest`, `/api/directory`, `/api/ipfs/:cid` and `/opensearch.xml` is public, with CORS `*`. Everything else, `POST /api/search` included, answers only glogg itself, local tools without an `Origin` header (curl, the CLI) and origins in `GLOGG_ALLOWED_ORIGINS` (list a browser extension there as `chrome-extension://<id>`). Paths are case-sensitive.
 
 With `GLOGG_PASSWORD` set, every route except `/api/health` and the three `/api/auth` routes needs the session cookie from `POST /api/auth/login`, including the routes that are otherwise public. See [Security](../README.md#security).
 
@@ -11,11 +11,12 @@ With `GLOGG_PASSWORD` set, every route except `/api/health` and the three `/api/
 | `/api/health` | `GET` | Liveness: `{status: "ok", …}` |
 | `/api/auth` | `GET` | `{required, authenticated}`: whether this glogg has a password, and whether this request has a session |
 | `/api/auth/login` | `POST` | `{password}` → `204` and the session cookie, `401` for a wrong password, `429` (with `Retry-After`) after ten wrong ones from one address |
-| `/api/auth/logout` | `POST` | Clears the session cookie |
-| `/api/search` | `POST` / `GET` | Federated search: `{query, lens?, uncensoredMode?, …}` or `?q=…&lens=…&uncensored=true` |
+| `/api/auth/logout` | `POST` | Signs this session out for good (it's revoked, not just forgotten by the browser) and clears the cookie |
+| `/api/search` | `POST` / `GET` | Federated search: `{query, config?}` or `?q=…&lens=…&uncensored=true`. A stored indexer key is only sent to the address it was saved with, so `config.endpoints` naming another indexer gets no key |
 | `/api/opensearch/suggest` | `GET` | Search suggestions for browsers (`?q=`) |
 | `/api/research` | `POST` | Research a query. Streams newline-delimited JSON events: `status`, `sources`, `delta`, `notice`, `done`, `error`. Body: `{query, candidates?, instantAnswer?, depth?, history?}` |
-| `/api/inspect` | `POST` | Clean a URL or raw HTML for reading and pull out the primary sources it cites |
+| `/api/inspect` | `POST` | Clean a URL or raw HTML for reading and pull out the primary sources it cites. URLs on private or local addresses are refused (`502`) unless `GLOGG_ALLOW_PRIVATE_FETCH=1`; at most 5 MB of a page is read |
+| `/api/favicon/:domain` | `GET` | A site's icon, fetched by glogg and kept for a day (PNG, ICO, GIF, JPEG, WebP; no SVG). `404` when there is none, `400` for anything but a plain host name |
 | `/api/directory` | `GET` | The hand-picked Atlas (`?category=…&shuffle=true`) |
 | `/api/ipfs/:cid` | `GET` | Resolve an IPFS CID through the local Kubo gateway, with a public fallback |
 | `/api/deep` | `GET` | Deep index status: posts, sources visited per kind, crawl state, size |

@@ -91,6 +91,12 @@ export class Browser {
     const browser = new Browser(proc, ws, profile);
     await browser.send('Page.enable');
     await browser.send('Runtime.enable');
+    await browser.send('Log.enable');
+    // The browser's own errors: Content Security Policy violations and script errors (not failed loads).
+    browser.on('Log.entryAdded', (p) => {
+      const e = p.entry as { level: string; source: string; text: string };
+      if (e.level === 'error' && (e.source === 'security' || e.source === 'javascript')) browser.errors.push(`${e.source}: ${e.text}`);
+    });
     browser.on('Runtime.exceptionThrown', (p) => {
       const d = p.exceptionDetails as { text?: string; exception?: { description?: string } };
       browser.errors.push(`uncaught: ${d.exception?.description ?? d.text}`);

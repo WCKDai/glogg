@@ -382,13 +382,13 @@ describe('request guard', () => {
   const HOSTS = ['localhost:4173', '127.0.0.1:4173', 'glogg.example.com', 'evil.example', 'glogg.local', '[::1]:4173', 'x.localhost'];
   const ORIGINS = ['https://evil.example', 'http://localhost:4173', 'https://glogg.example.com', 'chrome-extension://abc', 'null', 'http://127.0.0.1:4173', 'https://glogg.example.com.evil.example', 'http://localhost:4173.evil.example'];
 
-  it('allows a cross-site origin only when it is this glogg, an extension or on your list', () => {
-    forAll('isAllowedOrigin', (r) => ({ origin: r() < 0.8 ? pick(r, ORIGINS) : anyString(r, 20), host: pick(r, HOSTS), allowed: r() < 0.3 ? 'https://glogg.example.com' : '' }), ({ origin, host, allowed }) => {
+  it('allows a cross-site origin only when it is this glogg or on your list', () => {
+    forAll('isAllowedOrigin', (r) => ({ origin: r() < 0.8 ? pick(r, ORIGINS) : anyString(r, 20), host: pick(r, HOSTS), allowed: r() < 0.3 ? pick(r, ['https://glogg.example.com', 'chrome-extension://abc']) : '' }), ({ origin, host, allowed }) => {
       const ok = isAllowedOrigin(origin, host, { GLOGG_ALLOWED_ORIGINS: allowed });
       let expected = false;
       try {
         const u = new URL(origin);
-        expected = u.protocol === 'chrome-extension:' || u.host === host || (allowed !== '' && origin.toLowerCase() === allowed);
+        expected = u.host === host || (allowed !== '' && origin.toLowerCase() === allowed);
       } catch {
         expected = false;
       }

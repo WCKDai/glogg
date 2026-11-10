@@ -727,8 +727,11 @@ export function computeQueryRelevance(
   let isDirectAnswerCandidate = false;
   if (analysis.questionAttribute) {
     const attrLower = analysis.questionAttribute.toLowerCase();
+    // Both come from the query: escaped, so they match as text and never run as a pattern.
+    const attrRx = attrLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const entityRx = entityLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const directAttrRx = new RegExp(
-      `\\b(?:${attrLower}\\s+(?:city\\s+)?of\\s+${entityLower}|${entityLower}(?:'s)?\\s+${attrLower}|is\\s+the\\s+${attrLower})`,
+      `\\b(?:${attrRx}\\s+(?:city\\s+)?of\\s+${entityRx}|${entityRx}(?:'s)?\\s+${attrRx}|is\\s+the\\s+${attrRx})`,
       'i'
     );
     if (directAttrRx.test(combinedClean(titleLower, snippetLower))) {

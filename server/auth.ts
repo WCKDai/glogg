@@ -8,7 +8,8 @@
  * signed with a key derived from the password and a random secret kept in
  * $GLOGG_HOME. So sessions survive restarts, a new password signs everyone
  * out, and a stolen cookie can't be used to guess the password offline.
- * Sign-ins are rate-limited per address.
+ * Signing out revokes that session for good (the list of revoked ones is kept
+ * in $GLOGG_HOME until they expire). Sign-ins are rate-limited per address.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -73,24 +74,55 @@ export interface Auth {
   routes(app: Express): void;
 }
 
-export function createAuth(opts: { password: string; secret: Buffer; now?: () => number }): Auth {
+/** Signed-out sessions, by signature, until they would have expired anyway. Kept in a file when there is one. */
+function revocations(file: string | undefined, now: () => number) {
+  const revoked = new Map<string, number>();
+  if (file) {
+    try {
+      for (const [sig, exp] of Object.entries(JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, number>)) revoked.set(sig, exp);
+    } catch {
+      // none yet, or unreadable: start empty
+    }
+  }
+  const prune = () => {
+    for (const [sig, exp] of revoked) if (exp * 1000 <= now()) revoked.delete(sig);
+  };
+  return {
+    has: (sig: string) => revoked.has(sig),
+    add(sig: string, exp: number) {
+      prune();
+      revoked.set(sig, exp);
+      if (!file) return;
+      try {
+        fs.writeFileSync(file, JSON.stringify(Object.fromEntries(revoked)), { mode: 0o600 });
+      } catch {
+        // read-only home: revoked until restart
+      }
+    },
+  };
+}
+
+export function createAuth(opts: { password: string; secret: Buffer; now?: () => number; revokedFile?: string }): Auth {
   const now = opts.now ?? Date.now;
   const required = opts.password.length > 0;
   const key = crypto.createHmac('sha256', opts.secret).update(`glogg-session\0${opts.password}`).digest();
   const sign = (payload: string) => crypto.createHmac('sha256', key).update(payload).digest('base64url');
   const failures = new Map<string, { count: number; resetAt: number }>();
+  const revoked = revocations(opts.revokedFile, now);
 
+  // expiry.nonce.signature: the nonce makes every sign-in its own session, so signing one out leaves the others.
   const issue = (at = now()) => {
     const expires = Math.floor(at / 1000) + SESSION_SECONDS;
-    return `${expires}.${sign(`v1.${expires}`)}`;
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    return `${expires}.${nonce}.${sign(`v2.${expires}.${nonce}`)}`;
   };
 
   const verify = (token: string | undefined, at = now()) => {
-    const m = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/.exec(token ?? '');
+    const m = /^(\d{1,12})\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/.exec(token ?? '');
     if (!m || Number(m[1]) * 1000 <= at) return false;
-    const expected = Buffer.from(sign(`v1.${m[1]}`));
-    const given = Buffer.from(m[2]);
-    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+    const expected = Buffer.from(sign(`v2.${m[1]}.${m[2]}`));
+    const given = Buffer.from(m[3]);
+    return given.length === expected.length && crypto.timingSafeEqual(given, expected) && !revoked.has(m[3]);
   };
 
   // Comparing digests keeps the comparison constant-time whatever the input's length.
@@ -117,8 +149,10 @@ export function createAuth(opts: { password: string; secret: Buffer; now?: () =>
 
     middleware(req, res, next) {
       // The API, and the search descriptor that points at it; the app itself loads, to offer the sign-in.
-      const guarded = req.path.startsWith('/api/') || req.path === '/opensearch.xml';
-      if (!required || !guarded || OPEN_PATHS.has(req.path) || verify(cookie(req))) {
+      // Lower-cased: routes are case-sensitive, but "/API/…" is still the API.
+      const p = req.path.toLowerCase();
+      const guarded = p.startsWith('/api/') || p === '/opensearch.xml';
+      if (!required || !guarded || OPEN_PATHS.has(p) || verify(cookie(req))) {
         next();
         return;
       }
@@ -162,6 +196,12 @@ export function createAuth(opts: { password: string; secret: Buffer; now?: () =>
       });
 
       app.post('/api/auth/logout', (req, res) => {
+        const token = cookie(req);
+        // Revoked, not just forgotten by this browser: a copy of the cookie stops working too.
+        if (token && verify(token)) {
+          const [exp, , sig] = token.split('.');
+          revoked.add(sig, Number(exp));
+        }
         setCookie(req, res, '', 0);
         res.status(204).end();
       });
@@ -171,11 +211,12 @@ export function createAuth(opts: { password: string; secret: Buffer; now?: () =>
 
 /**
  * Which proxies to believe about the client's address and protocol. By default
- * only private-network ones (Traefik in Docker, a LAN reverse proxy), so a
- * visitor on the internet can't fake X-Forwarded-For to dodge the rate limit.
+ * only one on this machine: trusting a whole private range would let anyone on
+ * your network send their own X-Forwarded-For and dodge the sign-in limit. The
+ * Docker setups name the proxy in front of glogg (GLOGG_TRUST_PROXY=uniquelocal).
  */
 export function trustProxySetting(value: string | undefined): boolean | number | string {
-  if (value === undefined || value === '') return 'loopback, linklocal, uniquelocal';
+  if (value === undefined || value === '') return 'loopback';
   if (value === 'true' || value === 'false') return value === 'true';
   return /^\d+$/.test(value) ? Number(value) : value;
 }

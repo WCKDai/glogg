@@ -5,12 +5,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { ContainerServiceStatus, ContainerStackReport } from '../src/core/types.js';
+import { aria2Secret } from './downloadManager.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 /** The optional services stack the Services page starts and stops (glogg itself is in ../docker-compose.yml). */
 const SERVICES_COMPOSE = path.join(REPO_ROOT, 'infra', 'docker-compose.services.yml');
+
+/** The services stack reads aria2's secret from here, the one glogg keeps for this install. */
+export function composeEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, ARIA2_RPC_SECRET: aria2Secret() };
+}
 
 /**
  * GLOGG_CONTAINER_RUNTIME: auto (default) looks for docker, then podman; docker or podman uses
@@ -376,6 +382,7 @@ export async function runContainerOrchestrationAction(params: {
   try {
     const { stdout, stderr } = await execFileAsync(runtime, args, {
       cwd: REPO_ROOT,
+      env: composeEnv(),
       timeout: 240000,
       maxBuffer: 16 * 1024 * 1024,
     });
@@ -390,6 +397,7 @@ export async function runContainerOrchestrationAction(params: {
     try {
       const { stdout, stderr } = await execFileAsync(standaloneBin, fallbackArgs, {
         cwd: REPO_ROOT,
+        env: composeEnv(),
         timeout: 240000,
         maxBuffer: 16 * 1024 * 1024,
       });

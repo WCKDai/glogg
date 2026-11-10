@@ -25,6 +25,7 @@ import type {
 import { AI_PROVIDERS, streamChat } from './ai.js';
 import type { AiConfig, ChatMessage } from './ai.js';
 import { executeFederatedSearch } from './federatedSearch.js';
+import { publicFetch, readTextCapped } from './publicFetch.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 glogg-research/0.4';
@@ -45,29 +46,15 @@ export async function fetchPageHtml(url: string, signal: AbortSignal, timeoutMs:
   const onAbort = () => ctrl.abort();
   signal.addEventListener('abort', onAbort);
   try {
-    const res = await fetch(url, {
+    // Result pages are addresses from search results: public ones only.
+    const res = await publicFetch(url, {
       signal: ctrl.signal,
-      redirect: 'follow',
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8' },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const type = res.headers.get('content-type') || '';
     if (type && !/html|xml|text\/plain/i.test(type)) throw new Error(`not a web page (${type.split(';')[0]})`);
-    if (!res.body) return '';
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      size += value.byteLength;
-      if (size >= MAX_PAGE_BYTES) {
-        await reader.cancel();
-        break;
-      }
-    }
-    return Buffer.concat(chunks).toString('utf8');
+    return await readTextCapped(res, MAX_PAGE_BYTES);
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', onAbort);
