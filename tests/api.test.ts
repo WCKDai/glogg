@@ -145,7 +145,8 @@ const ROUTES: RouteCase[] = [
   { method: 'DELETE', route: '/api/downloads/:id', path: '/api/downloads/finished' },
   { method: 'GET', route: '/api/integrations' },
   { method: 'PUT', route: '/api/integrations', body: { config: {} } },
-  { method: 'POST', route: '/api/search', body: { query: 'route table' }, public: true },
+  // Only GET is public: a POST can name indexers, and would get your stored keys sent to them.
+  { method: 'POST', route: '/api/search', body: { query: 'route table' } },
   { method: 'GET', route: '/api/search', path: '/api/search?q=route+table', public: true },
   { method: 'POST', route: '/api/research', body: { query: 'route table', candidates: [] } },
   { method: 'GET', route: '/api/deep' },
@@ -160,6 +161,7 @@ const ROUTES: RouteCase[] = [
   { method: 'GET', route: '/api/plugins/:id/container', path: '/api/plugins/utils/container' },
   { method: 'POST', route: '/api/plugins/:id/container', path: '/api/plugins/utils/container', body: { action: 'up' } },
   { method: 'GET', route: '/opensearch.xml', public: true },
+  { method: 'GET', route: '/api/favicon/:domain', path: '/api/favicon/example.com' },
   { method: 'GET', route: '/api/opensearch/suggest', path: '/api/opensearch/suggest?q=wiki', public: true },
   { method: 'GET', route: '/api/ipfs/:cid', path: `/api/ipfs/${CID}`, public: true },
   { method: 'POST', route: '/api/inspect', body: { url: 'https://example.com/', rawHtml: '<p>x</p>' } },
@@ -1261,7 +1263,7 @@ describe('called from another site', () => {
     const res = await send(r, evil);
     expect(res.status).toBe(200);
     expect(res.headers['access-control-allow-origin']).toBe('*');
-    expect(res.headers['access-control-allow-methods']).toBe('GET, POST, OPTIONS');
+    expect(res.headers['access-control-allow-methods']).toBe('GET, HEAD, OPTIONS');
   });
 
   it('refuses every private route on a rebinding host name, or a cross-site request without an Origin', async () => {
@@ -1293,20 +1295,28 @@ describe('called from another site', () => {
     expect((await api('GET', '/api/plugins', undefined, { Origin: 'https://stranger.example' })).status).toBe(403);
   });
 
-  it('answers preflights: from any site for public routes, from allowed origins for the rest', async () => {
-    const preflight = (p: string, origin: string) =>
-      api('OPTIONS', p, undefined, { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' });
-    const pub = await preflight('/api/search', 'https://evil.example');
+  it('answers preflights: GET from any site for public routes, the rest from allowed origins only', async () => {
+    const preflight = (p: string, origin: string, method = 'POST') =>
+      api('OPTIONS', p, undefined, { Origin: origin, 'Access-Control-Request-Method': method, 'Access-Control-Request-Headers': 'content-type' });
+    const pub = await preflight('/api/search', 'https://evil.example', 'GET');
     expect(pub.status).toBe(204);
-    expect(pub.headers).toMatchObject({ 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'Content-Type' });
+    expect(pub.headers).toMatchObject({ 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, HEAD, OPTIONS', 'access-control-allow-headers': 'Content-Type' });
+    expect((await preflight('/api/search', 'https://evil.example')).status).toBe(403);
     expect((await preflight('/api/research', 'https://evil.example')).status).toBe(403);
-    const ext = await preflight('/api/research', 'chrome-extension://abcdefghijklmnop');
-    expect(ext.status).toBe(204);
-    expect(ext.headers).toMatchObject({
-      'access-control-allow-origin': 'chrome-extension://abcdefghijklmnop',
-      'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      vary: 'Origin',
-    });
+    // An extension is trusted only when you list it.
+    expect((await preflight('/api/research', 'chrome-extension://abcdefghijklmnop')).status).toBe(403);
+    vi.stubEnv('GLOGG_ALLOWED_ORIGINS', 'chrome-extension://abcdefghijklmnop');
+    try {
+      const ext = await preflight('/api/research', 'chrome-extension://abcdefghijklmnop');
+      expect(ext.status).toBe(204);
+      expect(ext.headers).toMatchObject({
+        'access-control-allow-origin': 'chrome-extension://abcdefghijklmnop',
+        'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        vary: 'Origin',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -1486,6 +1496,32 @@ describe('bad input and edge cases (bugs the first run of these tests found)', (
     }
   });
   afterAll(() => locked.close());
+
+  it('needs a session whatever the case of /api/', async () => {
+    const cases: [string, string, unknown?][] = [
+      ['GET', '/API/plugins'],
+      ['GET', '/Api/integrations'],
+      ['PUT', '/API/integrations', { config: { aria2RpcUrl: `${unreachable}/hijacked` } }],
+      ['POST', '/API/inspect', { url: `${unreachable}/internal-only` }],
+    ];
+    try {
+      for (const [m, p, b] of cases) expect.soft((await call(m, p, b)).status, `${m} ${p}`).toBe(401);
+    } finally {
+      await api('PUT', '/api/integrations', { config: { aria2RpcUrl: `${unreachable}/jsonrpc` } });
+    }
+  });
+
+  it('refuses another site, or a rebinding host, whatever the case of /api/', async () => {
+    for (const p of ['/API/integrations', '/Api/plugins']) {
+      expect.soft((await api('GET', p, undefined, { Origin: 'https://evil.example' })).status, `${p} from evil.example`).toBe(403);
+      expect.soft((await api('GET', p, undefined, { Host: `evil.example:${open.port}` })).status, `${p} on a rebinding host`).toBe(403);
+    }
+  });
+
+  it('refuses a download target that does not exist', async () => {
+    const r = await api('POST', '/api/downloads', { url: `${unreachable}/a.zip`, target: 'bogus' });
+    expect(r.status, r.body).toBe(400);
+  });
 
   it('answers a POST without a JSON body with 400', async () => {
     for (const p of ['/api/search', '/api/containers/action', '/api/inspect']) {
