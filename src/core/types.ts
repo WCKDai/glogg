@@ -13,6 +13,13 @@ export type SearchLensId =
   | 'primary'
   | 'pre-llm';
 
+export const SEARCH_LENS_IDS: readonly SearchLensId[] = ['all', 'wild-west', 'small-web', 'fediverse', 'forums', 'deep-archives', 'raw-news', 'p2p-magnet', 'usenet-nzb', 'primary', 'pre-llm'];
+
+/** A lens glogg knows. ("constructor" is a property of every object, not a lens.) */
+export function isSearchLens(v: unknown): v is SearchLensId {
+  return typeof v === 'string' && (SEARCH_LENS_IDS as readonly string[]).includes(v);
+}
+
 export type SourceConnectorId =
   | 'marginalia'
   | 'indie-index'

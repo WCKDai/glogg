@@ -70,12 +70,20 @@ export function maskConfig(cfg: CustomEndpointsConfig): CustomEndpointsConfig {
   return out;
 }
 
+/** Every setting an integration config may hold; anything else in a patch is ignored. */
+const INTEGRATION_KEYS = new Set<keyof CustomEndpointsConfig>([
+  'bitmagnetUrl', 'searxngUrl', 'ipfsGatewayUrl', 'torznabUrl', 'torznabApiKey', 'newznabUrl', 'newznabApiKey',
+  'nzbLifeUrl', 'nzbLifeApiKey', 'marginaliaApiKey', 'stackexchangeKey', 'offcloudApiKey', 'offcloudRemoteOptionId',
+  'nextcloudUrl', 'nextcloudUser', 'nextcloudAppPassword', 'nextcloudFolder', 'aria2RpcUrl', 'aria2RpcSecret',
+  'matrixHomeserverUrl', 'atprotoAppViewUrl',
+]);
+
 /** Merge a patch; masked values (••••xxxx) mean "unchanged", empty string clears. */
 export function saveIntegrationConfig(patch: CustomEndpointsConfig): CustomEndpointsConfig {
   const current = loadIntegrationConfig();
   const next: CustomEndpointsConfig = { ...current };
   for (const [k, v] of Object.entries(patch) as [keyof CustomEndpointsConfig, string | undefined][]) {
-    if (typeof v !== 'string') continue;
+    if (!INTEGRATION_KEYS.has(k) || typeof v !== 'string') continue;
     if (v.startsWith('••••')) continue;
     if (v.trim() === '') delete next[k];
     else (next as Record<string, string>)[k] = v.trim();

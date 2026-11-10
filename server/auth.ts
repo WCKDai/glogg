@@ -116,7 +116,9 @@ export function createAuth(opts: { password: string; secret: Buffer; now?: () =>
     checkPassword,
 
     middleware(req, res, next) {
-      if (!required || !req.path.startsWith('/api/') || OPEN_PATHS.has(req.path) || verify(cookie(req))) {
+      // The API, and the search descriptor that points at it; the app itself loads, to offer the sign-in.
+      const guarded = req.path.startsWith('/api/') || req.path === '/opensearch.xml';
+      if (!required || !guarded || OPEN_PATHS.has(req.path) || verify(cookie(req))) {
         next();
         return;
       }

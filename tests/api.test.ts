@@ -263,9 +263,15 @@ describe('GET /api/nodes', () => {
     expect(r.status).toBe(200);
     const { localDockerStack, activeUpstreamConnectors } = data(r);
     expect(Object.keys(localDockerStack)).toEqual(['searxng', 'bitmagnet', 'ipfs', 'nzbhydra2', 'prowlarr', 'torProxy']);
-    for (const id of ['searxng', 'bitmagnet', 'ipfs', 'nzbhydra2', 'prowlarr']) {
-      expect(localDockerStack[id]).toEqual({ url: expect.stringMatching(/^http:\/\/localhost:\d+$/), online: false });
-    }
+    // Each reports the address it probed: the configured one, or the local default.
+    const probed: Record<string, string> = {
+      searxng: process.env.SEARXNG_URL || 'http://localhost:8080',
+      bitmagnet: process.env.BITMAGNET_URL || 'http://localhost:3333',
+      ipfs: process.env.IPFS_GATEWAY_URL || 'http://localhost:8081',
+      nzbhydra2: process.env.NEWZNAB_URL || 'http://localhost:5076',
+      prowlarr: process.env.TORZNAB_URL || 'http://localhost:9696',
+    };
+    for (const [id, url] of Object.entries(probed)) expect(localDockerStack[id]).toEqual({ url, online: false });
     expect(localDockerStack.torProxy).toEqual({ url: 'http://localhost:8118', online: expect.any(Boolean) });
     expect(activeUpstreamConnectors).toHaveLength(18);
     for (const c of activeUpstreamConnectors) expect(c).toEqual({ id: expect.any(String), name: expect.any(String), protocol: expect.any(String), status: 'active' });
@@ -1464,4 +1470,72 @@ describe('junk input', () => {
       }
     }
   }, 30_000);
+});
+
+
+describe('bad input and edge cases (bugs the first run of these tests found)', () => {
+  const PASSWORD = 'a long and careful passphrase';
+  let locked: Awaited<ReturnType<typeof startGloggServer>>;
+  const call = caller(() => locked.port);
+  beforeAll(async () => {
+    process.env.GLOGG_PASSWORD = PASSWORD;
+    try {
+      locked = await startGloggServer();
+    } finally {
+      delete process.env.GLOGG_PASSWORD;
+    }
+  });
+  afterAll(() => locked.close());
+
+  it('answers a POST without a JSON body with 400', async () => {
+    for (const p of ['/api/search', '/api/containers/action', '/api/inspect']) {
+      const r = await rawRequest(open.port, { method: 'POST', path: p, headers: { 'Content-Type': 'text/plain' }, body: 'query=x' });
+      expect.soft(r.status, `${p}: ${r.body}`).toBe(400);
+    }
+  });
+
+  it('answers a lens named like an Object property without a 500', async () => {
+    for (const lens of ['constructor', '__proto__', 'toString']) {
+      const r = await api('GET', `/api/search?q=rust&lens=${lens}`);
+      expect.soft(r.status, `lens=${lens}: ${r.body}`).toBeLessThan(500);
+    }
+  });
+
+  it('answers filter lists that are not arrays with 400, not 500', async () => {
+    for (const config of [{ boostedDomains: 5 }, { blockedPhrases: { a: 1 } }, { blockedDomains: 7 }]) {
+      const r = await api('POST', '/api/search', { query: 'rust async', config });
+      expect.soft(r.status, `${JSON.stringify(config)}: ${r.body}`).toBe(400);
+    }
+  });
+
+  it('answers a query holding a lone surrogate without a 500', async () => {
+    const r = await rawRequest(open.port, { method: 'POST', path: '/api/search', headers: { 'Content-Type': 'application/json' }, body: '{"query":"rust \\ud800 async"}' });
+    expect(r.status, r.body).toBeLessThan(500);
+  });
+
+  it('answers fractional or huge paging values in /api/deep/sites without a 500', async () => {
+    quietly();
+    for (const qs of ['offset=1.5', 'limit=2.5', 'offset=1e400']) {
+      const r = await api('GET', `/api/deep/sites?${qs}`);
+      expect.soft(r.status, qs).toBe(200);
+    }
+  });
+
+  it('needs a session for /opensearch.xml too, as docs/api.md says', async () => {
+    expect((await call('GET', '/opensearch.xml')).status).toBe(401);
+  });
+
+  it('stores only known integration settings', async () => {
+    await api('PUT', '/api/integrations', { config: 'junk' });
+    await api('PUT', '/api/integrations', { config: { notASetting: 'x' } });
+    const { config } = data(await api('GET', '/api/integrations'));
+    expect.soft(config).not.toHaveProperty('0');
+    expect.soft(config).not.toHaveProperty('notASetting');
+  });
+
+  it('reports the address it probed in /api/nodes', async () => {
+    vi.stubEnv('SEARXNG_URL', 'http://searxng:8080');
+    const { localDockerStack } = data(await api('GET', '/api/nodes'));
+    expect(localDockerStack.searxng.url).toBe('http://searxng:8080');
+  });
 });

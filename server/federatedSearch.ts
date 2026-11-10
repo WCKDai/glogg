@@ -11,6 +11,7 @@ import {
   SearchFilterConfig,
   SearchLensId,
   SourceConnectorId,
+  isSearchLens,
   wellFormed,
 } from '../src/core/index.js';
 import { createHash } from 'node:crypto';
@@ -1103,7 +1104,7 @@ export async function executeFederatedSearch(
   const startTime = Date.now();
   const query = wellFormed(rawQuery).trim();
   const uncensoredMode = Boolean(partialConfig?.uncensoredMode);
-  const lens = partialConfig?.lens ?? 'all';
+  const lens = isSearchLens(partialConfig?.lens) ? partialConfig.lens : 'all';
   const compiledQuery = compileSearchQuery(query, partialConfig);
   // Answer lookups need only the query, so they run while the sources are searched.
   const answerLookups = prefetchInstantAnswer(query, { stackexchangeKey: partialConfig?.endpoints?.stackexchangeKey });
@@ -1232,7 +1233,7 @@ export async function executeFederatedSearch(
 
   return {
     query,
-    lens: partialConfig?.lens ?? 'all',
+    lens,
     uncensoredMode,
     compiledQuery,
     instantAnswer,

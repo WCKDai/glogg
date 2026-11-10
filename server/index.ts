@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  isSearchLens,
   cleanAndAutopsyHtml,
   CURATED_INDIE_INDEX,
   CustomEndpointsConfig,
@@ -53,6 +54,34 @@ import { runResearch } from './research.js';
 import { apiGuard } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Search config fields that must be lists of strings, numbers or switches when a request sends them. */
+const LIST_FIELDS = ['blockedDomains', 'boostedDomains', 'blockedPhrases'] as const;
+const NUMBER_FIELDS = ['maxPerDomain', 'slopThreshold'] as const;
+const SWITCH_FIELDS = ['preLlmOnly', 'obscureWebOnly', 'stripSponsored', 'uncensoredMode'] as const;
+
+/**
+ * A request's search config, checked: a field of the wrong type is an error
+ * (it used to surface as a 500), an unknown lens is dropped, and anything
+ * else passes through as before.
+ */
+export function checkSearchConfig(input: unknown): { config: Partial<SearchFilterConfig> } | { error: string } {
+  if (input === undefined || input === null) return { config: {} };
+  if (typeof input !== 'object' || Array.isArray(input)) return { error: 'config must be an object' };
+  const c = { ...(input as Record<string, unknown>) };
+  for (const k of LIST_FIELDS) {
+    if (c[k] !== undefined && !(Array.isArray(c[k]) && (c[k] as unknown[]).every((x) => typeof x === 'string'))) return { error: `config.${k} must be a list of strings` };
+  }
+  for (const k of NUMBER_FIELDS) {
+    if (c[k] !== undefined && !(typeof c[k] === 'number' && Number.isFinite(c[k]))) return { error: `config.${k} must be a number` };
+  }
+  for (const k of SWITCH_FIELDS) {
+    if (c[k] !== undefined && typeof c[k] !== 'boolean') return { error: `config.${k} must be true or false` };
+  }
+  if (c.endpoints !== undefined && (typeof c.endpoints !== 'object' || c.endpoints === null || Array.isArray(c.endpoints))) return { error: 'config.endpoints must be an object' };
+  if (!isSearchLens(c.lens)) delete c.lens;
+  return { config: c as Partial<SearchFilterConfig> };
+}
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 GloggReader/0.3';
 
@@ -103,7 +132,7 @@ export async function createGloggServer() {
 
   app.post('/api/containers/action', async (req, res) => {
     try {
-      const { action, serviceId } = req.body as {
+      const { action, serviceId } = (req.body ?? {}) as {
         action?: 'up' | 'stop' | 'restart' | 'logs' | 'stack-up' | 'stack-down' | 'start-daemon';
         serviceId?: string;
       };
@@ -116,30 +145,23 @@ export async function createGloggServer() {
       res.json({ ...result, stack });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Container action failed';
-      res.status(500).json({ ok: false, output: message });
+      res.status(500).json({ ok: false, output: message, error: message });
     }
   });
 
   app.get('/api/nodes', async (_req, res) => {
-    const [searxngLocal, bitmagnetLocal, ipfsLocal, nzbhydraLocal, prowlarrLocal, torProxyLocal] =
-      await Promise.all([
-        checkNodeReachable(process.env.SEARXNG_URL || 'http://localhost:8080'),
-        checkNodeReachable(process.env.BITMAGNET_URL || 'http://localhost:3333'),
-        checkNodeReachable(process.env.IPFS_GATEWAY_URL || 'http://localhost:8081'),
-        checkNodeReachable(process.env.NEWZNAB_URL || 'http://localhost:5076'),
-        checkNodeReachable(process.env.TORZNAB_URL || 'http://localhost:9696'),
-        checkNodeReachable('http://localhost:8118'),
-      ]);
-
+    // Report the addresses actually probed: Docker Compose points SEARXNG_URL at http://searxng:8080.
+    const nodes = {
+      searxng: process.env.SEARXNG_URL || 'http://localhost:8080',
+      bitmagnet: process.env.BITMAGNET_URL || 'http://localhost:3333',
+      ipfs: process.env.IPFS_GATEWAY_URL || 'http://localhost:8081',
+      nzbhydra2: process.env.NEWZNAB_URL || 'http://localhost:5076',
+      prowlarr: process.env.TORZNAB_URL || 'http://localhost:9696',
+      torProxy: 'http://localhost:8118',
+    };
+    const online = await Promise.all(Object.values(nodes).map((url) => checkNodeReachable(url)));
     res.json({
-      localDockerStack: {
-        searxng: { url: 'http://localhost:8080', online: searxngLocal },
-        bitmagnet: { url: 'http://localhost:3333', online: bitmagnetLocal },
-        ipfs: { url: 'http://localhost:8081', online: ipfsLocal },
-        nzbhydra2: { url: 'http://localhost:5076', online: nzbhydraLocal },
-        prowlarr: { url: 'http://localhost:9696', online: prowlarrLocal },
-        torProxy: { url: 'http://localhost:8118', online: torProxyLocal },
-      },
+      localDockerStack: Object.fromEntries(Object.entries(nodes).map(([id, url], i) => [id, { url, online: online[i] }])),
       activeUpstreamConnectors: [
         { id: 'marginalia', name: 'Marginalia Small-Web API', protocol: 'REST JSON', status: 'active' },
         { id: 'wiby', name: 'Wiby Classic Handmade Web', protocol: 'REST JSON', status: 'active' },
@@ -186,7 +208,7 @@ export async function createGloggServer() {
 
   app.post('/api/downloads', async (req, res) => {
     try {
-      const { url, title, target, sizeFormatted } = req.body as {
+      const { url, title, target, sizeFormatted } = (req.body ?? {}) as {
         url?: string;
         title?: string;
         target?: DownloadTargetId;
@@ -212,8 +234,13 @@ export async function createGloggServer() {
   });
 
   app.put('/api/integrations', (req, res) => {
-    const patch = (req.body?.config || {}) as CustomEndpointsConfig;
-    res.json({ config: maskConfig(saveIntegrationConfig(patch)) });
+    // No config is nothing to change; a config that isn't an object of settings is a mistake.
+    const patch: unknown = req.body?.config ?? {};
+    if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+      res.status(400).json({ error: 'config must be an object of settings' });
+      return;
+    }
+    res.json({ config: maskConfig(saveIntegrationConfig(patch as CustomEndpointsConfig)) });
   });
 
   /** Client endpoints win, but secrets saved server-side fill in the gaps. */
@@ -229,15 +256,21 @@ export async function createGloggServer() {
 
   app.post('/api/search', async (req, res) => {
     try {
-      const { query, config } = req.body as {
+      // No JSON body (a form post, say) is a bad request, not a crash.
+      const { query, config: rawConfig } = (req.body ?? {}) as {
         query?: string;
-        config?: Partial<SearchFilterConfig>;
+        config?: unknown;
       };
       if (!query || typeof query !== 'string' || !query.trim()) {
         res.status(400).json({ error: 'Query string is required' });
         return;
       }
-      const response = await executeFederatedSearch(query, mergeEndpoints(config));
+      const checked = checkSearchConfig(rawConfig);
+      if ('error' in checked) {
+        res.status(400).json({ error: checked.error });
+        return;
+      }
+      const response = await executeFederatedSearch(query, mergeEndpoints(checked.config));
       res.json(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
@@ -249,7 +282,7 @@ export async function createGloggServer() {
     try {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
       const uncensored = req.query.uncensored === 'true';
-      const lens = typeof req.query.lens === 'string' ? (req.query.lens as SearchFilterConfig['lens']) : 'all';
+      const lens = isSearchLens(req.query.lens) ? req.query.lens : 'all';
       if (!q.trim()) {
         res.status(400).json({ error: 'Query parameter q is required' });
         return;
@@ -336,8 +369,9 @@ export async function createGloggServer() {
       kind,
       origin: q('origin') || undefined,
       q: q('q'),
-      offset: Math.max(0, Number(q('offset')) || 0),
-      limit: Math.min(200, Math.max(1, Number(q('limit')) || 60)),
+      // Whole numbers in range: SQLite refuses 1.5 or 1e400 as a LIMIT.
+      offset: Math.min(1_000_000, Math.max(0, Math.floor(Number(q('offset'))) || 0)),
+      limit: Math.min(200, Math.max(1, Math.floor(Number(q('limit'))) || 60)),
       order: order === 'random' || order === 'name' ? order : 'posts',
       nsfw,
     });
@@ -483,7 +517,7 @@ export async function createGloggServer() {
 
   app.post('/api/inspect', async (req, res) => {
     try {
-      const { url, rawHtml } = req.body as { url?: string; rawHtml?: string };
+      const { url, rawHtml } = (req.body ?? {}) as { url?: string; rawHtml?: string };
       if (!url || typeof url !== 'string') {
         res.status(400).json({ error: 'Target URL is required' });
         return;
