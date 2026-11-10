@@ -3,14 +3,16 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { inject } from 'vitest';
 import type { RawSearchResult } from '../src/core/index.js';
 
 /**
- * Points GLOGG_HOME at a fresh dir so tests never touch ~/.glogg. It lives in the
- * repo's ignored .tmp/ because the test runner won't import plugins from outside the project.
+ * Points GLOGG_HOME at a fresh dir so tests never touch ~/.glogg. It lives in
+ * this run's folder under the repo's ignored .tmp/ (see globalSetup.ts), which is
+ * removed when the run ends; the test runner won't import plugins from outside the project.
  */
 export function useTempGloggHome(): string {
-  const root = path.resolve(import.meta.dirname, '..', '.tmp');
+  const root = inject('tmpRoot');
   fs.mkdirSync(root, { recursive: true });
   const dir = fs.mkdtempSync(path.join(root, 'home-'));
   process.env.GLOGG_HOME = dir;
