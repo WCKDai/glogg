@@ -73,12 +73,15 @@ export async function runCli(argv: string[]): Promise<number> {
     }
     return undefined;
   };
+  // The words after the command: flags, and the values of flags that take one, aren't among them.
+  const positional: string[] = [];
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--lens' || args[i] === '--max-per-domain') i++;
+    else if (!args[i].startsWith('--')) positional.push(args[i]);
+  }
 
   if (command === 'query-plan') {
-    const queryWords = args
-      .slice(1)
-      .filter((a) => !a.startsWith('--'));
-    const q = queryWords.join(' ').trim();
+    const q = positional.join(' ').trim();
     if (!q) {
       console.error('Error: Please provide a search query.');
       return 1;
@@ -103,18 +106,6 @@ export async function runCli(argv: string[]): Promise<number> {
     const uncensoredMode = hasFlag('--uncensored') || hasFlag('--18+');
     const maxPerDomain = Number(getFlagValue('--max-per-domain') ?? 1);
     const jsonMode = hasFlag('--json');
-
-    const positional: string[] = [];
-    for (let i = 1; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === '--lens' || arg === '--max-per-domain') {
-        i++;
-        continue;
-      }
-      if (arg.startsWith('--')) continue;
-      positional.push(arg);
-    }
-
     const q = positional.join(' ').trim();
     if (!q) {
       console.error('Error: Please provide a search query.');
@@ -195,14 +186,26 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   if (command === 'inspect') {
-    const targetUrl = args[1];
-    if (!targetUrl || targetUrl.startsWith('--')) {
+    const targetUrl = positional[0];
+    if (!targetUrl) {
       console.error('Error: Please provide a URL to inspect.');
       return 1;
     }
     const normalized = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
-    const res = await fetch(normalized);
-    const html = await res.text();
+    let html: string;
+    try {
+      const res = await fetch(normalized);
+      if (!res.ok) {
+        console.error(`Error: the page answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+        return 1;
+      }
+      html = await res.text();
+    } catch (e) {
+      // fetch says only "fetch failed"; the reason (ECONNREFUSED, ENOTFOUND, …) is its cause.
+      const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+      console.error(`Error: couldn't fetch ${normalized} (${cause?.code || cause?.message || (e as Error).message}).`);
+      return 1;
+    }
     const report = cleanAndAutopsyHtml(html, normalized);
 
     if (hasFlag('--json')) {
@@ -231,7 +234,7 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   if (command === 'containers') {
-    const sub = args[1] || 'status';
+    const sub = positional[0] || 'status';
     if (sub === 'status') {
       const stack = await getContainerStackStatus();
       if (hasFlag('--json')) {
@@ -254,7 +257,7 @@ export async function runCli(argv: string[]): Promise<number> {
     }
 
     if (sub === 'up') {
-      const serviceId = args[2];
+      const serviceId = positional[1];
       const out = await runContainerOrchestrationAction({
         action: serviceId ? 'up' : 'stack-up',
         serviceId,
@@ -277,7 +280,7 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   if (command === 'atlas') {
-    const cat = args[1];
+    const cat = positional[0];
     const items =
       cat && cat !== 'all'
         ? CURATED_INDIE_INDEX.filter((i) => i.category === cat)
@@ -308,5 +311,11 @@ export async function runCli(argv: string[]): Promise<number> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   configureNetwork();
-  runCli(process.argv).then((code) => process.exit(code));
+  runCli(process.argv).then(
+    (code) => process.exit(code),
+    (e) => {
+      console.error(`Error: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+  );
 }

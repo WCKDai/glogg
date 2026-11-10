@@ -419,3 +419,32 @@ describe('glogg as a process', () => {
     expect(JSON.parse(r.stdout)).toMatchObject({ activeRuntime: 'none', daemonRunning: false });
   });
 }, 30_000);
+
+describe('arguments and failures (bugs the first run of these tests found)', () => {
+  it('atlas --json lists the whole Atlas: a flag is not a category', async () => {
+    const r = await cli('atlas', '--json');
+    expect(JSON.parse(r.stdout)).toHaveLength(CURATED_INDIE_INDEX.length);
+  });
+
+  it('containers --json reports the stack: a flag is not a subcommand', async () => {
+    const r = await cli('containers', '--json');
+    expect(r.code, r.stdout.slice(0, 80)).toBe(0);
+  });
+
+  it('keeps the --lens value out of the query', async () => {
+    const plan = JSON.parse((await cli('query-plan', 'rust', 'async', '--lens', 'small-web', '--json')).stdout);
+    expect(plan.rawQuery).toBe('rust async');
+  });
+
+  it('returns 1 with a one-line error when the page is unreachable', async () => {
+    const r = await cli('inspect', `${unreachable}/article`);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/^Error: .*ECONNREFUSED/);
+  });
+
+  it('prints one line, not a stack trace, when the page is unreachable', async () => {
+    const r = await glogg('inspect', `${unreachable}/article`);
+    expect(r.code).toBe(1);
+    expect(r.stderr.trim().split('\n')).toHaveLength(1);
+  });
+});

@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CURATED_INDIE_INDEX,
   DEFAULT_BOOSTED_DOMAINS,
@@ -186,29 +186,25 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
   });
 
   it('executes glogg CLI commands (query-plan, atlas, rules) cleanly', async () => {
-    const planCode = await runCli([
-      'node',
-      'glogg-cli.ts',
-      'query-plan',
-      'distributed',
-      'hash',
-      'table',
-      '--lens',
-      'p2p-magnet',
-      '--json',
-    ]);
-    expect(planCode).toBe(0);
+    // Captured, not printed: the rules alone are a few hundred lines.
+    const out: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.join(' ')));
+    try {
+      const planCode = await runCli(['node', 'glogg-cli.ts', 'query-plan', 'distributed', 'hash', 'table', '--lens', 'p2p-magnet', '--json']);
+      expect(planCode).toBe(0);
+      expect(JSON.parse(out.pop()!)).toMatchObject({ rawQuery: 'distributed hash table', lens: 'p2p-magnet' });
 
-    const atlasCode = await runCli([
-      'node',
-      'glogg-cli.ts',
-      'atlas',
-      'fediverse-protocols',
-      '--json',
-    ]);
-    expect(atlasCode).toBe(0);
+      const atlasCode = await runCli(['node', 'glogg-cli.ts', 'atlas', 'fediverse-protocols', '--json']);
+      expect(atlasCode).toBe(0);
+      const atlas = JSON.parse(out.pop()!) as { category: string }[];
+      expect(atlas.length).toBeGreaterThan(0);
+      expect(atlas.every((a) => a.category === 'fediverse-protocols')).toBe(true);
 
-    const rulesCode = await runCli(['node', 'glogg-cli.ts', 'rules']);
-    expect(rulesCode).toBe(0);
+      const rulesCode = await runCli(['node', 'glogg-cli.ts', 'rules']);
+      expect(rulesCode).toBe(0);
+      expect(out.pop()).toMatch(/^\*:\/\/\*\./m);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
