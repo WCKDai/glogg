@@ -236,11 +236,15 @@ Page text is treated as untrusted: Research tells the model never to follow inst
 npm run dev            # server and client with hot reload
 npm run check          # typecheck
 npm test               # all suites, offline
+npm run test:coverage  # the same, with coverage and its floor (report in .tmp/coverage)
+npm run test:e2e       # the built app in headless Chrome (npm run build first)
 npm run test:perf      # speed suite, printing timings
 npm run build          # web app and browser extension
 npm run check:bundle   # gzipped client size budget (JS 125 KB, CSS 16 KB)
 npm run cli -- search "ubuntu linux" --lens forums
 ```
+
+Tests never reach the internet: a fetch to anything but this machine fails at once, naming the address. Each run keeps its temporary glogg homes in one folder under `.tmp/` and removes it at the end.
 
 The suites cover:
 
@@ -252,6 +256,8 @@ The suites cover:
 - **Plugins:** plugins and their tools.
 - **UI:** flows in jsdom.
 - **Speed:** budgets for the client.
+- **Properties:** seeded random input (`tests/properties.test.ts`): parsers never throw or hang on hostile text, ranking keeps its promises, links stay http(s), and the request guard and sessions refuse what they should. A failure prints the seed that replays it: `GLOGG_FUZZ_SEED=<seed> GLOGG_FUZZ_RUNS=1 npx vitest run tests/properties.test.ts`; `GLOGG_FUZZ_RUNS=3000` runs deeper.
+- **Browser:** `tests/e2e/` drives headless Chrome over the DevTools protocol against a production glogg with canned upstreams: search, the reader, the palette, Back, themes, phone layout, accessibility on every section, sign-in, and that the page fetches nothing from third parties. On CI a missing Chrome fails the run.
 
 [CONTRIBUTING.md](./CONTRIBUTING.md) maps the code and explains how to add a source or a plugin. [docs/api.md](./docs/api.md) lists every endpoint.
 

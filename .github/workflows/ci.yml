@@ -16,7 +16,7 @@ jobs:
   check:
     name: check
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -29,9 +29,12 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run check
-      - name: Run unit tests
-        run: npm test
+      # Built first: the browser tests and the asset tests run against the build.
       - name: Build web app & browser extension
         run: npm run build
+      - name: Run unit tests, with coverage
+        run: npm run test:coverage
+      - name: Run browser tests (headless Chrome)
+        run: npm run test:e2e
       - name: Check bundle size
         run: npm run check:bundle

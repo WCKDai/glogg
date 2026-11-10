@@ -4,6 +4,13 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Tests
+- **Hermetic:** a test can't reach the internet (a fetch to anything but this machine fails at once, naming it), and each run keeps its temporary homes in one folder that it removes; 466 leftover folders had piled up in `.tmp/`.
+- **Property tests** on seeded random input (`tests/properties.test.ts`, `tests/fuzz.ts`): the query compiler, bangs, scorer, ranker, instant answers (checked against arithmetic), the reader and the deep-index parsers on hostile HTML/XML/JSON, Markdown, the request guard and sessions. They found five bugs, fixed here: a half-emoji query failed the search, a deeply nested page crashed the reader, odd link schemes (`JAVASCRIPT:`, `ms-msdt:`) got through, scripts and styles leaked into feed summaries, and one malformed item broke a whole JSON feed.
+- **Browser tests** (`npm run test:e2e`): the built app in headless Chrome, driven with Node's own WebSocket over the DevTools protocol, so no new dependency.
+- **Coverage** (`npm run test:coverage`) with a floor that CI enforces.
+- CI builds before testing, runs the unit tests with coverage, then the browser tests.
+
 ### Added
 - **Docker.**
   - The Dockerfile builds one image with the web app, the API and the deep index. It runs as an unprivileged user, keeps data in `/data`, has a health check and never probes Docker or Podman.

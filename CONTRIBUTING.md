@@ -73,8 +73,8 @@ Tools are plugins. Start from [`plugins/_template/index.mjs`](./plugins/_templat
 ## Before you open a PR
 
 ```bash
-npm run check && npm test && npm run build && npm run check:bundle
+npm run check && npm run build && npm run test:coverage && npm run test:e2e && npm run check:bundle
 ```
 
-`npm test` needs no network. If you change ranking, add or update a golden in `tests/quality.test.ts`; if you touch a hot path, run `npm run test:perf` and keep it inside its budget.
+`npm test` needs no network, and can't use it: a fetch to anything but this machine fails at once. Serve fixtures from a local server (`fixtureServer` in `tests/helpers.ts`) or stub `fetch`. For a bug, add the test that fails first. For anything that must hold for every input, add a property to `tests/properties.test.ts` (`forAll` from `tests/fuzz.ts`). Coverage has a floor in `vite.config.ts`: raise it when you add tests, never lower it to pass. If you change ranking, add or update a golden in `tests/quality.test.ts`; if you touch a hot path, run `npm run test:perf` and keep it inside its budget.
 
