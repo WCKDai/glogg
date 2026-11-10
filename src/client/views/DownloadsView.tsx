@@ -26,13 +26,15 @@ export function DownloadsView({
   const labelFor = (t: string) => targetLabel(t, targets);
 
   // Polling every few seconds: one failure shows as a line on the page, not a toast each time.
-  const [offline, setOffline] = useState(false);
+  // What went wrong with the last poll: the server's reason, or that glogg can't be reached at all.
+  const [problem, setProblem] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       setReport(await api<DownloadManagerReport>('/api/downloads'));
-      setOffline(false);
-    } catch {
-      setOffline(true);
+      setProblem(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      setProblem(/failed to fetch|networkerror|load failed/i.test(msg) || !msg ? "Can't reach glogg right now" : msg);
     }
   }, []);
 
@@ -75,9 +77,9 @@ export function DownloadsView({
 
   return (
     <div className="page">
-      {offline && (
+      {problem && (
         <div className="notice notice-error" role="alert">
-          Can't reach glogg right now; trying again every few seconds.
+          {problem}; trying again every few seconds.
         </div>
       )}
       <header className="page-head">

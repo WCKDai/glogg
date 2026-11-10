@@ -443,7 +443,7 @@ describe('result rows', () => {
 
   it('reads a result clean, and reports hovering so the keyboard cursor can follow', async () => {
     const h = await row(result(1));
-    await click(byRole('button', 'Read'));
+    await click(byRole('button', /^Read /));
     expect(h.onRead).toHaveBeenCalledWith('https://site1.example/notes/page-1');
     await mouse('mouseover', $('.result'));
     expect(h.onHover).toHaveBeenCalled();
@@ -504,7 +504,7 @@ describe('result rows', () => {
     );
     expect(textIn()).toContain('Usenet · 700 MB');
     expect(textIn()).not.toContain('seeds');
-    expect(byRole('button', 'Read')).toBeTruthy();
+    expect(byRole('button', /^Read /)).toBeTruthy();
     expect(byRole('button', 'Send')).toBeTruthy();
   });
 
@@ -530,7 +530,7 @@ describe('result rows', () => {
     expect($('.result-domain')!.textContent).toBe(domain);
     expect($('.result-crumb')?.textContent ?? '').toBe(crumb);
     expect(byRole('link', `[${network}] a post about sqlite`).getAttribute('href')).toBe(url);
-    await click(byRole('button', 'Read'));
+    await click(byRole('button', /^Read /));
     expect(h.onRead).toHaveBeenCalledWith(url);
   });
 
@@ -560,7 +560,7 @@ describe('result rows', () => {
   it('offers to save the page, pin, raise, lower or hide its site, copy the link, or see old snapshots', async () => {
     const item = result(1);
     const h = await row(item);
-    const more = byRole('button', 'More actions');
+    const more = byRole('button', /^More actions/);
     expect(more.getAttribute('aria-expanded')).toBe('false');
     await click(more);
     expect(more.getAttribute('aria-expanded')).toBe('true');
@@ -589,13 +589,13 @@ describe('result rows', () => {
 
   it('does not offer "Save page" for a release, which has its own Send button', async () => {
     await row(torrent(1));
-    await click(byRole('button', 'More actions'));
+    await click(byRole('button', /^More actions/));
     expect(rolesNamed('menuitem')).toEqual(['Pin dht', 'Raise dht', 'Lower dht', 'Hide dht', 'Copy link', 'Wayback snapshots']);
   });
 
   it('closes the menu when you follow the Wayback link', async () => {
     await row(result(1));
-    await click(byRole('button', 'More actions'));
+    await click(byRole('button', /^More actions/));
     // The browser's part: opening the new tab. Stop jsdom navigating after glogg's handler ran.
     const stop = (e: Event) => e.preventDefault();
     window.addEventListener('click', stop);
@@ -1157,7 +1157,7 @@ describe('the results page', () => {
     await click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect($$('.filtered-row').map((r) => [nameOf($('a', r)!), $('.why', r)!.textContent])).toEqual([
-      ['15 Best SQLite Tools (2026)', 'sponsored'],
+      ['15 Best SQLite Tools (2026)', 'Sponsored or affiliate'],
       ['SQLite, again', '3rd result from site1.example'],
       ['SQLite explained', 'slop farm'],
     ]);
@@ -1177,7 +1177,7 @@ describe('the results page', () => {
 
   it('says when nothing is left to show', async () => {
     await resultsPage(response({ results: [] }));
-    expect(textIn($('.results-wrap')!)).toContain('Nothing here. Try another scope, or one of the engines below.');
+    expect(textIn($('.results-wrap')!)).toContain('Try fewer words, another scope, or one of the engines below.');
     expect($('.status-count')!.textContent).toBe('0 results · 0.4s');
   });
 
@@ -1185,7 +1185,7 @@ describe('the results page', () => {
     localStorage.setItem('glogg.blocked', JSON.stringify(['site1.example', 'site2.example', 'site3.example']));
     await resultsPage(response());
     expect(rows()).toEqual([]);
-    expect(textIn()).toContain('Nothing here. Try another scope, or one of the engines below.');
+    expect(textIn()).toContain('Try fewer words, another scope, or one of the engines below.');
     expect(sent('POST', '/api/search')[0].body.config.blockedDomains).toEqual(['site1.example', 'site2.example', 'site3.example']);
   });
 
@@ -1231,7 +1231,7 @@ describe('the results page', () => {
   it('hides a site at once and leaves it out of later searches', async () => {
     await resultsPage(response());
     const second = $$('.result')[1];
-    await click(byRole('button', 'More actions', second));
+    await click(byRole('button', /^More actions/, second));
     await click(byRole('menuitem', 'Hide site2.example', second));
     expect(rows()).toEqual(['Result 1', 'Result 3']);
     expect(toasts()).toContain('Hidden site2.example');
@@ -1245,7 +1245,7 @@ describe('the results page', () => {
 
   it('raises a site in later searches', async () => {
     await resultsPage(response());
-    await click(byRole('button', 'More actions', $$('.result')[0]));
+    await click(byRole('button', /^More actions/, $$('.result')[0]));
     await click(byRole('menuitem', 'Raise site1.example'));
     expect(toasts()).toContain('Raised site1.example');
     await type(byRole('textbox', 'Search'), 'sqlite wal');
@@ -1258,7 +1258,7 @@ describe('the results page', () => {
     let answer: unknown = { job: job('j1', { target: 'offcloud', status: 'queued', statusDetail: 'Queued' }) };
     await resultsPage(response(), { 'POST /api/downloads': () => answer });
     const save = async () => {
-      await click(byRole('button', 'More actions', $$('.result')[0]));
+      await click(byRole('button', /^More actions/, $$('.result')[0]));
       await click(byRole('menuitem', 'Save page'));
       await flush();
     };
@@ -1297,7 +1297,7 @@ describe('the results page', () => {
 
   it('opens a result in the reader, and Escape closes it with focus still on its Read button', async () => {
     await resultsPage(response(), { 'POST /api/inspect': () => page({ title: 'Page one, clean' }) });
-    const read = byRole('button', 'Read', $$('.result')[0]);
+    const read = byRole('button', /^Read /, $$('.result')[0]);
     read.focus();
     await click(read);
     await until(() => $('.sheet h1'));
@@ -1610,7 +1610,7 @@ describe('command palette', () => {
     await palette();
     expect(byRole('dialog', 'Command palette')).toBeTruthy();
     expect(rolesNamed('option')).toHaveLength(4);
-    expect(nameOf($<HTMLInputElement>('.palette input')!)).toBe('Search, jump with !bang, or run a command…');
+    expect(nameOf($<HTMLInputElement>('.palette input')!)).toBe('Search or type a command');
   });
 });
 
@@ -2305,7 +2305,9 @@ describe('downloads page', () => {
 
   it('says when the list cannot be loaded, and still takes links', async () => {
     const p = await downloadsView(() => reply(503, { error: 'Download manager is starting' }));
-    expect(p.onToast).toHaveBeenCalledWith('Download manager is starting', 'error');
+    // Once, on the page, rather than a toast every few seconds while it polls.
+    expect(textIn($('.notice-error')!)).toBe('Download manager is starting; trying again every few seconds.');
+    expect(p.onToast).not.toHaveBeenCalled();
     expect($('.destinations')).toBeNull();
     expect(byRole('textbox', 'URL to download')).toBeTruthy();
   });
@@ -2784,6 +2786,55 @@ describe('settings', () => {
 });
 
 describe('found by these tests, and fixed', () => {
+  it('reader: is a modal dialog that takes focus and gives it back to the Read button', async () => {
+    await resultsPage(response(), { 'POST /api/inspect': () => page() });
+    const read = byRole('button', /^Read /, $$('.result')[0]);
+    read.focus();
+    await click(read);
+    await until(() => $('.sheet h1'));
+    const sheet = byRole('dialog', 'Reader');
+    expect.soft(sheet.getAttribute('aria-modal')).toBe('true');
+    expect.soft(sheet.contains(document.activeElement)).toBe(true);
+    const close = byRole('button', 'Close reader (Esc)');
+    close.focus();
+    await click(close);
+    expect.soft(document.activeElement).toBe(read);
+  });
+
+
+  it('palette: is a modal dialog that gives focus back and closes on Escape wherever focus is', async () => {
+    await resultsPage(response());
+    const box = byRole('textbox', 'Search');
+    box.focus();
+    await press('k', box, { metaKey: true });
+    await flush();
+    const dialog = byRole('dialog', 'Command palette');
+    expect.soft(dialog.getAttribute('aria-modal')).toBe('true');
+    expect.soft(unnamed(dialog)).toEqual([]);
+    await press('Escape');
+    expect.soft(document.activeElement).toBe(box);
+
+    const opener = byRole('button', 'Command palette');
+    opener.focus();
+    await click(opener);
+    expect(byRole('dialog', 'Command palette')).toBeTruthy();
+    box.focus(); // Shift+Tab out of the palette: nothing keeps focus inside it
+    await press('Escape', box);
+    expect.soft(queryRole('dialog', 'Command palette')).toBeUndefined();
+  });
+
+
+  it('results: closes the More actions menu on Escape', async () => {
+    await mount(withTargets(<ResultItem item={result(1)} active={false} onHover={vi.fn()} onRead={vi.fn()} onSend={vi.fn()} onRule={vi.fn()} />));
+    const more = byRole('button', /^More actions/);
+    more.focus();
+    await click(more);
+    await press('Escape', more);
+    expect.soft($('[role="menu"]')).toBeNull();
+    expect.soft(more.getAttribute('aria-expanded')).toBe('false');
+  });
+
+
   const toolProps = (onReload: () => Promise<void> = async () => undefined) => ({
     onReload,
     onChanged: vi.fn(),

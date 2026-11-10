@@ -3926,19 +3926,6 @@ html.dark[data-accent='graphite'] { --accent: #a3a7b0; --accent-ink: #c4c7cd; --
   color: var(--accent-ink);
 }
 
-/* Read by screen readers, not shown */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* Each result's title is a heading for screen readers; it looks like the link it holds */
 .result-h {
   margin: 0;

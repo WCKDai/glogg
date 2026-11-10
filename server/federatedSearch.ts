@@ -1344,7 +1344,8 @@ export async function executeFederatedSearch(
   const answerWaitMs = Math.max(50, ANSWER_BUDGET_MS - (Date.now() - startTime));
   let answerTimer: NodeJS.Timeout | undefined;
   const instantAnswer = await Promise.race([
-    answerLookups ? buildInstantAnswer(query, ranked.surfaced, answerLookups) : Promise.resolve(undefined),
+    // A site: search wants that site, not an answer. (Sums and conversions have no lookups, and still get theirs.)
+    ops.sites.length ? Promise.resolve(undefined) : buildInstantAnswer(query, ranked.surfaced, answerLookups),
     new Promise<undefined>((resolve) => {
       answerTimer = setTimeout(() => resolve(undefined), answerWaitMs);
     }),

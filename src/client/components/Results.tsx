@@ -303,7 +303,7 @@ export function ResultItem({
               <BookOpen size={13} /> Read
             </button>
           )}
-          <div className="menu-wrap" ref={moreRef}>
+          <div className="menu-wrap" ref={moreRef} onKeyDown={moreOpen ? menuKeys : undefined}>
             <button
               ref={moreButton}
               type="button"
@@ -316,7 +316,7 @@ export function ResultItem({
               <MoreHorizontal size={15} />
             </button>
             {moreOpen && (
-              <div className="menu menu-right" role="menu" aria-label={`Actions for ${item.rootDomain}`} onKeyDown={menuKeys}>
+              <div className="menu menu-right" role="menu" aria-label={`Actions for ${item.rootDomain}`}>
                 {!downloadable && !isMagnet && (
                   <button type="button" role="menuitem" onClick={() => { onSend(item, 'auto'); setMoreOpen(false); }}>
                     <span>Save page</span>

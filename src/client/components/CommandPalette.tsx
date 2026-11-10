@@ -30,6 +30,17 @@ export function CommandPalette({
   const box = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => inputRef.current?.focus(), []);
+  // Escape closes it wherever focus has gone, not only from its input.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const items = useMemo<PaletteCommand[]>(() => {
     const t = text.trim().toLowerCase();
@@ -105,8 +116,6 @@ export function CommandPalette({
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 run(items[hi]);
-              } else if (e.key === 'Escape') {
-                onClose();
               }
             }}
           />
