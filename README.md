@@ -236,7 +236,7 @@ Page text is treated as untrusted: Research tells the model never to follow inst
 npm run dev            # server and client with hot reload
 npm run check          # typecheck
 npm test               # all suites, offline
-npm run test:coverage  # the same, with coverage and its floor (report in .tmp/coverage)
+npm run test:coverage  # coverage and its floor (report in .tmp/coverage); leaves out the speed suite, whose budgets only mean something uninstrumented
 npm run test:e2e       # the built app in headless Chrome (npm run build first)
 npm run test:perf      # speed suite, printing timings
 npm run build          # web app and browser extension

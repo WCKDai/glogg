@@ -32,7 +32,10 @@ jobs:
       # Built first: the browser tests and the asset tests run against the build.
       - name: Build web app & browser extension
         run: npm run build
-      - name: Run unit tests, with coverage
+      # The speed budgets time real code, so they run uninstrumented; coverage leaves that suite out.
+      - name: Run unit tests
+        run: npm test
+      - name: Check coverage
         run: npm run test:coverage
       - name: Run browser tests (headless Chrome)
         run: npm run test:e2e
