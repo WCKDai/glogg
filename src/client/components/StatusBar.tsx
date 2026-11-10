@@ -1,41 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Command } from 'lucide-react';
+import { SEARCH_SOURCE_NAMES } from '../../core/browser.js';
 import type { RankedSearchResponse } from '../../core/browser.js';
 import { plural, useClickOutside } from '../lib.js';
 import type { Mode, ResearchState } from '../lib.js';
 
 /** Names for the server's source tasks (metrics.sourceTimings keys). */
-const SOURCE_NAMES: Record<string, string> = {
-  searxng: 'SearXNG',
-  ddg: 'DuckDuckGo',
-  brave: 'Brave',
-  se: 'Stack Exchange',
-  wiki: 'Wikipedia',
-  hn: 'Hacker News',
-  github: 'GitHub',
-  marginalia: 'Marginalia',
-  wiby: 'Wiby',
-  lemmy: 'Lemmy',
-  fediverse: 'Fediverse',
-  gdelt: 'GDELT news',
-  archive: 'Internet Archive',
-  openalex: 'OpenAlex',
-  arxiv: 'arXiv',
-  p2p: 'Torrents & Usenet',
-  chanLive: '4chan',
-  chanArchive: 'Chan archives',
-  forums: 'Old-web forums',
-  deep: 'Deep index (local)',
-  mwmbl: 'Mwmbl',
-  discourse: 'Discourse forums (live)',
-};
+const SOURCE_NAMES = SEARCH_SOURCE_NAMES;
 
-const STATUS_ORDER = { ok: 0, empty: 1, late: 2, error: 3, resting: 4 } as const;
+const STATUS_ORDER = { ok: 0, empty: 1, late: 2, error: 3, resting: 4, off: 5 } as const;
 
 type Timing = NonNullable<RankedSearchResponse['metrics']['sourceTimings']>[string];
 
 export function sourceSummary(timings: Record<string, Timing> = {}) {
-  const all = Object.values(timings);
+  // Sources you turned off weren't asked.
+  const all = Object.values(timings).filter((t) => t.status !== 'off');
   const answered = all.filter((t) => t.status === 'ok' || t.status === 'empty').length;
   const late = all.filter((t) => t.status === 'late' || t.status === 'error').length;
   return { total: all.length, answered, late, resting: all.filter((t) => t.status === 'resting').length };

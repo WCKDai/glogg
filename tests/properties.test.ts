@@ -171,11 +171,12 @@ describe('ranking', () => {
         items: list(r, 60, rawResult),
         maxPerDomain: int(r, 1, 4),
         blocked: list(r, 2, (x) => pick(x, DOMAINS)),
+        pinned: list(r, 1, (x) => pick(x, DOMAINS)),
         uncensored: r() < 0.3,
         q: r() < 0.8 ? text(r, 4) : '',
       }),
-      ({ items, maxPerDomain, blocked, uncensored, q }) => {
-        const out = diversifyAndRankResults(items, { maxPerDomain, blockedDomains: blocked, uncensoredMode: uncensored }, q);
+      ({ items, maxPerDomain, blocked, pinned, uncensored, q }) => {
+        const out = diversifyAndRankResults(items, { maxPerDomain, blockedDomains: blocked, pinnedDomains: pinned, uncensoredMode: uncensored }, q);
         const inputUrls = new Set(items.map((i) => scoreSearchResult(i).url));
         const surfacedIds = new Set(out.surfaced.map((s) => s.id));
 
@@ -184,8 +185,13 @@ describe('ranking', () => {
         expect(surfacedIds.size).toBe(out.surfaced.length);
         for (const f of out.filteredSlop) expect(surfacedIds.has(f.id)).toBe(false);
 
-        // Best first.
-        for (let i = 1; i < out.surfaced.length; i++) expect(out.surfaced[i - 1].netScore).toBeGreaterThanOrEqual(out.surfaced[i].netScore);
+        // Pinned sites first, then best first.
+        const isPinned = (s: (typeof out.surfaced)[number]) => s.signals.some((g) => g.id === 'user-pinned-domain');
+        for (let i = 1; i < out.surfaced.length; i++) {
+          const [a, b] = [out.surfaced[i - 1], out.surfaced[i]];
+          expect(Number(isPinned(a))).toBeGreaterThanOrEqual(Number(isPinned(b)));
+          if (isPinned(a) === isPinned(b)) expect(a.netScore).toBeGreaterThanOrEqual(b.netScore);
+        }
 
         const perDomain = new Map<string, number>();
         for (const s of out.surfaced) {
@@ -196,7 +202,7 @@ describe('ranking', () => {
         for (const n of perDomain.values()) expect(n).toBeLessThanOrEqual(maxPerDomain);
 
         // The same input ranks the same way.
-        const again = diversifyAndRankResults(items, { maxPerDomain, blockedDomains: blocked, uncensoredMode: uncensored }, q);
+        const again = diversifyAndRankResults(items, { maxPerDomain, blockedDomains: blocked, pinnedDomains: pinned, uncensoredMode: uncensored }, q);
         expect(again.surfaced.map((s) => s.url)).toEqual(out.surfaced.map((s) => s.url));
       }
     );

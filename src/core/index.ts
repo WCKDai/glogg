@@ -10,3 +10,4 @@ export * from './bangs.js';
 export * from './plugins.js';
 export * from './research.js';
 export * from './text.js';
+export * from './searchSources.js';

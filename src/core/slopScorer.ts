@@ -185,6 +185,8 @@ export function scoreSearchResult(
 
   const userBlocked = config?.blockedDomains ?? [];
   const userBoosted = config?.boostedDomains ?? [];
+  const userLowered = config?.loweredDomains ?? [];
+  const userPinned = config?.pinnedDomains ?? [];
   const userBlockedPhrases = config?.blockedPhrases ?? [];
 
   // 0. P2P / DHT / Bitmagnet / Usenet NZB scoring
@@ -282,15 +284,22 @@ export function scoreSearchResult(
     });
   }
 
-  if (matchesDomainList(domain, rootDomain, userBoosted)) {
+  if (matchesDomainList(domain, rootDomain, userPinned)) {
+    humanPoints += 60;
+    slopPoints = Math.max(0, slopPoints - 20);
+    signals.push({ id: 'user-pinned-domain', label: `Pinned (${rootDomain})`, delta: 60, category: 'user-rule' });
+  } else if (matchesDomainList(domain, rootDomain, userBoosted)) {
     humanPoints += 40;
     slopPoints = Math.max(0, slopPoints - 20);
     signals.push({
       id: 'user-boosted-domain',
-      label: `Pinned trusted domain (${rootDomain})`,
+      label: `Raised (${rootDomain})`,
       delta: 40,
       category: 'user-rule',
     });
+  } else if (matchesDomainList(domain, rootDomain, userLowered)) {
+    humanPoints -= 30;
+    signals.push({ id: 'user-lowered-domain', label: `Lowered (${rootDomain})`, delta: -30, category: 'user-rule' });
   }
 
   for (const phrase of userBlockedPhrases) {

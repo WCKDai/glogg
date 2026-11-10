@@ -57,6 +57,7 @@ import { runResearch } from './research.js';
 import { apiGuard, contentSecurityPolicy, securityHeaders } from './security.js';
 import { isIconDomain, siteIcon } from './favicons.js';
 import { compressJson, hashedAssets } from './compress.js';
+import { loadProfile, saveProfile } from './profile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -255,6 +256,24 @@ export async function createGloggServer() {
 
   app.delete('/api/downloads/:id', (req, res) => {
     res.json({ jobs: req.params.id === 'finished' ? clearFinishedDownloads() : removeDownload(req.params.id) });
+  });
+
+  // Your web-app settings, saved here so another browser can load them.
+  app.get('/api/profile', (_req, res) => {
+    const profile = loadProfile();
+    if (!profile) {
+      res.status(404).json({ error: 'No settings saved on this glogg yet.' });
+      return;
+    }
+    res.json(profile);
+  });
+
+  app.put('/api/profile', (req, res) => {
+    try {
+      res.json(saveProfile(req.body?.settings));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not save those settings' });
+    }
   });
 
   app.get('/api/integrations', (_req, res) => {

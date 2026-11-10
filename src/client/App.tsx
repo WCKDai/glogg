@@ -47,7 +47,7 @@ import type { InlineToolRun, ToolActionHandlers } from './components/ToolKit.js'
 import { DownloadsView } from './views/DownloadsView.js';
 import { ServicesView } from './views/ServicesView.js';
 import { AtlasView } from './views/AtlasView.js';
-import { SearchPrefs, SettingsView } from './views/SettingsView.js';
+import { DEFAULT_PREFS, SearchPrefs, SettingsView, STRICTNESS_THRESHOLD } from './views/SettingsView.js';
 import { ToolsView } from './views/ToolsView.js';
 import type { ToolsTarget } from './views/ToolsView.js';
 import {
@@ -68,21 +68,15 @@ import {
   SOURCE_LABELS,
   streamEvents,
   streamSearch,
+  SiteIconsContext,
+  withDomainRule,
   targetLabel,
   useLocalStorage,
   useToasts,
 } from './lib.js';
-import type { Mode, PluginsResponse, ResearchState, View } from './lib.js';
+import type { DomainRule, Mode, PluginsResponse, ResearchState, ThemePref, View } from './lib.js';
 
-type ThemePref = 'system' | 'light' | 'dark';
 
-const DEFAULT_PREFS: SearchPrefs = {
-  maxPerDomain: 2,
-  stripSponsored: true,
-  obscureWebOnly: false,
-  preLlmOnly: false,
-  newTab: true,
-};
 
 const RELEASE_SCOPES: SearchLensId[] = ['p2p-magnet', 'usenet-nzb'];
 /** Tools offered on the start screen, in this order, when installed. */
@@ -114,12 +108,13 @@ function viewFromPath(pathname: string): View {
   return (Object.keys(VIEW_PATHS) as View[]).find((v) => VIEW_PATHS[v] === path) ?? 'search';
 }
 
-function readUrlState(): { q: string; scope: SearchLensId; view: View } {
+/** What the address says; `scope` is null when it says none, so your default scope applies. */
+function readUrlState(): { q: string; scope: SearchLensId | null; view: View } {
   const params = new URLSearchParams(window.location.search);
   const scope = params.get('scope') as SearchLensId | null;
   return {
     q: params.get('q') || '',
-    scope: scope && SCOPES.some((s) => s.id === scope) ? scope : 'all',
+    scope: scope && SCOPES.some((s) => s.id === scope) ? scope : null,
     view: viewFromPath(window.location.pathname),
   };
 }
@@ -151,9 +146,24 @@ interface SearchOpts {
 export function App() {
   // ── Persistent preferences ────────────────────────────────────────────
   const [themePref, setThemePref] = useLocalStorage<ThemePref>('glogg.theme', 'system');
-  const [prefs, setPrefs] = useLocalStorage<SearchPrefs>('glogg.prefs', DEFAULT_PREFS);
+  const [storedPrefs, setPrefs] = useLocalStorage<SearchPrefs>('glogg.prefs', DEFAULT_PREFS);
+  // Settings added later start at their defaults.
+  const prefs = useMemo(() => ({ ...DEFAULT_PREFS, ...storedPrefs }), [storedPrefs]);
   const [blocked, setBlocked] = useLocalStorage<string[]>('glogg.blocked', DEFAULT_SLOP_DOMAINS.slice(0, 35));
   const [boosted, setBoosted] = useLocalStorage<string[]>('glogg.boosted', DEFAULT_BOOSTED_DOMAINS.slice(0, 30));
+  const [lowered, setLowered] = useLocalStorage<string[]>('glogg.lowered', []);
+  const [pinned, setPinned] = useLocalStorage<string[]>('glogg.pinned', []);
+  const [phrases, setPhrases] = useLocalStorage<string[]>('glogg.phrases', []);
+  const domains = useMemo<Record<DomainRule, string[]>>(() => ({ pin: pinned, raise: boosted, lower: lowered, hide: blocked }), [pinned, boosted, lowered, blocked]);
+  const setDomains = useCallback(
+    (d: Record<DomainRule, string[]>) => {
+      setPinned(d.pin);
+      setBoosted(d.raise);
+      setLowered(d.lower);
+      setBlocked(d.hide);
+    },
+    [setPinned, setBoosted, setLowered, setBlocked]
+  );
   const [customBangs, setCustomBangs] = useLocalStorage<BangDefinition[]>('glogg.bangs', []);
   const [uncensored, setUncensored] = useLocalStorage<boolean>('glogg.uncensored', false);
   const [mode, setMode] = useLocalStorage<Mode>('glogg.mode', 'simple');
@@ -166,7 +176,7 @@ export function App() {
   const [view, setView] = useState<View>(initial.view);
   const [input, setInput] = useState(initial.q);
   const [submitted, setSubmitted] = useState('');
-  const [scope, setScope] = useState<SearchLensId>(initial.scope);
+  const [scope, setScope] = useState<SearchLensId>(initial.scope ?? prefs.defaultScope);
   const [data, setData] = useState<RankedSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,8 +234,8 @@ export function App() {
   }, [aiPlugin]);
 
   // Always-fresh snapshot for async handlers and key bindings.
-  const live = useRef({ prefs, blocked, boosted, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread });
-  live.current = { prefs, blocked, boosted, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread };
+  const live = useRef({ domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread });
+  live.current = { domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread };
 
   // ── Theme ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -237,10 +247,11 @@ export function App() {
   const isDark = themePref === 'dark' || (themePref === 'system' && systemDark);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.dataset.accent = prefs.accent;
     document.documentElement.classList.toggle('light', !isDark);
     // The browser's own chrome matches the page, whichever theme you picked.
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', isDark ? '#0f0f10' : '#f6f6f4'));
-  }, [isDark]);
+  }, [isDark, prefs.accent]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
@@ -393,7 +404,7 @@ export function App() {
       setThread([]);
       if (push) pushUrl(`/?q=${encodeURIComponent(q)}`);
       document.title = `${q} — glogg`;
-      setHistory((h) => [q, ...h.filter((x) => x !== q)].slice(0, HISTORY_MAX));
+      if (live.current.prefs.rememberHistory) setHistory((h) => [q, ...h.filter((x) => x !== q)].slice(0, HISTORY_MAX));
 
       const list = indexTools((await (pluginsReq.current ?? loadPluginList())).plugins);
       if (ctrl.signal.aborted) return;
@@ -455,7 +466,7 @@ export function App() {
 
       if (opts.push !== false) pushUrl(`/?q=${encodeURIComponent(q)}${nextScope !== 'all' ? `&scope=${nextScope}` : ''}`);
       document.title = `${q} — glogg`;
-      if (!opts.keepResearch) setHistory((h) => [q, ...h.filter((x) => x !== q)].slice(0, HISTORY_MAX));
+      if (!opts.keepResearch && s.prefs.rememberHistory) setHistory((h) => [q, ...h.filter((x) => x !== q)].slice(0, HISTORY_MAX));
 
       abortRef.current?.abort();
       const ctrl = new AbortController();
@@ -466,14 +477,17 @@ export function App() {
         config: {
           lens: nextScope,
           maxPerDomain: p.maxPerDomain,
-          slopThreshold: 48,
+          slopThreshold: STRICTNESS_THRESHOLD[p.strictness] ?? 48,
           preLlmOnly: p.preLlmOnly,
           obscureWebOnly: p.obscureWebOnly,
           stripSponsored: p.stripSponsored,
           uncensoredMode: nextUncensored,
           blockedDomains: s.blocked,
           boostedDomains: s.boosted,
-          blockedPhrases: [],
+          loweredDomains: s.lowered,
+          pinnedDomains: s.pinned,
+          blockedPhrases: s.phrases,
+          disabledSources: p.disabledSources,
         },
       };
       try {
@@ -553,14 +567,14 @@ export function App() {
 
   // Initial URL + back/forward
   useEffect(() => {
-    if (initial.q) void runSearch(initial.q, { scope: initial.scope, push: false });
+    if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, push: false });
     else if (initial.view !== 'search') document.title = VIEW_TITLES[initial.view];
     const onPop = () => {
       const { q, scope: sc, view: v } = readUrlState();
       if (v !== 'search') {
         setView(v);
         document.title = VIEW_TITLES[v];
-      } else if (q) void runSearch(q, { scope: sc, push: false });
+      } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, push: false });
       else {
         stopWork();
         setSubmitted('');
@@ -610,20 +624,13 @@ export function App() {
   }, [activeItem]);
 
   // ── Actions ───────────────────────────────────────────────────────────
-  const pinDomain = useCallback(
-    (d: string) => {
-      setBoosted((b) => (b.includes(d) ? b : [d, ...b]));
-      toast(`Preferring ${d} in future searches`, 'ok');
+  const ruleDomain = useCallback(
+    (d: string, rule: DomainRule) => {
+      setDomains(withDomainRule(live.current.domains, d, rule));
+      const said: Record<DomainRule, string> = { pin: `Pinned ${d}: on top when it matches`, raise: `Raised ${d}`, lower: `Lowered ${d}`, hide: `Hidden ${d}` };
+      toast(said[rule], 'ok');
     },
-    [setBoosted, toast]
-  );
-
-  const muteDomain = useCallback(
-    (d: string) => {
-      setBlocked((b) => (b.includes(d) ? b : [d, ...b]));
-      toast(`Hidden ${d}`, 'ok');
-    },
-    [setBlocked, toast]
+    [setDomains, toast]
   );
 
   /** 18+ mode turns on only in Settings, after a confirmation; turning it off works from anywhere. */
@@ -711,6 +718,8 @@ export function App() {
       }
       if (paletteOpen || shortcutsOpen || readerUrl || e.metaKey || e.ctrlKey || e.altKey) return;
       if (isTypingTarget(e.target)) return;
+      // Character keys only when you want them (WCAG 2.1.4); arrows and Enter always work.
+      if (e.key.length === 1 && !live.current.prefs.singleKeys) return;
 
       if (e.key === '?') {
         e.preventDefault();
@@ -824,14 +833,16 @@ export function App() {
       c.push(
         { id: 'a-read', label: `Read “${activeItem.title.slice(0, 48)}”`, group: 'Selected result', hint: 'r', run: () => setReaderUrl(activeItem.url) },
         { id: 'a-send', label: 'Send selected to downloads', group: 'Selected result', hint: 'd', run: () => sendItem(activeItem, 'auto') },
-        { id: 'a-hide', label: `Hide ${activeItem.rootDomain}`, group: 'Selected result', run: () => muteDomain(activeItem.rootDomain) }
+        { id: 'a-pin', label: `Pin ${activeItem.rootDomain} on top`, group: 'Selected result', run: () => ruleDomain(activeItem.rootDomain, 'pin') },
+        { id: 'a-lower', label: `Lower ${activeItem.rootDomain}`, group: 'Selected result', run: () => ruleDomain(activeItem.rootDomain, 'lower') },
+        { id: 'a-hide', label: `Hide ${activeItem.rootDomain}`, group: 'Selected result', run: () => ruleDomain(activeItem.rootDomain, 'hide') }
       );
     }
     data?.compiledQuery.escapeUrls.slice(0, 8).forEach((e) =>
       c.push({ id: `e-${e.id}`, label: `Search on ${e.name}`, group: 'Elsewhere', hint: e.description, run: () => openUrl(e.url) })
     );
     return c;
-  }, [goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, muteDomain, openUrl]);
+  }, [goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, ruleDomain, openUrl]);
 
   // ── Render ────────────────────────────────────────────────────────────
   const isHome = view === 'search' && !submitted;
@@ -895,7 +906,7 @@ export function App() {
       ) : visible.length === 0 ? (
         <p className="empty">Nothing here. Try another scope, or one of the engines below.</p>
       ) : (
-        <div className="results">
+        <div className={`results${prefs.density === 'compact' ? ' compact' : ''}`}>
           {visible.map((item, i) => (
             <React.Fragment key={item.id}>
               {i === 3 && !sourceFilter && releases.length > 0 && (
@@ -915,8 +926,8 @@ export function App() {
                 onHover={() => setActive(i)}
                 onRead={setReaderUrl}
                 onSend={sendItem}
-                onPin={pinDomain}
-                onMute={muteDomain}
+                onRule={ruleDomain}
+                newTab={prefs.newTab}
               />
             </React.Fragment>
           ))}
@@ -965,6 +976,7 @@ export function App() {
 
   return (
     <DownloadTargetsContext.Provider value={targets}>
+    <SiteIconsContext.Provider value={prefs.siteIcons}>
       <div className="shell">
         <a className="skip-link" href="#main">
           Skip to content
@@ -1206,16 +1218,21 @@ export function App() {
             <SettingsView
               prefs={prefs}
               setPrefs={setPrefs}
-              blocked={blocked}
-              setBlocked={setBlocked}
-              boosted={boosted}
-              setBoosted={setBoosted}
+              domains={domains}
+              setDomains={setDomains}
+              phrases={phrases}
+              setPhrases={setPhrases}
               customBangs={customBangs}
               setCustomBangs={setCustomBangs}
+              theme={themePref}
+              setTheme={setThemePref}
+              historyCount={history.length}
+              clearHistory={() => setHistory([])}
               adultMode={uncensored}
               setAdultMode={setAdultMode}
               focus={settingsFocus}
               onToast={toast}
+              onShowShortcuts={() => setShortcutsOpen(true)}
             />
           )}
         </main>
@@ -1261,6 +1278,7 @@ export function App() {
           ))}
         </div>
       </div>
+    </SiteIconsContext.Provider>
     </DownloadTargetsContext.Provider>
   );
 }

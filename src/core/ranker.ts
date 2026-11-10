@@ -260,6 +260,12 @@ export function diversifyAndRankResults(
       });
       continue;
     }
+    // A phrase you hid hides the result, however good it looks otherwise.
+    const phrase = item.signals.find((s) => s.id.startsWith('user-phrase-'));
+    if (phrase) {
+      filteredSlop.push({ ...item, demotedReason: `Mentions “${phrase.id.slice('user-phrase-'.length)}”` });
+      continue;
+    }
 
     // Check Sponsored / Affiliate Strip
     if (config.stripSponsored && (item.isSponsored || item.verdict === 'sponsored-ad')) {
@@ -388,8 +394,9 @@ export function diversifyAndRankResults(
     });
   }
 
-  // Final sort after diversity adjustments
-  surfaced.sort((a, b) => b.netScore - a.netScore);
+  // Final sort after diversity adjustments; domains you pinned go first.
+  const pinned = (r: ScoredSearchResult) => (r.signals.some((s) => s.id === 'user-pinned-domain') ? 1 : 0);
+  surfaced.sort((a, b) => pinned(b) - pinned(a) || b.netScore - a.netScore);
 
   // Interleave p2pResults across protocols/indexers so top rows show DHT Magnets, Archive BT, and Usenet NZB together
   const byIndexer = new Map<string, ScoredSearchResult[]>();

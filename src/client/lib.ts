@@ -15,6 +15,7 @@ import type {
 } from '../core/browser.js';
 
 export type View = 'search' | 'downloads' | 'atlas' | 'services' | 'settings' | 'tools';
+export type ThemePref = 'system' | 'light' | 'dark';
 export type Mode = 'simple' | 'advanced';
 
 export const SCOPES: { id: SearchLensId; label: string; hint: string }[] = [
@@ -436,4 +437,104 @@ export function useToasts() {
 export function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+}
+
+// ── Domain rules ──────────────────────────────────────────────────────────
+/** What you can tell glogg about a site: always on top, higher, lower, or never. */
+export type DomainRule = 'pin' | 'raise' | 'lower' | 'hide';
+
+export const DOMAIN_RULES: { id: DomainRule; label: string; verb: string; hint: string }[] = [
+  { id: 'pin', label: 'Pinned', verb: 'Pin', hint: 'On top whenever they match your search' },
+  { id: 'raise', label: 'Raised', verb: 'Raise', hint: 'Ranked higher' },
+  { id: 'lower', label: 'Lowered', verb: 'Lower', hint: 'Still shown, ranked lower' },
+  { id: 'hide', label: 'Hidden', verb: 'Hide', hint: 'Never shown' },
+];
+
+/** A domain from whatever was typed or pasted: "https://www.Example.com/x" → "example.com". */
+export function cleanDomain(input: string): string {
+  return input.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[/?#\s]/)[0];
+}
+
+/** Gives `domain` one rule, taking it off the other lists. */
+export function withDomainRule(lists: Record<DomainRule, string[]>, domain: string, rule: DomainRule | null): Record<DomainRule, string[]> {
+  const out = Object.fromEntries(DOMAIN_RULES.map((r) => [r.id, lists[r.id].filter((d) => d !== domain)])) as Record<DomainRule, string[]>;
+  if (rule) out[rule] = [domain, ...out[rule]];
+  return out;
+}
+
+/** Context: whether result rows show site icons (fetched through glogg) or only their letters. */
+export const SiteIconsContext = createContext(true);
+
+// ── Your settings, as a file ──────────────────────────────────────────────
+/**
+ * The browser-side settings that make up "your settings": what export, import
+ * and saving to this glogg carry. 18+ mode stays out (it only turns on after
+ * its own confirmation), and so do search history and keys (keys live on the server).
+ */
+export const PROFILE_KEYS = [
+  'glogg.prefs',
+  'glogg.theme',
+  'glogg.blocked',
+  'glogg.boosted',
+  'glogg.lowered',
+  'glogg.pinned',
+  'glogg.phrases',
+  'glogg.bangs',
+  'glogg.mode',
+  'glogg.research.auto',
+  'glogg.research.depth',
+] as const;
+
+export interface SettingsProfile {
+  glogg: 'settings';
+  version: 1;
+  savedAt: string;
+  settings: Partial<Record<(typeof PROFILE_KEYS)[number], unknown>>;
+}
+
+export function readProfile(storage: Storage = localStorage): SettingsProfile {
+  const settings: SettingsProfile['settings'] = {};
+  for (const key of PROFILE_KEYS) {
+    try {
+      const raw = storage.getItem(key);
+      if (raw !== null) settings[key] = JSON.parse(raw);
+    } catch {
+      // unreadable: left out
+    }
+  }
+  return { glogg: 'settings', version: 1, savedAt: new Date().toISOString(), settings };
+}
+
+const isStringList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+const PROFILE_SHAPES: Record<(typeof PROFILE_KEYS)[number], (v: unknown) => boolean> = {
+  'glogg.prefs': (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+  'glogg.theme': (v) => v === 'system' || v === 'light' || v === 'dark',
+  'glogg.blocked': isStringList,
+  'glogg.boosted': isStringList,
+  'glogg.lowered': isStringList,
+  'glogg.pinned': isStringList,
+  'glogg.phrases': isStringList,
+  'glogg.bangs': (v) => Array.isArray(v) && v.every((b) => typeof b === 'object' && b !== null && typeof (b as { trigger?: unknown }).trigger === 'string' && typeof (b as { url?: unknown }).url === 'string'),
+  'glogg.mode': (v) => v === 'simple' || v === 'advanced',
+  'glogg.research.auto': (v) => typeof v === 'boolean',
+  'glogg.research.depth': (v) => v === 'quick' || v === 'deep',
+};
+
+/**
+ * Writes a profile's settings into storage and returns how many it applied.
+ * Throws on something that isn't a glogg settings file; skips values of the wrong shape.
+ */
+export function applyProfile(input: unknown, storage: Storage = localStorage): number {
+  const p = input as Partial<SettingsProfile> | null;
+  if (!p || p.glogg !== 'settings' || typeof p.settings !== 'object' || p.settings === null) {
+    throw new Error("That isn't a glogg settings file.");
+  }
+  let applied = 0;
+  for (const key of PROFILE_KEYS) {
+    const value = (p.settings as Record<string, unknown>)[key];
+    if (value === undefined || !PROFILE_SHAPES[key](value)) continue;
+    storage.setItem(key, JSON.stringify(value));
+    applied += 1;
+  }
+  return applied;
 }

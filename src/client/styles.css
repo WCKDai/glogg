@@ -3695,3 +3695,122 @@ p {
   white-space: nowrap;
   border: 0;
 }
+
+/* ── Accents (Settings → Appearance) ──────────────────────────────────────
+   Each preset keeps links and button text at 4.5:1 or better on every
+   surface, in both themes (tests/quality.test.ts checks). Blue is :root's. */
+:root[data-accent='green'] { --accent: #15803d; --accent-ink: #116b33; --accent-bright: #22a04d; --accent-soft: rgba(21, 128, 61, 0.08); --accent-ring: rgba(34, 160, 77, 0.38); }
+:root[data-accent='violet'] { --accent: #6d4ae0; --accent-ink: #5b3bc7; --accent-bright: #8b6cf5; --accent-soft: rgba(109, 74, 224, 0.08); --accent-ring: rgba(139, 108, 245, 0.38); }
+:root[data-accent='orange'] { --accent: #c2530a; --accent-ink: #a3460a; --accent-bright: #ea6c13; --accent-soft: rgba(194, 83, 10, 0.08); --accent-ring: rgba(234, 108, 19, 0.38); }
+:root[data-accent='rose'] { --accent: #c8264f; --accent-ink: #ad1f44; --accent-bright: #e64a70; --accent-soft: rgba(200, 38, 79, 0.08); --accent-ring: rgba(230, 74, 112, 0.38); }
+:root[data-accent='graphite'] { --accent: #44474f; --accent-ink: #36383f; --accent-bright: #6b6f79; --accent-soft: rgba(68, 71, 79, 0.08); --accent-ring: rgba(107, 111, 121, 0.38); }
+html.dark[data-accent='green'] { --accent: #3fbf6a; --accent-ink: #6fd690; --accent-bright: #4cc976; --accent-soft: rgba(63, 191, 106, 0.12); --accent-ring: rgba(76, 201, 118, 0.45); }
+html.dark[data-accent='violet'] { --accent: #9a82fb; --accent-ink: #b9a8fc; --accent-bright: #a891fc; --accent-soft: rgba(154, 130, 251, 0.12); --accent-ring: rgba(168, 145, 252, 0.45); }
+html.dark[data-accent='orange'] { --accent: #f08a3c; --accent-ink: #f5a86b; --accent-bright: #f39650; --accent-soft: rgba(240, 138, 60, 0.12); --accent-ring: rgba(243, 150, 80, 0.45); }
+html.dark[data-accent='rose'] { --accent: #f06b8b; --accent-ink: #f597ad; --accent-bright: #f37d99; --accent-soft: rgba(240, 107, 139, 0.12); --accent-ring: rgba(243, 125, 153, 0.45); }
+html.dark[data-accent='graphite'] { --accent: #a3a7b0; --accent-ink: #c4c7cd; --accent-bright: #b3b7bf; --accent-soft: rgba(163, 167, 176, 0.12); --accent-ring: rgba(179, 183, 191, 0.45); }
+
+.swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--sw);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+
+.swatch[aria-checked='true'] {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.swatch-blue { --sw: #1d72e0; }
+.swatch-green { --sw: #15803d; }
+.swatch-violet { --sw: #6d4ae0; }
+.swatch-orange { --sw: #c2530a; }
+.swatch-rose { --sw: #c8264f; }
+.swatch-graphite { --sw: #44474f; }
+
+/* ── Settings: an index of its sections, kept in view ───────────────────── */
+.settings-index {
+  position: sticky;
+  top: var(--topbar-h, 52px);
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  margin: -8px 0 20px;
+  padding: 8px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-index a {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 99px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.settings-index a:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.settings-page .section {
+  scroll-margin-top: 112px;
+}
+
+.setting .select {
+  width: auto;
+  min-width: 150px;
+}
+
+.add-row .select {
+  width: auto;
+  flex-shrink: 0;
+}
+
+.row-gap.wrap {
+  flex-wrap: wrap;
+}
+
+.confirm-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.link-btn.danger {
+  color: var(--danger);
+}
+
+/* ── Compact results (Settings → Results → Density) ─────────────────────── */
+.results.compact .result {
+  padding: 7px 16px 6px;
+}
+
+.results.compact .result-title {
+  margin-top: 1px;
+  font-size: 14.5px;
+}
+
+.results.compact .result-snippet {
+  margin-top: 1px;
+  -webkit-line-clamp: 1;
+}
+
+.results.compact .result-crumb {
+  display: none;
+}

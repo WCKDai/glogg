@@ -4,6 +4,18 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Make it yours
+- **Settings, reorganized:** an index of its sections stays in view, every switch saves at once, and leaving with unsaved keys asks first.
+- **Junk filter strictness** (relaxed, balanced, strict) and **hidden phrases**: a result mentioning one is hidden, however good it looks otherwise.
+- **Sources:** turn off any of the 22 a search asks; the status bar shows them as off.
+- **Domain rules:** pin (on top whenever it matches), raise, lower or hide a site, from a result's ⋯ menu, the command palette or Settings. A site has one rule at a time.
+- **A default scope** for new searches, **result density** (compact rows with one-line snippets), **site icons** on or off, and "open in a new tab" now also applies to result links.
+- **Appearance:** System, Light or Dark in Settings, and six accent colours, each kept at 4.5:1 contrast or better in both themes.
+- **Single-key shortcuts** can be turned off (WCAG 2.1.4); arrows, Enter, ⌘K and Esc always work.
+- **History:** stop remembering searches, or clear them.
+- **Your settings travel:** export or import them as a file, or save them on your glogg (`/api/profile`) and load them in another browser. 18+ mode, history and keys stay out of it.
+- "Reset to defaults" for hidden domains asks before replacing yours, and long domain lists show in full.
+
 ### Faster search
 Measured on five real searches, replayed through the search pipeline (`tests/speed.test.ts` pins each change):
 - **First results in about 0.6 s instead of 1.6 s** (median). The web app streams the search: the first batch goes out as soon as the main sources have six results, instead of waiting for the slowest of them and the grace timers; the full ranking follows and re-sorts the list only if you haven't scrolled or moved through it yet. Other API callers still get one JSON answer.

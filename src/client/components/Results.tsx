@@ -1,5 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   Check,
   ChevronDown,
@@ -17,6 +19,7 @@ import type {
 } from '../../core/browser.js';
 import { Favicon } from './Favicon.js';
 import {
+  DOMAIN_RULES,
   relativeDate,
   SOURCE_LABELS,
   urlCrumb,
@@ -24,6 +27,7 @@ import {
   useDownloadTargets,
   useLater,
 } from '../lib.js';
+import type { DomainRule } from '../lib.js';
 
 // ── Answer ─────────────────────────────────────────────────────────────────
 export function AnswerCard({
@@ -180,8 +184,8 @@ export function ResultItem({
   onHover,
   onRead,
   onSend,
-  onPin,
-  onMute,
+  onRule,
+  newTab = true,
   detailed,
   index = 0,
 }: {
@@ -194,8 +198,10 @@ export function ResultItem({
   onHover: () => void;
   onRead: (url: string) => void;
   onSend: (item: ScoredSearchResult, target: DownloadTargetId) => void;
-  onPin: (domain: string) => void;
-  onMute: (domain: string) => void;
+  /** Pin, raise, lower or hide the result's site. */
+  onRule: (domain: string, rule: DomainRule) => void;
+  /** Open the title link in a new tab (Settings → Results). */
+  newTab?: boolean;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
@@ -223,7 +229,7 @@ export function ResultItem({
         )}
       </div>
 
-      <a className="result-title" href={item.url} target="_blank" rel="noreferrer">
+      <a className="result-title" href={item.url} target={newTab ? '_blank' : undefined} rel="noreferrer">
         {item.title}
       </a>
 
@@ -283,14 +289,14 @@ export function ResultItem({
                     <Download size={13} />
                   </button>
                 )}
-                <button type="button" role="menuitem" onClick={() => { onPin(item.rootDomain); setMoreOpen(false); }}>
-                  <span>Prefer {item.rootDomain}</span>
-                  <Pin size={13} />
-                </button>
-                <button type="button" role="menuitem" onClick={() => { onMute(item.rootDomain); setMoreOpen(false); }}>
-                  <span>Hide {item.rootDomain}</span>
-                  <EyeOff size={13} />
-                </button>
+                {DOMAIN_RULES.map((r) => (
+                  <button key={r.id} type="button" role="menuitem" title={r.hint} onClick={() => { onRule(item.rootDomain, r.id); setMoreOpen(false); }}>
+                    <span>
+                      {r.verb} {item.rootDomain}
+                    </span>
+                    {r.id === 'pin' ? <Pin size={13} /> : r.id === 'raise' ? <ArrowUp size={13} /> : r.id === 'lower' ? <ArrowDown size={13} /> : <EyeOff size={13} />}
+                  </button>
+                ))}
                 <button
                   type="button"
                   role="menuitem"

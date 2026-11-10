@@ -248,9 +248,18 @@ export interface SearchFilterConfig {
   obscureWebOnly: boolean;
   stripSponsored: boolean;
   uncensoredMode: boolean; // 18+ Unfiltered Mode (raw news, OSINT, adult/NSFW DHT & Usenet, SafeSearch=Off)
+  /** Never shown. */
   blockedDomains: string[];
+  /** Raised: ranked higher. */
   boostedDomains: string[];
+  /** Lowered: still shown, ranked lower. */
+  loweredDomains?: string[];
+  /** Pinned: on top whenever they match the query. */
+  pinnedDomains?: string[];
+  /** Results mentioning any of these are hidden. */
   blockedPhrases: string[];
+  /** Sources (keys from SEARCH_SOURCES) a search doesn't ask. */
+  disabledSources?: string[];
   endpoints?: CustomEndpointsConfig;
 }
 
@@ -282,7 +291,7 @@ export interface RankedSearchResponse {
     avgSlopScore: number;
     sourcesQueried: SourceConnectorId[];
     /** Per upstream: time to answer, results returned, and whether it made the deadline. */
-    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' }>;
+    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' }>;
     durationMs: number;
   };
 }

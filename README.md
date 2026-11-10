@@ -132,6 +132,9 @@ Switch with <kbd>m</kbd>.
 | Move through results | <kbd>/</kbd> search · <kbd>j</kbd> <kbd>k</kbd> move · <kbd>↵</kbd> open · <kbd>r</kbd> read clean · <kbd>d</kbd> send to downloads |
 | See what was asked | The status bar shows how many sources answered and how fast; click it for each source |
 | Unfiltered results | Settings → 18+ mode (it asks you to confirm). The 18+ pill in the sidebar turns it off. |
+| Make it yours | Settings: how strict the junk filter is, results per site, a default scope, phrases to hide, which sources to ask, density, site icons, theme and accent, single-key shortcuts on or off, search history |
+| Rank sites your way | A result's ⋯ menu, or Settings → Domains: **pin** a site (on top whenever it matches), **raise**, **lower** or **hide** it |
+| Take your settings along | Settings → Your settings: export or import a file, or save them on your glogg and load them in another browser |
 
 **Downloads.** **Send** routes a torrent, NZB or page to the first destination that's set up: Offcloud, aria2, Nextcloud, then this machine. Configured debrid, storage and Usenet plugins (Real-Debrid, TorBox, pCloud, SABnzbd) appear as destinations too. Keys go in Settings → Integrations, and are stored server-side (mode 600) and masked in the browser.
 

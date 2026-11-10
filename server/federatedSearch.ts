@@ -926,7 +926,7 @@ interface SourceTask {
 export interface SourceTiming {
   ms: number;
   count: number;
-  status: 'ok' | 'empty' | 'error' | 'late' | 'resting';
+  status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off';
 }
 
 /** How long an early batch waits for the full answer before going out on its own. */
@@ -1245,7 +1245,12 @@ export async function executeFederatedSearch(
   const sourceTimings: Record<string, SourceTiming> = {};
   const endpointsSig = createHash('sha1').update(JSON.stringify(partialConfig?.endpoints || {})).digest('hex').slice(0, 12);
   const cacheKey = (key: string) => `${key}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${query.toLowerCase()}`;
+  const disabled = new Set(partialConfig?.disabledSources ?? []);
   const runnable = tasks.filter((t) => {
+    if (disabled.has(t.key)) {
+      sourceTimings[t.key] = { ms: 0, count: 0, status: 'off' };
+      return false;
+    }
     if (!isSourceResting(t.key)) return true;
     sourceTimings[t.key] = { ms: 0, count: 0, status: 'resting' };
     return false;
