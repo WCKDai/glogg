@@ -104,6 +104,13 @@ describe('a password-protected server', () => {
     expect(search.status).toBe(401);
   });
 
+  it('keeps the API locked whatever the case of the path', async () => {
+    for (const p of ['/API/integrations', '/Api/plugins', '/API/downloads']) {
+      const r = await request(p);
+      expect(r.body).not.toMatch(/"config"|"plugins"|"jobs"/);
+    }
+  });
+
   it('signs in with the password, lets the session through, and signs out', async () => {
     expect((await signIn('wrong')).status).toBe(401);
     const ok = await signIn(PASSWORD);
