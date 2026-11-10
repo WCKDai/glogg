@@ -62,7 +62,7 @@ import { loadProfile, saveProfile } from './profile.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Search config fields that must be lists of strings, numbers or switches when a request sends them. */
-const LIST_FIELDS = ['blockedDomains', 'boostedDomains', 'blockedPhrases'] as const;
+const LIST_FIELDS = ['blockedDomains', 'boostedDomains', 'loweredDomains', 'pinnedDomains', 'blockedPhrases', 'disabledSources'] as const;
 const NUMBER_FIELDS = ['maxPerDomain', 'slopThreshold'] as const;
 const SWITCH_FIELDS = ['preLlmOnly', 'obscureWebOnly', 'stripSponsored', 'uncensoredMode'] as const;
 

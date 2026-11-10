@@ -24,7 +24,9 @@ import type {
 } from '../src/core/browser.js';
 import { BUILTIN_BANGS, DEFAULT_SLOP_DOMAINS, exportUBlacklistRuleset } from '../src/core/browser.js';
 import type { PaletteCommand } from '../src/client/components/CommandPalette.js';
+import { DEFAULT_PREFS } from '../src/client/views/SettingsView.js';
 import type { SearchPrefs } from '../src/client/views/SettingsView.js';
+import type { DomainRule, ThemePref } from '../src/client/lib.js';
 import type { ToolsTarget } from '../src/client/views/ToolsView.js';
 import { BASE_SEED, forAll, html, list, pick, rng, RUNS, text, urlish } from './fuzz.js';
 
@@ -418,7 +420,7 @@ const withTargets = (ui: React.ReactNode) => <DownloadTargetsContext.Provider va
 
 // ── Result rows ───────────────────────────────────────────────────────────────
 describe('result rows', () => {
-  const handlers = () => ({ onHover: vi.fn(), onRead: vi.fn(), onSend: vi.fn(), onPin: vi.fn(), onMute: vi.fn() });
+  const handlers = () => ({ onHover: vi.fn(), onRead: vi.fn(), onSend: vi.fn(), onRule: vi.fn() });
 
   async function row(item: ScoredSearchResult, opts: { detailed?: boolean } = {}) {
     const h = handlers();
@@ -555,14 +557,14 @@ describe('result rows', () => {
     ]);
   });
 
-  it('offers to save the page, prefer or hide its site, copy the link, or see old snapshots', async () => {
+  it('offers to save the page, pin, raise, lower or hide its site, copy the link, or see old snapshots', async () => {
     const item = result(1);
     const h = await row(item);
     const more = byRole('button', 'More actions');
     expect(more.getAttribute('aria-expanded')).toBe('false');
     await click(more);
     expect(more.getAttribute('aria-expanded')).toBe('true');
-    expect(rolesNamed('menuitem')).toEqual(['Save page', 'Prefer site1.example', 'Hide site1.example', 'Copy link', 'Wayback snapshots']);
+    expect(rolesNamed('menuitem')).toEqual(['Save page', 'Pin site1.example', 'Raise site1.example', 'Lower site1.example', 'Hide site1.example', 'Copy link', 'Wayback snapshots']);
     const wayback = byRole('menuitem', 'Wayback snapshots');
     expect(wayback.getAttribute('href')).toBe('https://web.archive.org/web/*/https://site1.example/notes/page-1');
     expect(wayback.getAttribute('target')).toBe('_blank');
@@ -571,11 +573,14 @@ describe('result rows', () => {
     expect(h.onSend).toHaveBeenCalledWith(item, 'auto');
     expect($('[role="menu"]')).toBeNull();
     await click(more);
-    await click(byRole('menuitem', 'Prefer site1.example'));
-    expect(h.onPin).toHaveBeenCalledWith('site1.example');
+    await click(byRole('menuitem', 'Raise site1.example'));
+    expect(h.onRule).toHaveBeenLastCalledWith('site1.example', 'raise');
     await click(more);
     await click(byRole('menuitem', 'Hide site1.example'));
-    expect(h.onMute).toHaveBeenCalledWith('site1.example');
+    expect(h.onRule).toHaveBeenLastCalledWith('site1.example', 'hide');
+    await click(more);
+    await click(byRole('menuitem', 'Pin site1.example'));
+    expect(h.onRule).toHaveBeenLastCalledWith('site1.example', 'pin');
     await click(more);
     await click(byRole('menuitem', 'Copy link'));
     expect(clipboard).toEqual(['https://site1.example/notes/page-1']);
@@ -585,7 +590,7 @@ describe('result rows', () => {
   it('does not offer "Save page" for a release, which has its own Send button', async () => {
     await row(torrent(1));
     await click(byRole('button', 'More actions'));
-    expect(rolesNamed('menuitem')).toEqual(['Prefer dht', 'Hide dht', 'Copy link', 'Wayback snapshots']);
+    expect(rolesNamed('menuitem')).toEqual(['Pin dht', 'Raise dht', 'Lower dht', 'Hide dht', 'Copy link', 'Wayback snapshots']);
   });
 
   it('closes the menu when you follow the Wayback link', async () => {
@@ -1238,11 +1243,11 @@ describe('the results page', () => {
     expect(sent('POST', '/api/search')[1].body.config.blockedDomains[0]).toBe('site2.example');
   });
 
-  it('prefers a site in later searches', async () => {
+  it('raises a site in later searches', async () => {
     await resultsPage(response());
     await click(byRole('button', 'More actions', $$('.result')[0]));
-    await click(byRole('menuitem', 'Prefer site1.example'));
-    expect(toasts()).toContain('Preferring site1.example in future searches');
+    await click(byRole('menuitem', 'Raise site1.example'));
+    expect(toasts()).toContain('Raised site1.example');
     await type(byRole('textbox', 'Search'), 'sqlite wal');
     await submit(byRole('textbox', 'Search'));
     await until(() => sent('POST', '/api/search').length === 2);
@@ -2500,33 +2505,39 @@ describe('services page', () => {
 });
 
 // ── Settings ──────────────────────────────────────────────────────────────────
-const PREFS: SearchPrefs = { maxPerDomain: 2, stripSponsored: true, obscureWebOnly: false, preLlmOnly: false, newTab: true };
+const PREFS: SearchPrefs = { ...DEFAULT_PREFS };
 
 describe('settings', () => {
   /** What the app would keep: Settings reports every change through these setters. */
-  let state: { prefs: SearchPrefs; blocked: string[]; boosted: string[]; customBangs: BangDefinition[]; adultMode: boolean };
+  let state: { prefs: SearchPrefs; blocked: string[]; boosted: string[]; domains: Record<DomainRule, string[]>; customBangs: BangDefinition[]; adultMode: boolean };
 
   function Settings({ focus, onToast }: { focus: string | null; onToast: (t: string, tone?: 'ok' | 'error' | 'info') => void }) {
     const [prefs, setPrefs] = useState(PREFS);
-    const [blocked, setBlocked] = useState(['contentfarm.example']);
-    const [boosted, setBoosted] = useState(['sqlite.org']);
+    const [domains, setDomains] = useState<Record<DomainRule, string[]>>({ pin: [], raise: ['sqlite.org'], lower: [], hide: ['contentfarm.example'] });
+    const [phrases, setPhrases] = useState<string[]>([]);
+    const [theme, setTheme] = useState<ThemePref>('system');
     const [customBangs, setCustomBangs] = useState<BangDefinition[]>([]);
     const [adultMode, setAdultMode] = useState(false);
-    state = { prefs, blocked, boosted, customBangs, adultMode };
+    state = { prefs, blocked: domains.hide, boosted: domains.raise, domains, customBangs, adultMode };
     return (
       <SettingsView
         prefs={prefs}
         setPrefs={setPrefs}
-        blocked={blocked}
-        setBlocked={setBlocked}
-        boosted={boosted}
-        setBoosted={setBoosted}
+        domains={domains}
+        setDomains={setDomains}
+        phrases={phrases}
+        setPhrases={setPhrases}
         customBangs={customBangs}
         setCustomBangs={setCustomBangs}
+        theme={theme}
+        setTheme={setTheme}
+        historyCount={0}
+        clearHistory={vi.fn()}
         adultMode={adultMode}
         setAdultMode={setAdultMode}
         focus={focus}
         onToast={onToast}
+        onShowShortcuts={vi.fn()}
       />
     );
   }
@@ -2539,13 +2550,14 @@ describe('settings', () => {
   }
 
   const fieldset = (legend: string) => $$('fieldset').find((f) => $('legend', f)!.textContent === legend)!;
+  const bangs = () => $('#settings-bangs')!;
   const domains = (title: string) => {
     const block = $$('.domain-block').find((b) => $('h3', b)!.firstChild!.textContent!.trim() === title)!;
     return { count: $('h3 .muted', block)!.textContent, items: $$('.chip', block).map((c) => c.textContent) };
   };
 
   it.each([
-    [/^Hide sponsored & affiliate results/, 'stripSponsored'],
+    [/^Hide sponsored and affiliate results/, 'stripSponsored'],
     [/^Independent sites only/, 'obscureWebOnly'],
     [/^Before ChatGPT/, 'preLlmOnly'],
     [/^Open results in a new tab/, 'newTab'],
@@ -2567,10 +2579,11 @@ describe('settings', () => {
   it('sets how many results one site may have', async () => {
     await settingsView();
     const row = $$('.setting').find((s) => s.textContent?.includes('Results per site'))!;
-    expect(rolesNamed('button', row)).toEqual(['1', '2', '3', '∞']);
-    await click(byRole('button', '∞', row));
+    expect(rolesNamed('radio', row)).toEqual(['1', '2', '3', 'Any']);
+    expect(byRole('radio', '2', row).getAttribute('aria-checked')).toBe('true');
+    await click(byRole('radio', 'Any', row));
     expect(state.prefs.maxPerDomain).toBe(0);
-    await click(byRole('button', '1', row));
+    await click(byRole('radio', '1', row));
     expect(state.prefs).toEqual({ ...PREFS, maxPerDomain: 1 });
   });
 
@@ -2612,14 +2625,15 @@ describe('settings', () => {
     expect([key.type, key.value]).toEqual(['password', '••••1234']);
     expect(byLabel('SearXNG').value).toBe('http://localhost:8080');
     expect(byLabel('Bitmagnet GraphQL').placeholder).toBe('http://localhost:3333/graphql');
-    const save = byRole('button', 'Save') as HTMLButtonElement;
+    // Says Saved until something changes, then Save.
+    const save = byRole('button', 'Saved') as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     await type(byLabel('SearXNG'), 'http://localhost:8888');
-    expect(save.disabled).toBe(false);
+    expect([save.disabled, save.textContent]).toEqual([false, 'Save']);
     await click(save);
     expect(sent('PUT', '/api/integrations')[0].body).toEqual({ config: { offcloudApiKey: '••••1234', searxngUrl: 'http://localhost:8888' } });
-    expect(onToast).toHaveBeenCalledWith('Integrations saved on this machine', 'ok');
-    expect(save.disabled).toBe(true);
+    expect(onToast).toHaveBeenCalledWith('Keys saved on this glogg', 'ok');
+    expect([save.disabled, save.textContent]).toEqual([true, 'Saved']);
   });
 
   it('says when the integrations could not be saved', async () => {
@@ -2639,42 +2653,42 @@ describe('settings', () => {
 
   it('adds a bang, tidying its trigger, and replaces one with the same trigger', async () => {
     await settingsView();
-    await type(byLabel('!trigger'), '!TeamWiki ');
+    await type(byLabel('Trigger'), '!TeamWiki ');
     await type(byLabel('Name'), ' Team wiki ');
-    await type(byLabel('https://example.com/search?q={q}'), ' https://wiki.example/search?q={q} ');
-    await click(byRole('button', 'Add'));
+    await type(byLabel('Search URL with {q}'), ' https://wiki.example/search?q={q} ');
+    await click(byRole('button', 'Add', bangs()));
     expect(state.customBangs).toEqual([{ trigger: 'teamwiki', name: 'Team wiki', url: 'https://wiki.example/search?q={q}', category: 'web' }]);
     expect($$('.bang-list li').map((li) => [...li.children].slice(0, 3).map((c) => c.textContent))).toEqual([['!teamwiki', 'Team wiki', 'https://wiki.example/search?q={q}']]);
-    expect([byLabel('!trigger').value, byLabel('Name').value, byLabel('https://example.com/search?q={q}').value]).toEqual(['', '', '']);
+    expect([byLabel('Trigger').value, byLabel('Name').value, byLabel('Search URL with {q}').value]).toEqual(['', '', '']);
 
-    await type(byLabel('!trigger'), 'teamwiki');
-    await type(byLabel('https://example.com/search?q={q}'), 'https://wiki2.example/?s={q}');
-    await click(byRole('button', 'Add'));
+    await type(byLabel('Trigger'), 'teamwiki');
+    await type(byLabel('Search URL with {q}'), 'https://wiki2.example/?s={q}');
+    await click(byRole('button', 'Add', bangs()));
     expect(state.customBangs).toEqual([{ trigger: 'teamwiki', name: 'teamwiki', url: 'https://wiki2.example/?s={q}', category: 'web' }]);
   });
 
   it('refuses a bang without a trigger or a {q} in its URL', async () => {
     const onToast = await settingsView();
-    await type(byLabel('!trigger'), 'x');
-    await type(byLabel('https://example.com/search?q={q}'), 'https://x.example/');
-    await click(byRole('button', 'Add'));
-    await type(byLabel('!trigger'), '!');
-    await type(byLabel('https://example.com/search?q={q}'), 'https://x.example/?q={q}');
-    await click(byRole('button', 'Add'));
+    await type(byLabel('Trigger'), 'x');
+    await type(byLabel('Search URL with {q}'), 'https://x.example/');
+    await click(byRole('button', 'Add', bangs()));
+    await type(byLabel('Trigger'), '!');
+    await type(byLabel('Search URL with {q}'), 'https://x.example/?q={q}');
+    await click(byRole('button', 'Add', bangs()));
     expect(onToast.mock.calls).toEqual([
       ['A bang needs a trigger and a URL containing {q}', 'error'],
       ['A bang needs a trigger and a URL containing {q}', 'error'],
     ]);
     expect(state.customBangs).toEqual([]);
-    expect(byLabel('https://example.com/search?q={q}').value).toBe('https://x.example/?q={q}');
+    expect(byLabel('Search URL with {q}').value).toBe('https://x.example/?q={q}');
   });
 
   it('removes a bang', async () => {
     await settingsView();
-    await type(byLabel('!trigger'), 'tw');
-    await type(byLabel('https://example.com/search?q={q}'), 'https://wiki.example/?q={q}');
-    await click(byRole('button', 'Add'));
-    await click(byRole('button', 'Remove', $('.bang-list')!));
+    await type(byLabel('Trigger'), 'tw');
+    await type(byLabel('Search URL with {q}'), 'https://wiki.example/?q={q}');
+    await click(byRole('button', 'Add', bangs()));
+    await click(byRole('button', 'Remove !tw', $('.bang-list')!));
     expect(state.customBangs).toEqual([]);
     expect($('.bang-list')).toBeNull();
   });
@@ -2690,9 +2704,9 @@ describe('settings', () => {
 
   it('hides a domain however it was typed, and only once', async () => {
     await settingsView();
-    const input = byLabel('Hide a domain, e.g. contentfarm.com');
+    const input = byLabel('Domain');
     await type(input, '  https://www.Example.COM/some/path ');
-    await click(byRole('button', 'Hide'));
+    await click(byRole('button', 'Add', $('#settings-domains')!));
     expect(state.blocked).toEqual(['example.com', 'contentfarm.example']);
     expect(input.value).toBe('');
     await type(input, 'example.com');
@@ -2703,19 +2717,21 @@ describe('settings', () => {
     expect(domains('Hidden')).toEqual({ count: '2', items: ['example.com', 'contentfarm.example'] });
   });
 
-  it('removes preferred and hidden domains, and resets the hidden ones to the defaults', async () => {
+  it('removes raised and hidden domains, and resets the hidden ones to the defaults, after asking', async () => {
     await settingsView();
-    expect(domains('Preferred')).toEqual({ count: '1', items: ['sqlite.org'] });
+    expect(['Pinned', 'Raised', 'Lowered', 'Hidden'].map((t) => domains(t).count)).toEqual(['0', '1', '0', '1']);
+    expect(domains('Raised')).toEqual({ count: '1', items: ['sqlite.org'] });
     await click(byRole('button', 'Remove sqlite.org'));
     expect(state.boosted).toEqual([]);
-    expect(domains('Preferred')).toEqual({ count: '0', items: [] });
-    expect($('.empty', $$('.domain-block')[0])!.textContent).toBe('None.');
+    expect(domains('Raised')).toEqual({ count: '0', items: [] });
     await click(byRole('button', 'Remove contentfarm.example'));
     expect(state.blocked).toEqual([]);
     await click(byRole('button', 'Reset to defaults'));
+    expect(state.blocked).toEqual([]);
+    await click($('.confirm-inline .danger'));
     expect(state.blocked).toEqual(DEFAULT_SLOP_DOMAINS);
     expect(domains('Hidden').count).toBe(String(DEFAULT_SLOP_DOMAINS.length));
-    expect(domains('Hidden').items).toHaveLength(Math.min(80, DEFAULT_SLOP_DOMAINS.length));
+    expect(domains('Hidden').items).toHaveLength(Math.min(60, DEFAULT_SLOP_DOMAINS.length));
   });
 
   it('exports the hidden domains as a uBlacklist ruleset, and imports one', async () => {
@@ -2780,26 +2796,43 @@ describe('found by these tests, and fixed', () => {
     serve({ 'GET /api/auth': { required: false, authenticated: false }, 'GET /api/integrations': { config: {} } });
     function S() {
       const [prefs, setPrefs] = useState(PREFS);
-      const [blocked, setBlocked] = useState(['contentfarm.example']);
+      const [domains, setDomains] = useState<Record<DomainRule, string[]>>({ pin: [], raise: [], lower: [], hide: ['contentfarm.example'] });
       const [adult, setAdult] = useState(false);
       return (
         <SettingsView
           prefs={prefs}
           setPrefs={setPrefs}
-          blocked={blocked}
-          setBlocked={setBlocked}
-          boosted={[]}
-          setBoosted={vi.fn()}
+          domains={domains}
+          setDomains={setDomains}
+          phrases={[]}
+          setPhrases={vi.fn()}
           customBangs={[]}
           setCustomBangs={vi.fn()}
+          theme="system"
+          setTheme={vi.fn()}
+          historyCount={0}
+          clearHistory={vi.fn()}
           adultMode={adult}
           setAdultMode={setAdult}
           onToast={vi.fn()}
+          onShowShortcuts={vi.fn()}
         />
       );
     }
     await mount(<S />);
   }
+  it('settings: names the import/export box', async () => {
+    await settings();
+    await click($('details.details summary'));
+    expect(unnamed()).toEqual([]);
+  });
+
+  it('settings: says which results-per-site option is chosen', async () => {
+    await settings();
+    const row = $$('.setting').find((s) => s.textContent?.includes('Results per site'))!;
+    expect(byRole('radio', '2', row).getAttribute('aria-checked')).toBe('true');
+  });
+
   it('downloads: says when a download could not be removed', async () => {
     serve({ 'GET /api/downloads': () => downloads(JOBS), 'DELETE /api/downloads/*': () => reply(409, { error: 'Stop the download before removing it' }) });
     const onToast = vi.fn();

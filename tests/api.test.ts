@@ -162,6 +162,8 @@ const ROUTES: RouteCase[] = [
   { method: 'POST', route: '/api/plugins/:id/container', path: '/api/plugins/utils/container', body: { action: 'up' } },
   { method: 'GET', route: '/opensearch.xml', public: true },
   { method: 'GET', route: '/api/favicon/:domain', path: '/api/favicon/example.com' },
+  { method: 'GET', route: '/api/profile' },
+  { method: 'PUT', route: '/api/profile', body: { settings: { 'glogg.pinned': ['route.example'] } } },
   { method: 'GET', route: '/api/opensearch/suggest', path: '/api/opensearch/suggest?q=wiki', public: true },
   { method: 'GET', route: '/api/ipfs/:cid', path: `/api/ipfs/${CID}`, public: true },
   { method: 'POST', route: '/api/inspect', body: { url: 'https://example.com/', rawHtml: '<p>x</p>' } },
@@ -1496,6 +1498,13 @@ describe('bad input and edge cases (bugs the first run of these tests found)', (
     }
   });
   afterAll(() => locked.close());
+
+  it('answers the newer filter lists with 400 too when they are not lists', async () => {
+    for (const config of [{ loweredDomains: 'x.example' }, { pinnedDomains: [1] }, { disabledSources: 5 }]) {
+      const r = await api('POST', '/api/search', { query: 'rust async', config });
+      expect.soft(r.status, `${JSON.stringify(config)}: ${r.body}`).toBe(400);
+    }
+  });
 
   it('needs a session whatever the case of /api/', async () => {
     const cases: [string, string, unknown?][] = [
