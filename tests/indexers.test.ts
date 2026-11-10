@@ -1791,4 +1791,38 @@ describe('found by these tests, and fixed', () => {
     expect(asked('https://hs8.example/')).toHaveLength(1);
     expect(asked('https://hs0.example/')).toHaveLength(2);
   });
+  it('numbers each takeaway of an instant answer by the citation it quotes', async () => {
+    upstream('https://en.wikipedia.org/w/api.php', () =>
+      json({
+        query: {
+          pages: {
+            1: {
+              pageid: 1,
+              title: 'Kazakhstan',
+              index: 1,
+              extract:
+                'Kazakhstan, officially the Republic of Kazakhstan, is a landlocked country mostly in Central Asia. It borders Russia to the north and west. Its capital is Astana, while the largest city is Almaty.',
+            },
+          },
+        },
+      })
+    );
+    upstream('https://api.duckduckgo.com/', () => json({}));
+    upstream('https://api.stackexchange.com/', () => json({ items: [] }));
+    const surfaced = diversifyAndRankResults(
+      [
+        {
+          title: 'Astana, the capital of Kazakhstan since 1997',
+          url: 'https://travel.example/astana-capital-of-kazakhstan',
+          snippet: 'Astana became the capital of Kazakhstan in 1997, when the government moved north from Almaty to the steppe city on the Ishim river.',
+          source: 'web',
+        },
+      ],
+      { lens: 'all' },
+      'what is the capital of kazakhstan'
+    ).surfaced;
+    const answer = await answers.buildInstantAnswer('what is the capital of kazakhstan', surfaced);
+    const cited = answer?.citations.find((c) => c.index === answer.takeaways?.[0].citationIndex);
+    expect(cited?.url).toBe('https://travel.example/astana-capital-of-kazakhstan');
+  });
 });
