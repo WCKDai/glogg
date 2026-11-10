@@ -26,7 +26,7 @@ export default function setup(project: TestProject) {
   }
   const runRoot = fs.mkdtempSync(path.join(root, 'run-'));
   project.provide('tmpRoot', runRoot);
-  return () => fs.rmSync(runRoot, { recursive: true, force: true });
+  return () => fs.rmSync(runRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
 declare module 'vitest' {

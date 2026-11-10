@@ -67,7 +67,8 @@ export class Browser {
       ...(process.env.CI ? ['--no-sandbox'] : []),
       'about:blank',
     ];
-    const proc = spawn(chrome, args, { stdio: 'ignore' });
+    // Its own process group, so closing stops Chrome's helper processes too (they keep writing to the profile).
+    const proc = spawn(chrome, args, { stdio: 'ignore', detached: process.platform !== 'win32' });
     const portFile = path.join(profile, 'DevToolsActivePort');
     let port = 0;
     for (let i = 0; i < 150 && !port; i++) {
@@ -212,18 +213,32 @@ export class Browser {
     fs.writeFileSync(file, Buffer.from(data, 'base64'));
   }
 
+  /** Waits for the page to render twice: past React's effects, so key handlers are in place. */
+  async settle(): Promise<void> {
+    await this.eval('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))');
+  }
+
   async close(): Promise<void> {
     try {
       this.ws.close();
     } catch {
       // already closed
     }
-    if (this.proc.exitCode === null) {
+    const stop = (signal: NodeJS.Signals) => {
+      try {
+        if (this.proc.pid && process.platform !== 'win32') process.kill(-this.proc.pid, signal);
+        else this.proc.kill(signal);
+      } catch {
+        // already gone
+      }
+    };
+    if (this.proc.exitCode === null && this.proc.signalCode === null) {
       const exited = new Promise((r) => this.proc.once('exit', r));
-      this.proc.kill('SIGTERM');
-      await Promise.race([exited, new Promise((r) => setTimeout(r, 3000))]);
-      if (this.proc.exitCode === null) this.proc.kill('SIGKILL');
-    }
-    fs.rmSync(this.profile, { recursive: true, force: true });
+      stop('SIGTERM');
+      await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+      if (this.proc.exitCode === null && this.proc.signalCode === null) stop('SIGKILL');
+    } else stop('SIGKILL');
+    // A helper process can still be letting go of the profile for a moment.
+    fs.rmSync(this.profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 }

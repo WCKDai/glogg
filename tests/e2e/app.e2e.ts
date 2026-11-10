@@ -101,8 +101,15 @@ describe.skipIf(!ready)('in a real browser', () => {
     browser.errors.length = 0;
   });
 
-  const search = async (q: string) => {
+  /** Home, once the app has focused its search box and attached its key handlers. */
+  const home = async () => {
     await browser.goto(`${glogg.url}/`);
+    await browser.waitFor('document.activeElement?.getAttribute("aria-label") === "Search"', 'the search box to have focus');
+    await browser.settle();
+  };
+
+  const search = async (q: string) => {
+    await home();
     await browser.click('input[aria-label="Search"]');
     await browser.type(q);
     await browser.press('Enter');
@@ -149,7 +156,7 @@ describe.skipIf(!ready)('in a real browser', () => {
   });
 
   it('⌘K finds a section, goes there, and Back comes home', async () => {
-    await browser.goto(`${glogg.url}/`);
+    await home();
     await browser.press('k', 2);
     await browser.waitFor(`document.querySelector('[role="dialog"][aria-label="Command palette"] input') === document.activeElement`, 'the palette input to have focus');
     await browser.type('atlas');
@@ -164,9 +171,8 @@ describe.skipIf(!ready)('in a real browser', () => {
   });
 
   it('? lists the shortcuts and Escape closes them', async () => {
-    await browser.goto(`${glogg.url}/`);
-    // The page focuses the search box once it loads; shortcuts work from outside a text field.
-    await browser.waitFor('document.activeElement?.getAttribute("aria-label") === "Search"', 'the search box to have focus');
+    // Shortcuts work from outside a text field.
+    await home();
     await browser.eval('document.activeElement.blur()');
     await browser.waitFor('document.activeElement === document.body', 'focus to leave the search box');
     await browser.press('?', 8);
