@@ -1278,7 +1278,7 @@ describe('the results page', () => {
     expect(sent('POST', '/api/downloads')[0].body).toEqual({ url: t.p2p!.magnetUri, title: t.title, target: 'auto', sizeFormatted: '3.7 GB' });
     expect(toasts()).toContain('Sent to aria2');
 
-    const banner = byRole('button', /torrents & NZBs match this/);
+    const banner = byRole('button', /1 torrent or NZB matches this/);
     expect(banner.compareDocumentPosition($$('.result')[3]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await click(banner);
     await until(() => $('.releases'));
@@ -1689,7 +1689,8 @@ describe('tool forms', () => {
   it('labels every field by its name, marks required ones, and shows help', async () => {
     await mount(<Form onSubmit={vi.fn()} onChange={vi.fn()} />);
     expect(unnamed()).toEqual([]);
-    expect($('label[for="f-domain"]')!.textContent).toBe('Domain *');
+    expect(byLabel('Domain').labels![0].textContent).toBe('Domain *');
+    expect(byLabel('Domain').required).toBe(true);
     expect(byLabel('Domain').placeholder).toBe('example.com');
     expect(textIn()).toContain('Without https://');
     expect(byLabel('Count').type).toBe('number');
@@ -2198,12 +2199,13 @@ describe('downloads page', () => {
 
   it('shows which destinations are set up, and where local downloads go', async () => {
     const p = await downloadsView();
+    // Set up or not is said in words too, not only by an icon a screen reader skips.
     expect($$('.destination').map((d) => [textIn(d), d.classList.contains('on')])).toEqual([
-      ['Offcloud', true],
-      ['aria2', true],
-      ['Nextcloud', false],
-      ['NZB.life', false],
-      ['Real-Debrid', true],
+      ['Offcloud (set up)', true],
+      ['aria2 (set up)', true],
+      ['Nextcloud (not set up)', false],
+      ['NZB.life (not set up)', false],
+      ['Real-Debrid (set up)', true],
     ]);
     const local = $('.destinations-local')!;
     expect([textIn(local), local.title]).toEqual(['~/Downloads/glogg', '/Users/ada/Downloads/glogg']);
@@ -2433,7 +2435,7 @@ describe('services page', () => {
   it('shows what went wrong when an action fails', async () => {
     const onToast = await servicesView(undefined, () => ({ ok: false, command: 'docker compose up -d bitmagnet', output: 'port 3333 is already allocated' }));
     await click(byRole('button', 'Start', rowOf('Bitmagnet')));
-    expect(onToast).toHaveBeenCalledWith('Failed: docker compose up -d bitmagnet', 'error');
+    expect(onToast).toHaveBeenCalledWith('Failed: port 3333 is already allocated', 'error');
     expect($('.log')!.textContent).toBe('$ docker compose up -d bitmagnet\nport 3333 is already allocated');
   });
 
@@ -2759,5 +2761,163 @@ describe('settings', () => {
     expect(unnamed()).toEqual([]);
     await click(byRole('switch', '18+ mode'));
     expect(unnamed()).toEqual([]);
+  });
+});
+
+describe('found by these tests, and fixed', () => {
+  const toolProps = (onReload: () => Promise<void> = async () => undefined) => ({
+    onReload,
+    onChanged: vi.fn(),
+    onToast: vi.fn(),
+    handlers: { onSend: vi.fn(), onCopied: vi.fn() },
+    onOpenSettings: vi.fn(),
+  });
+
+  async function settings() {
+    serve({ 'GET /api/auth': { required: false, authenticated: false }, 'GET /api/integrations': { config: {} } });
+    function S() {
+      const [prefs, setPrefs] = useState(PREFS);
+      const [blocked, setBlocked] = useState(['contentfarm.example']);
+      const [adult, setAdult] = useState(false);
+      return (
+        <SettingsView
+          prefs={prefs}
+          setPrefs={setPrefs}
+          blocked={blocked}
+          setBlocked={setBlocked}
+          boosted={[]}
+          setBoosted={vi.fn()}
+          customBangs={[]}
+          setCustomBangs={vi.fn()}
+          adultMode={adult}
+          setAdultMode={setAdult}
+          onToast={vi.fn()}
+        />
+      );
+    }
+    await mount(<S />);
+  }
+  it('downloads: says when a download could not be removed', async () => {
+    serve({ 'GET /api/downloads': () => downloads(JOBS), 'DELETE /api/downloads/*': () => reply(409, { error: 'Stop the download before removing it' }) });
+    const onToast = vi.fn();
+    await mount(withTargets(<DownloadsView onToast={onToast} onOpenSettings={vi.fn()} />));
+    await click(byRole('button', 'Remove', $$('.job')[0]));
+    await flush();
+    expect(onToast).toHaveBeenCalledWith('Stop the download before removing it', 'error');
+  });
+
+
+  it('downloads: says when finished downloads could not be cleared', async () => {
+    serve({ 'GET /api/downloads': () => downloads(JOBS), 'DELETE /api/downloads/finished': () => reply(500, { error: 'Could not write ~/.glogg/downloads.json' }) });
+    const onToast = vi.fn();
+    await mount(withTargets(<DownloadsView onToast={onToast} onOpenSettings={vi.fn()} />));
+    await click(byRole('button', 'Clear'));
+    await flush();
+    expect(onToast).toHaveBeenCalledWith('Could not write ~/.glogg/downloads.json', 'error');
+  });
+
+
+  it('tools: says when reloading the plugins failed', async () => {
+    const p = toolProps(() => Promise.reject(new Error('Plugin folder is not readable')));
+    serve({});
+    await mount(<ToolsView plugins={VIEW_PLUGINS} userDir="" target={null} {...p} />);
+    await click(byRole('button', 'Reload'));
+    await flush();
+    expect(p.onToast).toHaveBeenCalledWith('Plugin folder is not readable', 'error');
+  });
+
+
+  it('tools: labels each settings field, even when a tool has a field with the same key', async () => {
+    serve({ 'GET /api/plugins/sabnzbd/container': { runtime: 'docker', state: 'running' } });
+    await mount(<ToolsView plugins={[SABNZBD]} userDir="" target={null} {...toolProps()} />);
+    await click(byRole('tab', 'Add NZB'));
+    const details = $<HTMLDetailsElement>('details.plugin-settings')!;
+    details.open = true;
+    await flush(1);
+    // Before, the tool's "url" and its plugin's "url" setting were both #f-url.
+    const ids = [...document.querySelectorAll('[id]')].map((el) => el.id);
+    expect.soft(new Set(ids).size, 'ids on the page are unique').toBe(ids.length);
+    expect.soft(nameOf($('input', details)!)).toBe('URL');
+    expect.soft(nameOf($('.tool-pane input')!)).toBe('NZB URL');
+  });
+
+
+  it('tool forms: tells assistive tech which fields are required, and does not submit without them', async () => {
+    const onSubmit = vi.fn();
+    await mount(<ToolForm fields={[{ key: 'domain', label: 'Domain', required: true }]} values={{}} onChange={vi.fn()} onSubmit={onSubmit} />);
+    const domain = byLabel('Domain');
+    expect.soft(domain.required || domain.getAttribute('aria-required') === 'true').toBe(true);
+    await submit(domain);
+    expect.soft(onSubmit).not.toHaveBeenCalled();
+  });
+
+
+  it('search box: labels the bang suggestions like the tool suggestions', async () => {
+    function Box() {
+      const [value, setValue] = useState('');
+      return <SearchBox value={value} onChange={setValue} onSubmit={vi.fn()} customBangs={[]} tools={TOOLS} />;
+    }
+    await mount(<Box />);
+    await type(byRole('textbox', 'Search'), '!g');
+    expect(unnamed()).toEqual([]);
+  });
+
+
+  it('settings: moves focus into the 18+ confirmation, and Escape cancels it', async () => {
+    await settings();
+    const toggle = byRole('switch', '18+ mode');
+    toggle.focus();
+    await click(toggle);
+    const confirm = byRole('alertdialog', 'Turn on 18+ mode?');
+    expect.soft(confirm.contains(document.activeElement)).toBe(true);
+    await press('Escape');
+    expect.soft(queryRole('alertdialog')).toBeUndefined();
+  });
+
+
+  it('services: shows why the server could not run an action', async () => {
+    // What the server sends when an action throws: the reason in output and in error.
+    serve({ 'GET /api/containers': () => stack([SEARXNG]), 'POST /api/containers/action': () => reply(500, { ok: false, output: 'spawn docker ENOENT', error: 'spawn docker ENOENT' }) });
+    const onToast = vi.fn();
+    await mount(<ServicesView onToast={onToast} />);
+    await click(byRole('button', 'Stop all'));
+    expect(onToast).toHaveBeenLastCalledWith(expect.stringContaining('spawn docker ENOENT'), 'error');
+  });
+
+
+  it('services: says why an action failed when there is no container runtime', async () => {
+    const offline = stack([{ ...SEARXNG, state: 'not-created', statusText: 'Daemon offline' }], { runtimes: { docker: false, podman: false, colima: false }, activeRuntime: 'none', daemonRunning: false });
+    serve({ 'GET /api/containers': () => offline, 'POST /api/containers/action': () => ({ ok: false, command: '', output: 'Container management is off here (GLOGG_CONTAINER_RUNTIME=none).', stack: offline }) });
+    const onToast = vi.fn();
+    await mount(<ServicesView onToast={onToast} />);
+    await click(byRole('button', 'Start all'));
+    expect(onToast.mock.calls.at(-1)![0]).toContain('Container management is off here');
+  });
+
+
+  it('downloads: names each progress bar after its download', async () => {
+    serve({ 'GET /api/downloads': () => downloads(JOBS) });
+    await mount(withTargets(<DownloadsView onToast={vi.fn()} onOpenSettings={vi.fn()} />));
+    expect($$('[role="progressbar"]').map(nameOf)).toEqual(['debian-12.iso', 'archlinux.iso']);
+  });
+
+
+  it('downloads: tells a screen reader which destinations are set up', async () => {
+    serve({ 'GET /api/downloads': () => downloads(JOBS) });
+    await mount(withTargets(<DownloadsView onToast={vi.fn()} onOpenSettings={vi.fn()} />));
+    expect($$('.destination').map((d) => textOf(d).trim())).not.toEqual(['Offcloud', 'aria2', 'Nextcloud', 'NZB.life', 'Real-Debrid']);
+  });
+
+
+  it('results: counts one matching torrent in the singular', async () => {
+    await resultsPage(response({ results: [result(1), result(2), result(3), torrent(4)] }));
+    expect(textIn($('.banner')!)).not.toMatch(/\b1 torrents\b/);
+  });
+
+
+  it('reader: tells assistive tech the page is loading', async () => {
+    serve({ 'POST /api/inspect': () => new Promise(() => undefined) });
+    await mount(withTargets(<ReaderSheet url={READ_URL} onClose={vi.fn()} onNavigate={vi.fn()} onSend={vi.fn()} />));
+    expect($('.sheet [aria-busy="true"]')).toBeTruthy();
   });
 });

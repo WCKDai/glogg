@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
   ArrowUpRight,
   Box,
@@ -65,14 +65,17 @@ export function FieldInput({
   value,
   onChange,
   autoFocus,
+  id,
 }: {
   field: PluginField;
   value: unknown;
   onChange: (v: unknown) => void;
   autoFocus?: boolean;
+  /** Unique on the page: a tool's form and its plugin's settings can both have a "url". */
+  id: string;
 }) {
   const text = value === undefined || value === null ? '' : String(value);
-  const id = `f-${field.key}`;
+  const required = Boolean(field.required);
   switch (field.type) {
     case 'textarea':
       return (
@@ -80,6 +83,7 @@ export function FieldInput({
           id={id}
           className="input textarea"
           rows={4}
+          required={required}
           value={text}
           placeholder={field.placeholder}
           autoFocus={autoFocus}
@@ -88,7 +92,7 @@ export function FieldInput({
       );
     case 'select':
       return (
-        <select id={id} className="input select" value={text} onChange={(e) => onChange(e.target.value)}>
+        <select id={id} className="input select" required={required} value={text} onChange={(e) => onChange(e.target.value)}>
           {(field.options || []).map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -110,6 +114,7 @@ export function FieldInput({
           id={id}
           className={`input ${field.type === 'url' ? 'mono' : ''}`}
           type={field.type === 'number' ? 'number' : field.type === 'password' || field.secret ? 'password' : 'text'}
+          required={required}
           value={text}
           placeholder={field.placeholder}
           autoFocus={autoFocus}
@@ -140,21 +145,27 @@ export function ToolForm({
 }) {
   // One short field: input and button share a row, like a search box.
   const inline = fields.length === 1 && fields[0].type !== 'textarea' && fields[0].type !== 'toggle';
+  const base = useId();
   return (
     <form
       className={`tool-form ${inline ? 'inline' : ''}`}
       onSubmit={(e) => {
         e.preventDefault();
+        // A submit from anywhere (Enter, a script) still needs the required fields.
+        if (!e.currentTarget.checkValidity()) {
+          e.currentTarget.reportValidity?.();
+          return;
+        }
         onSubmit();
       }}
     >
       {fields.map((f, i) => (
         <div key={f.key} className={`field ${f.type === 'toggle' ? 'field-toggle' : ''}`}>
-          <label htmlFor={`f-${f.key}`}>
+          <label htmlFor={`${base}-${f.key}`}>
             {f.label}
             {f.required && <span className="req" aria-hidden> *</span>}
           </label>
-          <FieldInput field={f} value={values[f.key]} onChange={(v) => onChange(f.key, v)} autoFocus={autoFocus && i === 0} />
+          <FieldInput id={`${base}-${f.key}`} field={f} value={values[f.key]} onChange={(v) => onChange(f.key, v)} autoFocus={autoFocus && i === 0} />
           {f.help && <span className="field-help">{f.help}</span>}
         </div>
       ))}

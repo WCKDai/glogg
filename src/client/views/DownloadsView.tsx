@@ -55,8 +55,13 @@ export function DownloadsView({
     }
   };
 
+  // A refusal ("stop the download first") is said, not swallowed.
   const remove = async (id: string) => {
-    await api(`/api/downloads/${id}`, { method: 'DELETE' });
+    try {
+      await api(`/api/downloads/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      onToast((e as Error).message, 'error');
+    }
     void load();
   };
 
@@ -125,7 +130,11 @@ export function DownloadsView({
               type="button"
               className="link-btn"
               onClick={async () => {
-                await api('/api/downloads/finished', { method: 'DELETE' });
+                try {
+                  await api('/api/downloads/finished', { method: 'DELETE' });
+                } catch (e) {
+                  onToast((e as Error).message, 'error');
+                }
                 void load();
               }}
             >
@@ -146,7 +155,8 @@ export function DownloadsView({
 function Destination({ name, on, icon }: { name: string; on: boolean; icon: React.ReactNode }) {
   return (
     <span className={`destination ${on ? 'on' : ''}`}>
-      {icon} {name} {on ? <Check size={12} /> : <X size={12} />}
+      {icon} {name} {on ? <Check size={12} aria-hidden /> : <X size={12} aria-hidden />}
+      <span className="sr-only">{on ? '(set up)' : '(not set up)'}</span>
     </span>
   );
 }
@@ -168,7 +178,7 @@ function JobRow({ job, onRemove }: { job: DownloadJob; onRemove: (id: string) =>
           <span>{relativeDate(job.createdAt)}</span>
         </div>
         {running && (
-          <div className="progress" aria-valuenow={job.progressPercent} role="progressbar">
+          <div className="progress" role="progressbar" aria-label={job.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progressPercent}>
             <div style={{ width: `${Math.max(3, job.progressPercent)}%` }} />
           </div>
         )}

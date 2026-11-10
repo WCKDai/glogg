@@ -3,10 +3,6 @@
   "name": "glogg — Unslop the Web",
   "version": "0.1.0",
   "description": "Strips sponsored search ads, filters SEO content farms, enforces domain diversity, and highlights primary sources & indie blogs.",
-  "permissions": [
-    "storage",
-    "activeTab"
-  ],
   "action": {
     "default_title": "glogg Anti-Slop Controls",
     "default_popup": "popup.html",

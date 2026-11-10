@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import {
   BangDefinition,
@@ -345,6 +345,16 @@ export function SettingsView(props: Props) {
  */
 function AdultMode({ on, set }: { on: boolean; set: (v: boolean) => void }) {
   const [asking, setAsking] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  // The question takes focus (on Cancel, the safe answer); Escape cancels and goes back to the switch.
+  useEffect(() => {
+    if (asking) cancelButton.current?.focus();
+  }, [asking]);
+  const cancel = () => {
+    setAsking(false);
+    toggle.current?.focus();
+  };
   return (
     <section className="section" id="settings-adult">
       <h2 className="section-title">18+ mode</h2>
@@ -357,6 +367,7 @@ function AdultMode({ on, set }: { on: boolean; set: (v: boolean) => void }) {
             </div>
           </div>
           <button
+            ref={toggle}
             type="button"
             role="switch"
             aria-checked={on}
@@ -368,7 +379,17 @@ function AdultMode({ on, set }: { on: boolean; set: (v: boolean) => void }) {
           </button>
         </div>
         {asking && !on && (
-          <div className="setting adult-confirm" role="alertdialog" aria-labelledby="adult-confirm-title">
+          <div
+            className="setting adult-confirm"
+            role="alertdialog"
+            aria-labelledby="adult-confirm-title"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                cancel();
+              }
+            }}
+          >
             <div>
               <div className="setting-label" id="adult-confirm-title">
                 Turn on 18+ mode?
@@ -376,7 +397,7 @@ function AdultMode({ on, set }: { on: boolean; set: (v: boolean) => void }) {
               <div className="setting-hint">Results can include explicit adult content. Only for people 18 or older.</div>
             </div>
             <div className="row-gap">
-              <button type="button" className="btn btn-sm" onClick={() => setAsking(false)}>
+              <button ref={cancelButton} type="button" className="btn btn-sm" onClick={cancel}>
                 Cancel
               </button>
               <button

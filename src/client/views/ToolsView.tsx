@@ -211,6 +211,8 @@ export function ToolsView({ plugins, userDir, target, onReload, onChanged, onToa
             try {
               await onReload();
               onToast('Plugins reloaded', 'ok');
+            } catch (e) {
+              onToast((e as Error).message, 'error');
             } finally {
               setReloading(false);
             }

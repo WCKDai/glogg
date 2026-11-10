@@ -151,7 +151,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
       )}
 
       {suggestions.length > 0 && (
-        <ul className="bang-menu" role="listbox">
+        <ul className="bang-menu" role="listbox" aria-label="Bangs">
           {suggestions.map((b, i) => (
             <li
               key={b.trigger}

@@ -97,6 +97,8 @@ export function compileSearchQuery(
   const encodedSynthesized = encodeURIComponent(synthesizedQuery);
   const encodedRaw = encodeURIComponent(trimmed);
 
+  // SafeSearch off only in 18+ mode, as in glogg's own search; the extension and plain links keep the engines' defaults.
+  const safeOff = Boolean(config?.uncensoredMode);
   const escapeUrls: CompiledQueryPlan['escapeUrls'] = [
     {
       id: 'marginalia',
@@ -109,15 +111,15 @@ export function compileSearchQuery(
       id: 'ddg-uncensored',
       name: 'DuckDuckGo',
       category: 'web-meta',
-      description: 'Direct HTML search with SafeSearch completely disabled (kp=-2) + anti-slop operators',
-      url: `https://html.duckduckgo.com/html/?q=${encodedSynthesized}&kp=-2`,
+      description: safeOff ? 'Direct HTML search with SafeSearch off (18+ mode) + anti-slop operators' : 'Direct HTML search + anti-slop operators',
+      url: `https://html.duckduckgo.com/html/?q=${encodedSynthesized}${safeOff ? '&kp=-2' : ''}`,
     },
     {
       id: 'google-udm14',
       name: 'Google',
       category: 'web-meta',
       description: 'Forces pure Web mode (no AI Overview) + Glogg -site: exclusions',
-      url: `https://www.google.com/search?udm=14&q=${encodedSynthesized}&safe=off`,
+      url: `https://www.google.com/search?udm=14&q=${encodedSynthesized}${safeOff ? '&safe=off' : ''}`,
     },
     {
       id: 'bsky-atproto',

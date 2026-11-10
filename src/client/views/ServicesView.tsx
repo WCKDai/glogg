@@ -34,7 +34,8 @@ export function ServicesView({ onToast }: { onToast: (t: string, tone?: 'ok' | '
       );
       if (r.stack) setStack(r.stack);
       if (action === 'logs' || !r.ok) setLog(`$ ${r.command}\n${r.output}`);
-      onToast(r.ok ? `${r.command || action} — done` : `Failed: ${r.command}`, r.ok ? 'ok' : 'error');
+      // A failure says why: the runtime's own message, not just the command that failed.
+      onToast(r.ok ? `${r.command || action} — done` : `Failed: ${r.output || r.command || action}`.slice(0, 240), r.ok ? 'ok' : 'error');
     } catch (e) {
       onToast((e as Error).message, 'error');
     } finally {

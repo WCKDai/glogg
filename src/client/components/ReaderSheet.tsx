@@ -68,7 +68,7 @@ export function ReaderSheet({
 
         <div className="sheet-body">
           {!report && !error && (
-            <div className="skeleton-stack">
+            <div className="skeleton-stack" aria-busy="true" aria-label="Loading the page">
               <div className="skeleton h-28 w-80" />
               <div className="skeleton h-14 w-40" />
               <div className="skeleton h-14 w-100" />

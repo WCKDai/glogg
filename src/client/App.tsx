@@ -872,7 +872,7 @@ export function App() {
                 <button type="button" className="banner" onClick={() => switchScope(scope === 'usenet-nzb' ? 'usenet-nzb' : 'p2p-magnet')}>
                   <Magnet size={15} />
                   <span>
-                    <strong>{releases.length}</strong> torrents &amp; NZBs match this
+                    <strong>{releases.length}</strong> {releases.length === 1 ? 'torrent or NZB matches' : 'torrents & NZBs match'} this
                   </span>
                   <span className="go">View →</span>
                 </button>
