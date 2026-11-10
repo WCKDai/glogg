@@ -256,6 +256,9 @@ The suites cover:
 - **Plugins:** plugins and their tools.
 - **UI:** flows in jsdom.
 - **Speed:** budgets for the client.
+- **API contract:** every route in open mode, with a password, and from another site, checked against `docs/api.md`, with junk input for each (`tests/api.test.ts`); the CLI's commands and exit codes (`tests/cli.test.ts`).
+- **Views:** the reader, results, search box, palette, Tools, Downloads, Services and Settings, with loading, empty and error states and accessible names (`tests/views.test.tsx`); the browser extension on Google-, DuckDuckGo- and Bing-shaped pages (`tests/extension.test.ts`).
+- **Containers:** orchestration against fake docker, podman and colima scripts (`tests/containers.test.ts`).
 - **Properties:** seeded random input (`tests/properties.test.ts`): parsers never throw or hang on hostile text, ranking keeps its promises, links stay http(s), and the request guard and sessions refuse what they should. A failure prints the seed that replays it: `GLOGG_FUZZ_SEED=<seed> GLOGG_FUZZ_RUNS=1 npx vitest run tests/properties.test.ts`; `GLOGG_FUZZ_RUNS=3000` runs deeper.
 - **Browser:** `tests/e2e/` drives headless Chrome over the DevTools protocol against a production glogg with canned upstreams: search, the reader, the palette, Back, themes, phone layout, accessibility on every section, sign-in, and that the page fetches nothing from third parties. On CI a missing Chrome fails the run.
 

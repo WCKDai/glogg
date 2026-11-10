@@ -18,7 +18,8 @@ export default defineConfig({
       reporter: ['text-summary', 'json-summary', 'html'],
       reportsDirectory: '.tmp/coverage',
       // A floor, not a target: raise it as tests are added. `npm run test:coverage` (and CI) fail below it.
-      thresholds: { lines: 69, statements: 69, branches: 77, functions: 61 },
+      // A little under the measured figure (83.8 / 86.0 / 77.3), since some branches only run on macOS.
+      thresholds: { lines: 82, statements: 82, branches: 84, functions: 75 },
     },
   },
 });
