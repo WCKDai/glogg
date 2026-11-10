@@ -270,7 +270,17 @@ export function stemToken(word: string): string {
   return w;
 }
 
+/** The last query analysed: ranking asks once per result, always about the same query. */
+let lastAnalysis: { query: string; analysis: QueryAnalysis } | undefined;
+
 export function analyzeQueryIntent(rawQuery: string): QueryAnalysis {
+  if (lastAnalysis?.query === rawQuery) return lastAnalysis.analysis;
+  const analysis = analyzeQuery(rawQuery);
+  lastAnalysis = { query: rawQuery, analysis };
+  return analysis;
+}
+
+function analyzeQuery(rawQuery: string): QueryAnalysis {
   const cleaned = rawQuery
     .trim()
     .replace(/\b(?:lens|site|before|after):[^\s]+/gi, '')

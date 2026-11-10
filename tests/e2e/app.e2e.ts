@@ -28,14 +28,30 @@ const ARTICLE = `<!doctype html><html><head><title>The Rust borrow checker, expl
 <p>Read <a href="https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html">the chapter in the book</a> for more.</p>
 </article><footer>© Ada</footer></body></html>`;
 
+/** How late GitHub answers, so a search streams its first batch before the full ranking. */
+const GITHUB_DELAY_MS = 900;
+
 /** Upstream answers, by host. Anything else gets an empty 404, as if the service had nothing. */
-function upstream(url: URL): Response {
+async function upstream(url: URL): Promise<Response> {
   const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+  if (url.hostname === 'api.github.com') {
+    await new Promise((r) => setTimeout(r, GITHUB_DELAY_MS));
+    return json({ items: [{ full_name: 'ferris/borrow-checker-handbook', html_url: 'https://github.com/ferris/borrow-checker-handbook', description: 'A handbook for the Rust borrow checker', stargazers_count: 1200, topics: ['rust', 'borrow-checker'] }] });
+  }
   if (url.hostname === 'hn.algolia.com') {
     return json({
       hits: [
         { objectID: '101', title: 'The Rust borrow checker, explained slowly', url: 'https://tiny.example/borrow-checker', author: 'ada', points: 219, num_comments: 83, created_at: '2019-03-12T10:00:00Z' },
         { objectID: '102', title: 'Why the borrow checker rejects my Rust graph', url: 'https://graphs.example/rust-borrow-checker-graphs', author: 'bob', points: 54, num_comments: 3, created_at: '2021-06-01T10:00:00Z' },
+        ...['two-phase borrows', 'non-lexical lifetimes', 'interior mutability', 'self-referential structs', 'closures and the borrow checker'].map((topic, i) => ({
+          objectID: String(110 + i),
+          title: `Rust borrow checker: ${topic}`,
+          url: `https://notes${i}.example/rust-borrow-checker-${i}`,
+          author: 'cy',
+          points: 20 + i,
+          num_comments: 4,
+          created_at: '2020-02-01T10:00:00Z',
+        })),
       ],
     });
   }
@@ -135,6 +151,21 @@ describe.skipIf(!ready)('in a real browser', () => {
       expect(l.href).toMatch(/^https:\/\//);
     }
     expect(await browser.eval(`new URLSearchParams(location.search).get('q')`)).toBe(QUERY);
+    expect(browser.errors).toEqual([]);
+  });
+
+  it('shows the first results before the slowest source answers, then adds its results', async () => {
+    await browser.goto(`${glogg.url}/`);
+    await browser.click('input[aria-label="Search"]');
+    await browser.type('rust borrow checker handbook');
+    const t0 = Date.now();
+    await browser.press('Enter');
+    await browser.waitFor(`document.querySelectorAll('a.result-title').length > 0`, 'the first results');
+    const firstAt = Date.now() - t0;
+    expect(firstAt).toBeLessThan(GITHUB_DELAY_MS - 200);
+    expect(await browser.eval(`!!document.querySelector('a.result-title[href="https://github.com/ferris/borrow-checker-handbook"]')`)).toBe(false);
+    await browser.waitFor(`!!document.querySelector('a.result-title[href="https://github.com/ferris/borrow-checker-handbook"]')`, 'GitHub\'s result once it lands');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(GITHUB_DELAY_MS);
     expect(browser.errors).toEqual([]);
   });
 

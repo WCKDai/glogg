@@ -4,6 +4,15 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Faster search
+Measured on five real searches, replayed through the search pipeline (`tests/speed.test.ts` pins each change):
+- **First results in about 0.6 s instead of 1.6 s** (median). The web app streams the search: the first batch goes out as soon as the main sources have six results, instead of waiting for the slowest of them and the grace timers; the full ranking follows and re-sorts the list only if you haven't scrolled or moved through it yet. Other API callers still get one JSON answer.
+- **Host names resolve without queueing:** glogg looks up two dozen at once, and Node's 4 resolver threads made them wait (123-502 ms for 24 names); it now runs 32 (18-24 ms).
+- **Ranking costs about half** (31 → 17 µs a result): domain lists are normalised once instead of per result, and the query is analysed once per search. 400 random rankings come out identical.
+- **Smaller responses:** the web app gets hidden results trimmed to what their line shows (a third to nine tenths of a response was hidden rows); responses are compressed with brotli or gzip (311 KB → ≈45 KB); one upstream's 224 KB description is clipped to 1,200 characters before ranking.
+- **The app loads once:** its hashed files are sent compressed (the script 395 KB → ≈100 KB) and cached for a year.
+- **Rate limits are respected:** a source that answers 429 is left alone for as long as its `Retry-After` says (5 minutes otherwise), instead of being asked and refused on every search.
+
 ### Security
 A security review found these; each now has a test that failed before its fix (`tests/hardening.test.ts`, `tests/auth.test.ts`, `tests/security.test.ts`).
 - **Critical:** `/API/...` in capitals reached the API past the request guard and the password, because Express matched routes regardless of case. Routing is now case-sensitive (fixed in the import PR), and both checks ignore case.

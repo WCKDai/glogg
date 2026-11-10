@@ -67,6 +67,7 @@ import {
   SIGN_IN_EVENT,
   SOURCE_LABELS,
   streamEvents,
+  streamSearch,
   targetLabel,
   useLocalStorage,
   useToasts,
@@ -170,6 +171,10 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
+  const activeRef = useRef(0);
+  activeRef.current = active;
+  // An early batch is on screen and the full ranking is still coming.
+  const [refining, setRefining] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [readerUrl, setReaderUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -457,6 +462,7 @@ export function App() {
       abortRef.current = ctrl;
       const body = {
         query: q,
+        compact: true,
         config: {
           lens: nextScope,
           maxPerDomain: p.maxPerDomain,
@@ -471,9 +477,30 @@ export function App() {
         },
       };
       try {
-        const res = await api<RankedSearchResponse>('/api/search', { method: 'POST', signal: ctrl.signal, json: body });
-        if (ctrl.signal.aborted) return;
-        setData(res);
+        // Streamed: an early batch as soon as the main sources have enough, then the full ranking.
+        const got: { final?: RankedSearchResponse; early?: boolean } = {};
+        await streamSearch(body, ctrl.signal, (e) => {
+          if (ctrl.signal.aborted) return;
+          if (e.type === 'error') throw new Error(e.error);
+          if (e.type === 'partial') {
+            got.early = true;
+            setData(e.response);
+            setLoading(false);
+            setRefining(true);
+            if (!opts.keepResearch) window.scrollTo({ top: 0 });
+            return;
+          }
+          got.final = e.response;
+          // Re-rank only while nobody has started on the early batch; after that, new results join below.
+          const untouched = activeRef.current === 0 && window.scrollY < 40;
+          setData((cur) => {
+            if (!got.early || untouched || !cur) return e.response;
+            const merged = mergeLateResults(cur, e.response) ?? e.response;
+            return { ...merged, partial: undefined };
+          });
+        });
+        const res = got.final;
+        if (ctrl.signal.aborted || !res) return;
         // Slow sources missed the cut but keep running server-side; pick them up shortly.
         if (Object.values(res.metrics.sourceTimings || {}).some((t) => t.status === 'late')) {
           setTimeout(() => {
@@ -485,7 +512,7 @@ export function App() {
               .catch(() => undefined);
           }, LATE_REFRESH_MS);
         }
-        if (!opts.keepResearch) window.scrollTo({ top: 0 });
+        if (!opts.keepResearch && !got.early) window.scrollTo({ top: 0 });
         if (researchNow) void startResearch(q, res, opts.history ?? []);
       } catch (e) {
         if (ctrl.signal.aborted) return;
@@ -493,7 +520,10 @@ export function App() {
         setData(null);
         if (researchNow) setResearch(null);
       } finally {
-        if (!ctrl.signal.aborted) setLoading(false);
+        if (!ctrl.signal.aborted) {
+          setLoading(false);
+          setRefining(false);
+        }
       }
     },
     [openUrl, runInlineTool, startResearch, setHistory]
@@ -897,7 +927,7 @@ export function App() {
         <>
           <button type="button" className="more-toggle" onClick={() => setShowFiltered((s) => !s)} aria-expanded={showFiltered}>
             <ChevronDown size={14} style={{ transform: showFiltered ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }} />
-            {data.filteredSlop.length} hidden
+            {(data.metrics.filteredSlopCount || data.filteredSlop.length).toLocaleString()} hidden
             {data.metrics.sponsoredRemovedCount > 0 && <> · {data.metrics.sponsoredRemovedCount} sponsored</>}
             {data.metrics.demotedDuplicateDomainsCount > 0 && <> · {plural(data.metrics.demotedDuplicateDomainsCount, 'repeat')}</>}
           </button>
@@ -1192,7 +1222,7 @@ export function App() {
 
         <StatusBar
           data={view === 'search' && submitted && !toolRun ? data : null}
-          loading={view === 'search' && loading}
+          loading={view === 'search' && (loading || refining)}
           busyLabel={toolRun?.loading ? `Running ${toolRun.ref?.tool.name ?? 'tool'}…` : undefined}
           research={view === 'search' ? research : null}
           mode={mode}

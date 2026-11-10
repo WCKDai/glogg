@@ -24,6 +24,7 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=4173 \
     GLOGG_IN_CONTAINER=1 \
+    UV_THREADPOOL_SIZE=32 \
     GLOGG_HOME=/data \
     GLOGG_DOWNLOADS_DIR=/data/downloads \
     GLOGG_CONTAINER_RUNTIME=none

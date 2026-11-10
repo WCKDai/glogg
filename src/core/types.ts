@@ -263,6 +263,8 @@ export interface RankedSearchResponse {
   results: ScoredSearchResult[];
   p2pResults: ScoredSearchResult[];
   filteredSlop: ScoredSearchResult[];
+  /** An early batch, streamed before the final response; slower sources are still coming. */
+  partial?: boolean;
   metrics: {
     totalRawResults: number;
     surfacedCount: number;

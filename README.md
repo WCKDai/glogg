@@ -196,7 +196,7 @@ Everything is optional. In Docker, put these in `.env` (see [`.env.example`](./.
 <details>
 <summary>Search timing</summary>
 
-A search asks every source at once and returns as soon as the main sources for the scope have answered, plus a short grace period for quick small-web sources. Later results are picked up without reordering what you're reading. Repeat searches come from a 10-minute cache, and a source that keeps hanging rests for five minutes.
+A search asks every source at once. The first results show as soon as the main sources for the scope have six between them, without waiting for the slowest; the full ranking follows when the rest answer (or a short grace period ends), and it re-sorts the list only if you haven't started on it yet. Later results are picked up without reordering what you're reading. Repeat searches come from a 10-minute cache, a source that keeps hanging rests for five minutes, and one that answers "too many requests" is left alone for as long as it asks.
 
 | Variable | Default | What it does |
 | :--- | :--- | :--- |

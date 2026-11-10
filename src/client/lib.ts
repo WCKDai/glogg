@@ -174,11 +174,13 @@ function noteSignIn(res: Response): void {
   if (res.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event(SIGN_IN_EVENT));
 }
 
-/** POSTs JSON and calls onEvent for each line of a newline-delimited JSON response. */
-export async function streamEvents<T>(path: string, json: unknown, signal: AbortSignal, onEvent: (e: T) => void): Promise<void> {
+/** What a streamed search sends: an early batch (when the main sources answer first), then the full ranking. */
+export type SearchEvent = { type: 'partial' | 'final'; response: RankedSearchResponse } | { type: 'error'; error: string };
+
+async function postForStream(path: string, json: unknown, signal: AbortSignal): Promise<Response & { body: ReadableStream<Uint8Array> }> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
     body: JSON.stringify(json),
     signal,
   });
@@ -187,6 +189,25 @@ export async function streamEvents<T>(path: string, json: unknown, signal: Abort
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || `HTTP ${res.status}`);
   }
+  return res as Response & { body: ReadableStream<Uint8Array> };
+}
+
+/** POSTs JSON and calls onEvent for each line of a newline-delimited JSON response. */
+export async function streamEvents<T>(path: string, json: unknown, signal: AbortSignal, onEvent: (e: T) => void): Promise<void> {
+  await readLines(await postForStream(path, json, signal), (line) => onEvent(JSON.parse(line) as T));
+}
+
+/** Searches: the early batch and the full ranking when the server streams; a plain JSON answer counts as the full one. */
+export async function streamSearch(json: unknown, signal: AbortSignal, onEvent: (e: SearchEvent) => void): Promise<void> {
+  const res = await postForStream('/api/search', json, signal);
+  if (!/ndjson/.test(res.headers.get('content-type') || '')) {
+    onEvent({ type: 'final', response: (await res.json()) as RankedSearchResponse });
+    return;
+  }
+  await readLines(res, (line) => onEvent(JSON.parse(line) as SearchEvent));
+}
+
+async function readLines(res: Response & { body: ReadableStream<Uint8Array> }, onLine: (line: string) => void): Promise<void> {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -198,10 +219,10 @@ export async function streamEvents<T>(path: string, json: unknown, signal: Abort
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl).trim();
       buf = buf.slice(nl + 1);
-      if (line) onEvent(JSON.parse(line) as T);
+      if (line) onLine(line);
     }
   }
-  if (buf.trim()) onEvent(JSON.parse(buf) as T);
+  if (buf.trim()) onLine(buf.trim());
 }
 
 // ── Late results ──────────────────────────────────────────────────────────

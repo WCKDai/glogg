@@ -115,13 +115,25 @@ export function extractDomainInfo(rawUrl: string): {
   }
 }
 
+/** Each list's entries, normalised once (a request's lists and the curated ones are reused for every result). */
+const normalisedLists = new WeakMap<string[], Set<string>>();
+
+function domainSet(list: string[]): Set<string> {
+  let set = normalisedLists.get(list);
+  if (!set) {
+    set = new Set(list.map((e) => e.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean));
+    normalisedLists.set(list, set);
+  }
+  return set;
+}
+
+/** True when `domain` is on the list or under a listed domain: a lookup per label, not a scan of the list. */
 function matchesDomainList(domain: string, rootDomain: string, list: string[]): boolean {
-  for (const rawEntry of list) {
-    const entry = rawEntry.trim().toLowerCase().replace(/^www\./, '');
-    if (!entry) continue;
-    if (domain === entry || rootDomain === entry || domain.endsWith(`.${entry}`)) {
-      return true;
-    }
+  if (list.length === 0) return false;
+  const set = domainSet(list);
+  if (set.has(rootDomain)) return true;
+  for (let d = domain; d; d = d.slice(d.indexOf('.') + 1 || d.length)) {
+    if (set.has(d)) return true;
   }
   return false;
 }

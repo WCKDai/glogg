@@ -9,6 +9,7 @@ import {
   CURATED_INDIE_INDEX,
   CustomEndpointsConfig,
   DownloadTargetId,
+  RankedSearchResponse,
   ResearchRequest,
   SearchFilterConfig,
 } from '../src/core/index.js';
@@ -27,7 +28,7 @@ import {
   removeDownload,
   saveIntegrationConfig,
 } from './downloadManager.js';
-import { executeFederatedSearch } from './federatedSearch.js';
+import { compactResponse, executeFederatedSearch } from './federatedSearch.js';
 import {
   addUserSource,
   deepStatus,
@@ -55,6 +56,7 @@ import { publicFetch, readTextCapped } from './publicFetch.js';
 import { runResearch } from './research.js';
 import { apiGuard, contentSecurityPolicy, securityHeaders } from './security.js';
 import { isIconDomain, siteIcon } from './favicons.js';
+import { compressJson, hashedAssets } from './compress.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +129,7 @@ export async function createGloggServer() {
     csp = contentSecurityPolicy('');
   }
   app.use(securityHeaders(csp));
+  app.use(compressJson);
   app.use(express.json({ limit: '5mb' }));
   // A password, when set, comes first: without a session nothing else answers, not even the public routes.
   const password = configuredPassword();
@@ -290,23 +293,47 @@ export async function createGloggServer() {
   };
 
   app.post('/api/search', async (req, res) => {
-    try {
-      // No JSON body (a form post, say) is a bad request, not a crash.
-      const { query, config: rawConfig } = (req.body ?? {}) as {
-        query?: string;
-        config?: unknown;
+    // No JSON body (a form post, say) is a bad request, not a crash.
+    const { query, config: rawConfig, compact } = (req.body ?? {}) as {
+      query?: string;
+      config?: unknown;
+      /** The web app's own view: hidden rows carry only what their line shows. */
+      compact?: boolean;
+    };
+    const shape = (r: RankedSearchResponse) => (compact === true ? compactResponse(r) : r);
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      res.status(400).json({ error: 'Query string is required' });
+      return;
+    }
+    const checked = checkSearchConfig(rawConfig);
+    if ('error' in checked) {
+      res.status(400).json({ error: checked.error });
+      return;
+    }
+    const config = mergeEndpoints(checked.config);
+    // Asked for a stream (the web app does): the first batch as soon as the main sources have enough, then the rest.
+    if (String(req.headers.accept || '').includes('application/x-ndjson')) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+      const send = (event: unknown) => {
+        if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(event)}\n`);
       };
-      if (!query || typeof query !== 'string' || !query.trim()) {
-        res.status(400).json({ error: 'Query string is required' });
-        return;
+      try {
+        const final = await executeFederatedSearch(query, config, {
+          onPartial: (response) => send({ type: 'partial', response: shape(response) }),
+        });
+        send({ type: 'final', response: shape(final) });
+      } catch (err) {
+        send({ type: 'error', error: err instanceof Error ? err.message : 'Search failed' });
       }
-      const checked = checkSearchConfig(rawConfig);
-      if ('error' in checked) {
-        res.status(400).json({ error: checked.error });
-        return;
-      }
-      const response = await executeFederatedSearch(query, mergeEndpoints(checked.config));
-      res.json(response);
+      res.end();
+      return;
+    }
+    try {
+      const response = await executeFederatedSearch(query, config);
+      res.json(shape(response));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
       res.status(500).json({ error: message });
@@ -619,6 +646,7 @@ export async function createGloggServer() {
     });
     app.use(vite.middlewares);
   } else {
+    app.use('/assets', hashedAssets(path.join(distPath, 'assets')));
     app.use(express.static(distPath));
     app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -629,6 +657,10 @@ export async function createGloggServer() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // A search looks up two dozen host names at once, and Node resolves them on its thread pool:
+  // with the default 4 threads they queue (123-502 ms for 24 names), with 32 they don't (18-24 ms).
+  // It takes effect only before the pool's first use, which is why it's set here, first.
+  process.env.UV_THREADPOOL_SIZE ??= '32';
   configureNetwork();
   const port = Number(process.env.PORT || 4173);
   createGloggServer()

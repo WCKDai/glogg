@@ -7,6 +7,7 @@ import {
   diversifyAndRankResults,
   GENERIC_ATTRIBUTE_WORDS,
   RankedSearchResponse,
+  RankOutput,
   RawSearchResult,
   SearchFilterConfig,
   SearchLensId,
@@ -35,15 +36,29 @@ function count(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+/**
+ * Hosts that answered 429 Too Many Requests, and until when they're left
+ * alone: as long as Retry-After says, otherwise five minutes (30 s to 30 min).
+ * Asking again sooner only gets refused and holds a connection.
+ */
+const rateLimited = new Map<string, number>();
+
+function restAfterRateLimit(retryAfter: string | null): number {
+  const seconds = retryAfter && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter) : retryAfter ? (Date.parse(retryAfter) - Date.now()) / 1000 : NaN;
+  return Math.min(30 * 60_000, Math.max(30_000, Number.isFinite(seconds) ? seconds * 1000 : 5 * 60_000));
+}
+
 async function fetchWithTimeout(
   url: string,
   timeoutMs = 4200,
   headers: Record<string, string> = {}
 ): Promise<Response> {
+  const host = new URL(url).hostname;
+  if ((rateLimited.get(host) ?? 0) > Date.now()) return new Response('', { status: 429, statusText: 'Resting after a rate limit' });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    const res = await fetch(url, {
       signal: controller.signal,
       headers: {
         'User-Agent': USER_AGENT,
@@ -52,6 +67,8 @@ async function fetchWithTimeout(
         ...headers,
       },
     });
+    if (res.status === 429) rateLimited.set(host, Date.now() + restAfterRateLimit(res.headers.get('retry-after')));
+    return res;
   } finally {
     clearTimeout(timer);
   }
@@ -912,6 +929,9 @@ export interface SourceTiming {
   status: 'ok' | 'empty' | 'error' | 'late' | 'resting';
 }
 
+/** How long an early batch waits for the full answer before going out on its own. */
+const FIRST_BATCH_DELAY_MS = 60;
+
 export interface GatherOptions {
   softMs?: number;
   hardMs?: number;
@@ -921,6 +941,11 @@ export interface GatherOptions {
   timings?: Record<string, SourceTiming>;
   /** Called when each source settles, even after the gather has returned. */
   onSettle?: (key: string, ms: number, count: number, failed: boolean) => void;
+  /**
+   * Called once with what has arrived so far, as soon as the core sources have
+   * enough results, if that is before the gather ends: an early batch to show.
+   */
+  onFirstBatch?: (sofar: Record<string, RawSearchResult[]>) => void;
 }
 
 export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {}): Promise<Record<string, RawSearchResult[]>> {
@@ -940,6 +965,7 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
     let coreCount = 0;
     let coreDoneAt = coreTotal === 0 ? start : 0;
     let finished = false;
+    let firstBatchSent = false;
     const timers: NodeJS.Timeout[] = [];
     // Node can run a timer a millisecond before Date.now() shows its full delay. Each deadline therefore
     // counts as reached when its own timer fires; otherwise a missed hard deadline would wait forever.
@@ -964,6 +990,19 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
       const grace = reached.has('grace') || (coreDoneAt > 0 && now - coreDoneAt >= graceMs);
       if (settled === tasks.length || hard || (soft && (coreCount >= minCore || coreDone)) || (coreDone && coreCount >= minCore && grace && minWait)) {
         finish();
+      } else if (!firstBatchSent && opts.onFirstBatch && coreCount >= minCore) {
+        // A moment's wait: when everything lands together, the full answer comes instead of a batch.
+        firstBatchSent = true;
+        timers.push(
+          setTimeout(() => {
+            if (finished) return;
+            try {
+              opts.onFirstBatch!({ ...out });
+            } catch {
+              // a listener's failure mustn't end the search
+            }
+          }, FIRST_BATCH_DELAY_MS)
+        );
       }
     };
     const at = (ms: number, deadline: 'soft' | 'hard' | 'minWait' | 'grace') =>
@@ -1019,6 +1058,7 @@ const REST_MS = Number(process.env.GLOGG_SOURCE_REST_MS || 5 * 60_000);
 const sourceHealth = new Map<string, { fails: number; restUntil: number }>();
 
 export function resetSourceHealth(): void {
+  rateLimited.clear();
   sourceHealth.clear();
 }
 
@@ -1097,9 +1137,36 @@ const DEEP_KINDS_BY_LENS: Partial<Record<SearchLensId, DeepKind[] | 'all'>> = {
 /** Time from the start of a search that the instant answer may take. */
 const ANSWER_BUDGET_MS = Number(process.env.GLOGG_ANSWER_BUDGET_MS || 2200);
 
+/** Longest title and snippet kept from an upstream: one GitHub description ran to 224 KB. */
+const MAX_TITLE = 300;
+const MAX_SNIPPET = 1200;
+
+function clipped(r: RawSearchResult): RawSearchResult {
+  if (r.title.length <= MAX_TITLE && r.snippet.length <= MAX_SNIPPET) return r;
+  return { ...r, title: r.title.slice(0, MAX_TITLE), snippet: r.snippet.length > MAX_SNIPPET ? `${r.snippet.slice(0, MAX_SNIPPET)}…` : r.snippet };
+}
+
+/**
+ * The web app's view of a response: hidden rows keep what their line shows
+ * (no scoring signals, a short snippet), and at most 60 of them; the count
+ * of all hidden rows stays in metrics. A third to nine tenths smaller.
+ */
+export function compactResponse(r: RankedSearchResponse): RankedSearchResponse {
+  return {
+    ...r,
+    filteredSlop: r.filteredSlop.slice(0, 60).map((row) => ({ ...row, signals: [], snippet: row.snippet.slice(0, 280) })),
+  };
+}
+
+export interface SearchRunOptions {
+  /** Gets an early, partial response (no instant answer yet) as soon as the core sources have enough results. */
+  onPartial?: (response: RankedSearchResponse) => void;
+}
+
 export async function executeFederatedSearch(
   rawQuery: string,
-  partialConfig?: Partial<SearchFilterConfig>
+  partialConfig?: Partial<SearchFilterConfig>,
+  opts: SearchRunOptions = {}
 ): Promise<RankedSearchResponse> {
   const startTime = Date.now();
   const query = wellFormed(rawQuery).trim();
@@ -1183,55 +1250,37 @@ export async function executeFederatedSearch(
     sourceTimings[t.key] = { ms: 0, count: 0, status: 'resting' };
     return false;
   });
-  const got = await gatherSources(
-    // The deep index is local and grows while it crawls, so it is never cached.
-    runnable.map((t) => ({ key: t.key, core: core.has(t.key), run: t.key === 'deep' ? t.run : () => cachedSource(cacheKey(t.key), t.run) })),
-    { timings: sourceTimings, onSettle: recordSourceOutcome }
-  );
-  const pick = (k: string) => got[k] ?? [];
   const indieResults = searchCuratedIndieIndex(query);
-
-  const allRaw: RawSearchResult[] = [
-    ...pick('wiki'),
-    ...pick('se'),
-    ...pick('ddg'),
-    ...pick('brave'),
-    ...pick('searxng'),
-    ...pick('hn'),
-    ...pick('github'),
-    ...pick('forums'),
-    ...pick('discourse'),
-    ...pick('deep'),
-    ...pick('chanArchive'),
-    ...pick('chanLive'),
-    ...indieResults,
-    ...pick('marginalia'),
-    ...pick('wiby'),
-    ...pick('mwmbl'),
-    ...pick('fediverse'),
-    ...pick('lemmy'),
-    ...pick('gdelt'),
-    ...pick('archive'),
-    ...pick('openalex'),
-    ...pick('arxiv'),
-    ...pick('p2p'),
-  ];
-
-  const ranked = diversifyAndRankResults(allRaw, partialConfig, query);
-  // The answer started with the search; give it what's left of its budget.
-  const answerWaitMs = Math.max(50, ANSWER_BUDGET_MS - (Date.now() - startTime));
-  let answerTimer: NodeJS.Timeout | undefined;
-  const instantAnswer = await Promise.race([
-    buildInstantAnswer(query, ranked.surfaced, answerLookups),
-    new Promise<undefined>((resolve) => {
-      answerTimer = setTimeout(() => resolve(undefined), answerWaitMs);
-    }),
-  ])
-    .catch(() => undefined)
-    .finally(() => clearTimeout(answerTimer));
-  const durationMs = Date.now() - startTime;
-
-  return {
+  /** Every source's results, in the order ranking breaks ties by. */
+  const combine = (got: Record<string, RawSearchResult[]>): RawSearchResult[] => {
+    const pick = (k: string) => (got[k] ?? []).map(clipped);
+    return [
+      ...pick('wiki'),
+      ...pick('se'),
+      ...pick('ddg'),
+      ...pick('brave'),
+      ...pick('searxng'),
+      ...pick('hn'),
+      ...pick('github'),
+      ...pick('forums'),
+      ...pick('discourse'),
+      ...pick('deep'),
+      ...pick('chanArchive'),
+      ...pick('chanLive'),
+      ...indieResults,
+      ...pick('marginalia'),
+      ...pick('wiby'),
+      ...pick('mwmbl'),
+      ...pick('fediverse'),
+      ...pick('lemmy'),
+      ...pick('gdelt'),
+      ...pick('archive'),
+      ...pick('openalex'),
+      ...pick('arxiv'),
+      ...pick('p2p'),
+    ];
+  };
+  const respond = (allRaw: RawSearchResult[], ranked: RankOutput, instantAnswer: RankedSearchResponse['instantAnswer'], partial: boolean): RankedSearchResponse => ({
     query,
     lens,
     uncensoredMode,
@@ -1240,6 +1289,7 @@ export async function executeFederatedSearch(
     results: ranked.surfaced,
     p2pResults: ranked.p2pResults,
     filteredSlop: ranked.filteredSlop,
+    ...(partial ? { partial: true } : {}),
     metrics: {
       totalRawResults: allRaw.length,
       surfacedCount: ranked.surfaced.length,
@@ -1256,8 +1306,37 @@ export async function executeFederatedSearch(
       avgAuthenticityScore: ranked.avgAuthenticityScore,
       avgSlopScore: ranked.avgSlopScore,
       sourcesQueried,
-      sourceTimings,
-      durationMs,
+      sourceTimings: { ...sourceTimings },
+      durationMs: Date.now() - startTime,
     },
-  };
+  });
+  const got = await gatherSources(
+    // The deep index is local and grows while it crawls, so it is never cached.
+    runnable.map((t) => ({ key: t.key, core: core.has(t.key), run: t.key === 'deep' ? t.run : () => cachedSource(cacheKey(t.key), t.run) })),
+    {
+      timings: sourceTimings,
+      onSettle: recordSourceOutcome,
+      onFirstBatch: opts.onPartial
+        ? (sofar) => {
+            const early = combine(sofar);
+            opts.onPartial!(respond(early, diversifyAndRankResults(early, partialConfig, query), undefined, true));
+          }
+        : undefined,
+    }
+  );
+  const allRaw = combine(got);
+
+  const ranked = diversifyAndRankResults(allRaw, partialConfig, query);
+  // The answer started with the search; give it what's left of its budget.
+  const answerWaitMs = Math.max(50, ANSWER_BUDGET_MS - (Date.now() - startTime));
+  let answerTimer: NodeJS.Timeout | undefined;
+  const instantAnswer = await Promise.race([
+    buildInstantAnswer(query, ranked.surfaced, answerLookups),
+    new Promise<undefined>((resolve) => {
+      answerTimer = setTimeout(() => resolve(undefined), answerWaitMs);
+    }),
+  ])
+    .catch(() => undefined)
+    .finally(() => clearTimeout(answerTimer));
+  return respond(allRaw, ranked, instantAnswer, false);
 }
