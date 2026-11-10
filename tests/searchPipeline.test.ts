@@ -300,6 +300,26 @@ describe('federated search with stubbed upstreams', () => {
     expect(se.every((c) => c.url.includes('&key=k3y'))).toBe(true);
   });
 
+  it('asks the Bluesky AppView and Matrix homeserver set in the settings', async () => {
+    started = Date.now();
+    await fs.executeFederatedSearch('rust borrow checker', { lens: 'all', endpoints: { atprotoAppViewUrl: 'https://appview.example', matrixHomeserverUrl: 'https://matrix.example' } });
+    expect(calls.some((c) => c.url.startsWith('https://appview.example/xrpc/app.bsky.feed.searchPosts'))).toBe(true);
+    expect(calls.some((c) => c.url.startsWith('https://matrix.example/_matrix/client/v3/publicRooms'))).toBe(true);
+    expect(calls.filter((c) => c.host === 'public.api.bsky.app' || c.host === 'matrix.org')).toEqual([]);
+  });
+
+  it('keeps SafeSearch on for the old-forum search unless 18+ is on', async () => {
+    const forumSearches = () => calls.filter((c) => c.host === 'html.duckduckgo.com' && c.url.includes('site%3Avogons.org'));
+    started = Date.now();
+    await fs.executeFederatedSearch('sound blaster drivers', { lens: 'forums' });
+    expect(forumSearches()).toHaveLength(1);
+    expect(forumSearches()[0].url).not.toContain('kp=');
+    calls.length = 0;
+    await fs.executeFederatedSearch('sound blaster drivers', { lens: 'forums', uncensoredMode: true });
+    expect(forumSearches()).toHaveLength(1);
+    expect(forumSearches()[0].url).toContain('&kp=-2');
+  });
+
   it('searches Discourse forums live only in the Forums scope, and asks Mwmbl everywhere', async () => {
     started = Date.now();
     await fs.executeFederatedSearch('home assistant zigbee pairing', { lens: 'forums' });

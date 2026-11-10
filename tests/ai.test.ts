@@ -311,3 +311,24 @@ describe('aborting', () => {
     expect(srv.seen).toEqual([]);
   });
 });
+
+describe('found by these tests, and fixed', () => {
+  it("throws when Anthropic's stream reports an error partway", async () => {
+    const srv = await modelServer(() => ({
+      chunks: [textDelta('Hel'), anthropicEvent('error', { error: { type: 'overloaded_error', message: 'Overloaded' } })],
+    }));
+    const cfg: AiConfig = { provider: 'anthropic', baseUrl: srv.url, apiKey: 'sk-ant-1', model: 'claude-3-5-haiku-latest' };
+    await expect(completeChat(cfg, [user('hi')])).rejects.toThrow(/Overloaded/);
+  });
+
+  it('throws when an OpenAI-compatible stream reports an error partway', async () => {
+    const srv = await modelServer(() => ({
+      chunks: [
+        openaiDelta('Hel'),
+        sse({ id: 'cmpl-1', object: 'chat.completion.chunk', error: { code: 'server_error', message: 'Provider disconnected unexpectedly' }, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'error' }] }),
+      ],
+    }));
+    const cfg: AiConfig = { provider: 'openrouter', baseUrl: srv.url, apiKey: 'sk-or-1', model: 'm' };
+    await expect(completeChat(cfg, [user('hi')])).rejects.toThrow(/Provider disconnected/);
+  });
+});

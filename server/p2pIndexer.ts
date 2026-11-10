@@ -365,7 +365,8 @@ export async function searchUsenetNzbIndex(
       }
 
       const cleanTitle = item.name
-        .replace(/yEnc$/i, '')
+        .replace(/\s*yEnc\s*$/i, '')
+        .trim()
         .replace(/^"\s*|\s*"$/g, '')
         .trim();
 
@@ -457,6 +458,7 @@ export async function searchTorznabOrNewznab(
 
       let seeders: number | undefined;
       let leechers: number | undefined;
+      let peers: number | undefined;
       let infoHash: string | undefined;
 
       $(el)
@@ -465,9 +467,12 @@ export async function searchTorznabOrNewznab(
           const name = $(attrEl).attr('name');
           const val = $(attrEl).attr('value') || '';
           if (name === 'seeders') seeders = Number(val);
-          if (name === 'peers') leechers = Number(val);
+          if (name === 'leechers') leechers = Number(val);
+          if (name === 'peers') peers = Number(val);
           if (name === 'infohash' && isValidInfoHash(val)) infoHash = val.toLowerCase();
         });
+      // The spec's peers are seeders plus leechers; an indexer may also say leechers outright.
+      if (leechers === undefined && peers !== undefined) leechers = Math.max(0, peers - (seeders || 0));
 
       const magnetUri = infoHash ? buildMagnetUri(infoHash, title) : undefined;
       results.push({

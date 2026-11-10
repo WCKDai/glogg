@@ -1145,7 +1145,7 @@ export async function executeFederatedSearch(
     { key: 'wiby', run: () => searchWiby(query, kwQuery) },
     { key: 'searxng', run: () => searchSearxngNode(query, partialConfig?.endpoints?.searxngUrl, uncensoredMode) },
     { key: 'lemmy', run: () => searchLemmyFediverse(query, kwQuery) },
-    { key: 'fediverse', run: () => executeFediverseSearch(query, uncensoredMode) },
+    { key: 'fediverse', run: () => executeFediverseSearch(query, uncensoredMode, partialConfig?.endpoints) },
     { key: 'gdelt', run: () => searchGdeltRawNews(query, kwQuery) },
     { key: 'archive', run: () => searchArchiveDeepTexts(query, kwQuery) },
     { key: 'openalex', run: () => searchOpenAlex(query, kwQuery) },
@@ -1171,7 +1171,7 @@ export async function executeFederatedSearch(
     tasks.push(
       { key: 'chanLive', run: () => searchFourChanCatalogs(query, uncensoredMode) },
       { key: 'chanArchive', run: () => searchChanArchives(query, uncensoredMode) },
-      { key: 'forums', run: () => searchObscureForumsAndWildWest(query) }
+      { key: 'forums', run: () => searchObscureForumsAndWildWest(query, uncensoredMode) }
     );
   }
 

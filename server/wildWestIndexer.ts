@@ -67,11 +67,8 @@ export async function searchFourChanCatalogs(
   if (/\b(crypto|bitcoin|monero|xmr|eth|stock|market|gold)\b/i.test(q)) {
     boards.unshift('biz');
   }
-  if (uncensoredMode) {
-    boards.push('pol', 'b');
-  }
-
   const selectedBoards = Array.from(new Set(boards)).slice(0, 4);
+  if (uncensoredMode) selectedBoards.push('pol', 'b');
 
   const boardBatch = await Promise.all(
     selectedBoards.map(async (board) => {
@@ -334,7 +331,8 @@ async function searchFoolFuuka(host: string, label: string, q: string, max: numb
  * Searches Lobste.rs, VOGONS, EEVblog, Doom9, LowEndTalk, ServeTheHome, Textfiles.com, Phrack, etc.
  */
 export async function searchObscureForumsAndWildWest(
-  query: string
+  query: string,
+  uncensoredMode = false
 ): Promise<RawSearchResult[]> {
   const q = distillSearchQuery(query);
   if (!q) return [];
@@ -386,7 +384,7 @@ export async function searchObscureForumsAndWildWest(
     const forumQuery = `${q} (site:vogons.org OR site:eevblog.com OR site:doom9.org OR site:lowendtalk.com OR site:servethehome.com OR site:level1techs.com OR site:textfiles.com OR site:phrack.org OR site:audiokarma.org OR site:overclock.net)`;
     try {
       const res = await fetchWithTimeout(
-        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(forumQuery)}&kp=-2`,
+        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(forumQuery)}${uncensoredMode ? '&kp=-2' : ''}`,
         {},
         1900
       );

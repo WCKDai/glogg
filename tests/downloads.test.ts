@@ -613,7 +613,8 @@ describe('progress', () => {
     try {
       const job = await dm.enqueueDownload({ url: MAGNET, title: 'Sintel', target: 'aria2-rpc' });
       const [first] = await dm.refreshDownloads();
-      expect(first).toMatchObject({ id: job.id, remoteId: 'gid-content', status: 'downloading' });
+      // The metadata's 100% isn't the film's.
+      expect(first).toMatchObject({ id: job.id, remoteId: 'gid-content', status: 'downloading', progressPercent: 0, statusDetail: 'Starting' });
       const [second] = await dm.refreshDownloads();
       expect(second).toMatchObject({ id: job.id, remoteId: 'gid-content', status: 'downloading', progressPercent: 25, statusDetail: 'active · 1024 KB/s' });
       expect(rpc.calls().filter((c) => c.method === 'aria2.tellStatus').map((c) => c.params[1])).toEqual(['gid-metadata', 'gid-content']);
@@ -874,5 +875,29 @@ describe('timeouts', () => {
     await vi.advanceTimersByTimeAsync(3000);
     expect(await pending).toEqual([job]);
     expect(net.requests[0].signal.aborted).toBe(true);
+  });
+});
+
+describe('found by these tests, and fixed', () => {
+  it('names the HTTP status when Offcloud answers with an error page', async () => {
+    const oc = await offcloud(() => ({ status: 502, type: 'text/html', body: '<html><body>502 Bad Gateway</body></html>' }));
+    try {
+      dm.saveIntegrationConfig({ offcloudApiKey: 'oc-key-1234' });
+      const job = await dm.enqueueDownload({ url: MAGNET, target: 'offcloud' });
+      expect(job.statusDetail).toBe('Offcloud: 502');
+    } finally {
+      await oc.close();
+    }
+  });
+
+  it('says aria2 failed, with the status, when something in front of it answers with an error page', async () => {
+    const proxy = await service(() => ({ status: 502, type: 'text/html', body: '<html><body>502 Bad Gateway</body></html>' }));
+    try {
+      dm.saveIntegrationConfig({ aria2RpcUrl: `${proxy.url}/jsonrpc` });
+      const job = await dm.enqueueDownload({ url: 'https://mirror.example/proxied.iso', target: 'aria2-rpc' });
+      expect(job.statusDetail).toMatch(/^aria2: .*502/);
+    } finally {
+      await proxy.close();
+    }
   });
 });

@@ -100,53 +100,57 @@ export async function searchAtProtocol(
     }
 
     // 1b. Search ATProtocol actors ONLY when the actor handle/name/bio strongly matches the query subject
-    const actorUrl = `${appViewBase}/xrpc/app.bsky.actor.searchActors?q=${encodeURIComponent(
-      searchQ
-    )}&limit=4`;
-    const actorRes = await fetchFast(actorUrl, 3000);
-    if (actorRes.ok) {
-      const actorData = (await actorRes.json()) as {
-        actors?: Array<{
-          did: string;
-          handle: string;
-          displayName?: string;
-          description?: string;
-          indexedAt?: string;
-        }>;
-      };
+    try {
+      const actorUrl = `${appViewBase}/xrpc/app.bsky.actor.searchActors?q=${encodeURIComponent(
+        searchQ
+      )}&limit=4`;
+      const actorRes = await fetchFast(actorUrl, 3000);
+      if (actorRes.ok) {
+        const actorData = (await actorRes.json()) as {
+          actors?: Array<{
+            did: string;
+            handle: string;
+            displayName?: string;
+            description?: string;
+            indexedAt?: string;
+          }>;
+        };
 
-      const relevantActors = (actorData.actors ?? []).filter((actor) => {
-        const title = `${actor.displayName || ''} ${actor.handle}`;
-        const bio = actor.description || '';
-        const rel = computeQueryRelevance(
-          query,
-          title,
-          bio,
-          `https://bsky.app/profile/${actor.handle}`
-        );
-        return rel.matchedAnchor && rel.relevanceScore >= 52;
-      });
-
-      for (const actor of relevantActors.slice(0, 2)) {
-        results.push({
-          id: `atproto-actor-${actor.did}`,
-          title: `[ATProto @${actor.handle}] ${actor.displayName || actor.handle}`,
-          url: `https://bsky.app/profile/${actor.handle}`,
-          snippet: `${
-            actor.description?.replace(/\s+/g, ' ').trim() || 'ATProtocol Identity / PDS Repository'
-          } · DID: ${actor.did}`,
-          source: 'atproto',
-          publishedAt: actor.indexedAt,
-          author: `@${actor.handle}`,
-          fediverse: {
-            protocol: 'atproto',
-            handleOrRoom: `@${actor.handle}`,
-            uri: `at://${actor.did}`,
-            cidOrId: actor.did,
-            instanceDomain: 'bsky.app',
-          },
+        const relevantActors = (actorData.actors ?? []).filter((actor) => {
+          const title = `${actor.displayName || ''} ${actor.handle}`;
+          const bio = actor.description || '';
+          const rel = computeQueryRelevance(
+            query,
+            title,
+            bio,
+            `https://bsky.app/profile/${actor.handle}`
+          );
+          return rel.matchedAnchor && rel.relevanceScore >= 52;
         });
+
+        for (const actor of relevantActors.slice(0, 2)) {
+          results.push({
+            id: `atproto-actor-${actor.did}`,
+            title: `[ATProto @${actor.handle}] ${actor.displayName || actor.handle}`,
+            url: `https://bsky.app/profile/${actor.handle}`,
+            snippet: `${
+              actor.description?.replace(/\s+/g, ' ').trim() || 'ATProtocol Identity / PDS Repository'
+            } · DID: ${actor.did}`,
+            source: 'atproto',
+            publishedAt: actor.indexedAt,
+            author: `@${actor.handle}`,
+            fediverse: {
+              protocol: 'atproto',
+              handleOrRoom: `@${actor.handle}`,
+              uri: `at://${actor.did}`,
+              cidOrId: actor.did,
+              instanceDomain: 'bsky.app',
+            },
+          });
+        }
       }
+    } catch {
+      // the posts found so far still count when the account search fails or times out
     }
 
     return results;
@@ -179,7 +183,7 @@ export async function searchActivityPubMastodon(
           if (!res.ok) return [];
           const items = (await res.json()) as Array<{
             id: string;
-            url: string;
+            url?: string | null;
             uri: string;
             created_at: string;
             sensitive?: boolean;
@@ -200,8 +204,11 @@ export async function searchActivityPubMastodon(
 
           if (!Array.isArray(items)) return [];
 
+          const isWebLink = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u);
           return items
             .filter((st) => uncensoredMode || !st.sensitive)
+            // A status may have no url of its own (a remote post, say): link its uri, or leave it out.
+            .filter((st) => isWebLink(st.url) || isWebLink(st.uri))
             .map((st) => {
               const plainContent = st.content
                 .replace(/<[^>]+>/g, ' ')
@@ -211,6 +218,7 @@ export async function searchActivityPubMastodon(
                 ? `@${st.account.acct}`
                 : `@${st.account.acct}@${inst}`;
               const cardUrl = st.card?.url;
+              const ownUrl = isWebLink(st.url) ? st.url : st.uri;
 
               return {
                 id: `ap-${inst}-${st.id}`,
@@ -219,7 +227,7 @@ export async function searchActivityPubMastodon(
                   `[ActivityPub ${handle}] ${plainContent.slice(0, 76)}${
                     plainContent.length > 76 ? '…' : ''
                   }`,
-                url: cardUrl && cardUrl.startsWith('http') ? cardUrl : st.url,
+                url: isWebLink(cardUrl) ? cardUrl : ownUrl,
                 snippet: `${plainContent.slice(0, 240)} · ActivityPub Actor: ${handle} (${
                   (st.favourites_count ?? 0) + (st.reblogs_count ?? 0)
                 } boosts/favs)`,
@@ -232,7 +240,7 @@ export async function searchActivityPubMastodon(
                 fediverse: {
                   protocol: 'activitypub' as const,
                   handleOrRoom: handle,
-                  uri: st.uri || st.url,
+                  uri: st.uri || ownUrl,
                   cidOrId: st.id,
                   instanceDomain: inst,
                   membersOrInteractions: (st.favourites_count ?? 0) + (st.reblogs_count ?? 0),
@@ -258,14 +266,16 @@ export async function searchActivityPubMastodon(
 /**
  * 3. Matrix Public Rooms Directory (matrix.org/_matrix/client/v3/publicRooms)
  */
-let cachedMatrixRooms: Array<{
+type MatrixRoom = {
   room_id: string;
   canonical_alias?: string;
   name?: string;
   topic?: string;
   num_joined_members?: number;
-}> | null = null;
-let cachedMatrixAt = 0;
+};
+/** The room directories of the last few homeservers asked, for five minutes each. */
+const matrixRoomCache = new Map<string, { rooms: MatrixRoom[]; at: number }>();
+const MATRIX_CACHE_SERVERS = 8;
 
 export async function searchMatrixPublicRooms(
   query: string,
@@ -277,20 +287,23 @@ export async function searchMatrixPublicRooms(
     if (tokens.length === 0) return [];
 
     const now = Date.now();
-    if (!cachedMatrixRooms || now - cachedMatrixAt > 5 * 60 * 1000) {
+    let cached = matrixRoomCache.get(homeserver);
+    if (!cached || now - cached.at > 5 * 60 * 1000) {
       const res = await fetchFast(`${homeserver}/_matrix/client/v3/publicRooms?limit=300`, 3600);
       if (res.ok) {
         const data = (await res.json()) as {
-          chunk?: typeof cachedMatrixRooms;
+          chunk?: MatrixRoom[];
         };
         if (Array.isArray(data.chunk)) {
-          cachedMatrixRooms = data.chunk;
-          cachedMatrixAt = now;
+          cached = { rooms: data.chunk, at: now };
+          matrixRoomCache.delete(homeserver);
+          if (matrixRoomCache.size >= MATRIX_CACHE_SERVERS) matrixRoomCache.delete(matrixRoomCache.keys().next().value as string);
+          matrixRoomCache.set(homeserver, cached);
         }
       }
     }
 
-    const rooms = cachedMatrixRooms ?? [];
+    const rooms = cached?.rooms ?? [];
     const primaryAnchor = analysis.anchorTokens[0];
 
     const matched = rooms.filter((r) => {

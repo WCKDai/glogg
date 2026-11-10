@@ -141,6 +141,16 @@ async function timedFetch(url: string, init: RequestInit = {}, ms = 8000): Promi
   }
 }
 
+/** A service's JSON answer; an HTML error page (from a proxy in front of it, say) is an error naming the service and the status. */
+async function jsonFrom<T>(res: Response, service: string): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${service}: ${res.ok ? 'the answer was not JSON' : res.status}`);
+  }
+}
+
 // ── aria2 JSON-RPC ──────────────────────────────────────────────────────────
 async function aria2Call<T>(cfg: CustomEndpointsConfig, method: string, params: unknown[]): Promise<T> {
   const url = cfg.aria2RpcUrl || 'http://localhost:6800/jsonrpc';
@@ -154,7 +164,7 @@ async function aria2Call<T>(cfg: CustomEndpointsConfig, method: string, params: 
     },
     3000
   );
-  const data = (await res.json()) as { result?: T; error?: { message: string } };
+  const data = await jsonFrom<{ result?: T; error?: { message: string } }>(res, 'aria2');
   if (data.error) throw new Error(`aria2: ${data.error.message}`);
   return data.result as T;
 }
@@ -179,7 +189,7 @@ async function offcloudAdd(cfg: CustomEndpointsConfig, url: string): Promise<{ r
     },
     12000
   );
-  const data = (await res.json()) as { requestId?: string; status?: string; url?: string; error?: string };
+  const data = await jsonFrom<{ requestId?: string; status?: string; url?: string; error?: string }>(res, 'Offcloud');
   if (!res.ok || data.error) throw new Error(`Offcloud: ${data.error || res.status}`);
   return data;
 }
@@ -390,12 +400,17 @@ export async function refreshDownloads(): Promise<DownloadJob[]> {
           followedBy?: string[];
           errorMessage?: string;
         }>(cfg, 'aria2.tellStatus', [job.remoteId, ['status', 'totalLength', 'completedLength', 'downloadSpeed', 'followedBy', 'errorMessage']]);
-        // Magnets resolve metadata first, then spawn the real download.
-        if (s.followedBy && s.followedBy.length > 0) job.remoteId = s.followedBy[0];
+        // Magnets resolve metadata first, then spawn the real download: follow it, and don't show the metadata's 100% as the file's.
+        if (s.followedBy && s.followedBy.length > 0) {
+          job.remoteId = s.followedBy[0];
+          job.progressPercent = 0;
+          job.statusDetail = 'Starting';
+          continue;
+        }
         const total = Number(s.totalLength) || 0;
         const done = Number(s.completedLength) || 0;
         job.progressPercent = total > 0 ? Math.round((done / total) * 100) : 0;
-        if (s.status === 'complete' && !(s.followedBy && s.followedBy.length)) {
+        if (s.status === 'complete') {
           job.status = 'completed';
           job.progressPercent = 100;
           job.statusDetail = 'Done';

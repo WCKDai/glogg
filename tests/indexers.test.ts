@@ -1252,7 +1252,8 @@ describe('forums and old-web communities', () => {
     const results = await wild.searchObscureForumsAndWildWest('sound blaster');
     const q = asked(DDG)[0].searchParams;
     expect(q.get('q')).toBe('sound blaster (site:vogons.org OR site:eevblog.com OR site:doom9.org OR site:lowendtalk.com OR site:servethehome.com OR site:level1techs.com OR site:textfiles.com OR site:phrack.org OR site:audiokarma.org OR site:overclock.net)');
-    expect(q.get('kp')).toBe('-2');
+    // SafeSearch stays at DuckDuckGo's default unless 18+ is on.
+    expect(q.get('kp')).toBeNull();
     expect(results).toEqual([
       { title: 'AWE32 drivers - VOGONS', url: 'https://www.vogons.org/viewtopic.php?t=4242', snippet: 'Getting the AWE32 to work in DOS 6.22 with the right drivers.', source: 'wild-west', tags: ['obscure-forum', 'wild-west'] },
       { title: 'Sound Blaster repair', url: 'https://www.eevblog.com/forum/repair/sound-blaster/', snippet: 'Independent practitioner forum / early-web archive thread.', source: 'wild-west', tags: ['obscure-forum', 'wild-west'] },
@@ -1373,8 +1374,7 @@ describe('junk from upstreams', () => {
     },
     {
       name: 'Mastodon',
-      // A status without a url gives a result without one, which the ranker can't take, so url stays put here.
-      answer: (r) => JSON.stringify(mangle(r, [status({ content: '<p>sourdough starter</p>', card: { url: 'https://bread.example/', title: 'Sourdough starter' } })], new Set(['url']))),
+      answer: (r) => JSON.stringify(mangle(r, [status({ content: '<p>sourdough starter</p>', card: { url: 'https://bread.example/', title: 'Sourdough starter' } })])),
       search: () => fedi.searchActivityPubMastodon('sourdough starter', true),
     },
     { name: 'Matrix', answer: (r) => JSON.stringify(mangle(r, { chunk: [room({ canonical_alias: '#rust:matrix.org', name: 'Rust', topic: 'rust' })] })), search: (matrix) => matrix.searchMatrixPublicRooms('rust') },
@@ -1709,5 +1709,86 @@ describe('instant answers', () => {
     expect(answers.prefetchInstantAnswer('15% of 80')).toBeNull();
     expect(await answers.buildInstantAnswer('15% of 80', [])).toMatchObject({ kind: 'computation', title: '12' });
     expect(requests).toEqual([]);
+  });
+});
+
+describe('found by these tests, and fixed', () => {
+  it('gives a Mastodon post with no url of its own a link the ranker can take', async () => {
+    upstream('https://mastodon.social/api/v1/timelines/tag/sourdough', () =>
+      json([status({ url: null, uri: 'https://remote.example/objects/1', account: { acct: 'baker@remote.example' }, content: '<p>My sourdough starter finally doubled overnight</p>' })])
+    );
+    const results = await fedi.searchActivityPubMastodon('sourdough starter');
+    for (const r of results) expect(typeof r.url).toBe('string');
+    expect(() => diversifyAndRankResults(results, { lens: 'all' }, 'sourdough starter')).not.toThrow();
+  });
+
+  it('adds /pol/ and /b/ to the 4chan search in 18+ mode', async () => {
+    upstream('https://a.4cdn.org/', () => json(catalog([])));
+    await wild.searchFourChanCatalogs('linux kernel', true);
+    expect(requests.map((r) => r.url.pathname.split('/')[1])).toEqual(expect.arrayContaining(['pol', 'b']));
+  });
+
+  it('keeps the Bluesky posts it found when the account search fails', async () => {
+    upstream('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
+      json({ posts: [bskyPost({ cid: 'bafy-a', record: { text: 'How the Rust borrow checker reasons about lifetimes' } })] })
+    );
+    upstream('https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors', () => Promise.reject(new TypeError('fetch failed')));
+    expect((await fedi.searchAtProtocol('rust borrow checker')).map((r) => r.id)).toEqual(['atproto-post-bafy-a']);
+  });
+
+  it('keeps the Bluesky posts it found when the account search times out', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    upstream('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
+      json({ posts: [bskyPost({ cid: 'bafy-a', record: { text: 'How the Rust borrow checker reasons about lifetimes' } })] })
+    );
+    upstream('https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors', silent);
+    const pending = fedi.searchAtProtocol('rust borrow checker');
+    await reached(2);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect((await pending).map((r) => r.id)).toEqual(['atproto-post-bafy-a']);
+  });
+
+  it('strips the quotes around a Usenet subject along with yEnc', async () => {
+    upstream('https://nzbindex.com/api/search', () =>
+      json(nzbindex([{ id: 'q1', name: '"debian-12.5.0-amd64-netinst.iso" yEnc', size: 658505728, complete: true, groups: ['alt.binaries.linux'] }]))
+    );
+    const [r] = await p2p.searchUsenetNzbIndex('debian');
+    expect(r.title).toBe('[NZB] debian-12.5.0-amd64-netinst.iso');
+    expect(r.p2p?.nzbUrl).toBe('https://nzbindex.com/download/q1/debian-12.5.0-amd64-netinst.iso.nzb');
+  });
+
+  it("counts Torznab's peers as seeders plus leechers", async () => {
+    upstream('http://prowlarr.lan:9696/', () =>
+      page(torznab(torznabItem({ title: 'Debian 12.5 DVD', link: 'http://prowlarr.lan:9696/dl/1', size: 3992977408, seeders: 120, peers: 135, infohash: DEBIAN })), 'application/rss+xml')
+    );
+    const [r] = await p2p.searchTorznabOrNewznab('debian', 'http://prowlarr.lan:9696/1/api', 'pk');
+    expect(r.p2p?.leechers).toBe(15);
+  });
+
+  it('turns DuckDuckGo SafeSearch off for the old-forum search only in 18+ mode', async () => {
+    upstream('https://lobste.rs/search', () => page(lobsters('')));
+    upstream('https://html.duckduckgo.com/html/', () => page(ddgPage('')));
+    await wild.searchObscureForumsAndWildWest('sound blaster', true);
+    expect(asked('https://html.duckduckgo.com/html/')[0].searchParams.get('kp')).toBe('-2');
+  });
+
+  it("reads each Matrix homeserver's own room directory", async () => {
+    const matrix = await freshFediverse();
+    upstream('https://matrix.org/_matrix/client/v3/publicRooms', () => json({ chunk: [room({ room_id: '!a:matrix.org', canonical_alias: '#rust:matrix.org', name: 'Rust' })] }));
+    upstream('https://matrix.example/_matrix/client/v3/publicRooms', () => json({ chunk: [room({ room_id: '!b:matrix.example', canonical_alias: '#rust:matrix.example', name: 'Rust' })] }));
+    await matrix.searchMatrixPublicRooms('rust');
+    const other = await matrix.searchMatrixPublicRooms('rust', 'https://matrix.example');
+    expect(other.map((r) => r.fediverse?.cidOrId)).toEqual(['!b:matrix.example']);
+  });
+
+  it('keeps the room directories of only the last few homeservers', async () => {
+    const matrix = await freshFediverse();
+    upstream('https://', (url) => json({ chunk: [room({ room_id: `!r:${url.hostname}`, canonical_alias: `#rust:${url.hostname}`, name: 'Rust' })] }));
+    const servers = Array.from({ length: 9 }, (_, i) => `https://hs${i}.example`);
+    for (const hs of servers) await matrix.searchMatrixPublicRooms('rust', hs);
+    await matrix.searchMatrixPublicRooms('rust', servers[8]);
+    await matrix.searchMatrixPublicRooms('rust', servers[0]);
+    expect(asked('https://hs8.example/')).toHaveLength(1);
+    expect(asked('https://hs0.example/')).toHaveLength(2);
   });
 });

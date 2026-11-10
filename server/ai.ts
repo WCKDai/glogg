@@ -43,7 +43,7 @@ export function resolveAiConfig(settings: Record<string, string>): AiConfig | nu
   return cfg;
 }
 
-/** Streams text deltas. Throws with a readable message on HTTP errors. */
+/** Streams text deltas. Throws with a readable message on HTTP errors, and when the provider reports one partway. */
 export async function* streamChat(
   cfg: AiConfig,
   messages: ChatMessage[],
@@ -96,17 +96,22 @@ export async function* streamChat(
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
       if (payload === '[DONE]') return;
+      let j: {
+        choices?: { delta?: { content?: string } }[];
+        type?: string;
+        delta?: { text?: string };
+        error?: { message?: string } | string;
+      };
       try {
-        const j = JSON.parse(payload) as {
-          choices?: { delta?: { content?: string } }[];
-          type?: string;
-          delta?: { text?: string };
-        };
-        const piece = isAnthropic ? (j.type === 'content_block_delta' ? j.delta?.text : undefined) : j.choices?.[0]?.delta?.content;
-        if (piece) yield piece;
+        j = JSON.parse(payload);
       } catch {
-        // partial / keep-alive line
+        continue; // partial / keep-alive line
       }
+      if (!j || typeof j !== 'object') continue;
+      // Anthropic's `error` event (overloaded, say) and OpenRouter's `error` field end the answer early: that's a failure, not a finished answer.
+      if (j.error) throw new Error((typeof j.error === 'string' ? j.error : j.error.message) || 'The answer stopped with an error');
+      const piece = isAnthropic ? (j.type === 'content_block_delta' ? j.delta?.text : undefined) : j.choices?.[0]?.delta?.content;
+      if (typeof piece === 'string' && piece) yield piece;
     }
   }
 }
