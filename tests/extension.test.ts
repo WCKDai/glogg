@@ -8,6 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASE_SEED, html, list, pick, rng, RUNS, text } from './fuzz.js';
+
+/** jsdom builds a page per case: slow under coverage on a busy machine, so time grows with RUNS. */
+const HEAVY = Math.max(30_000, RUNS * 100);
 import type { Rng } from './fuzz.js';
 
 const POPUP_HTML = fs.readFileSync(path.resolve(import.meta.dirname, '../extension/popup.html'), 'utf8');
@@ -305,7 +308,7 @@ describe('content script on hostile pages', () => {
         document.head.replaceChildren();
       }
     );
-  });
+  }, HEAVY);
 });
 
 // ── Popup ────────────────────────────────────────────────────────────────────

@@ -27,6 +27,9 @@ import type { PaletteCommand } from '../src/client/components/CommandPalette.js'
 import type { SearchPrefs } from '../src/client/views/SettingsView.js';
 import type { ToolsTarget } from '../src/client/views/ToolsView.js';
 import { BASE_SEED, forAll, html, list, pick, rng, RUNS, text, urlish } from './fuzz.js';
+
+/** jsdom renders a view per case: slow under coverage on a busy machine, so time grows with RUNS. */
+const HEAVY = Math.max(30_000, RUNS * 100);
 import type { Rng } from './fuzz.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -652,7 +655,7 @@ describe('result rows', () => {
         expect($('.release-title', host)!.textContent).toBe(title);
       }
     );
-  });
+  }, HEAVY);
 });
 
 describe('torrent and NZB list', () => {
@@ -1014,7 +1017,7 @@ describe('reader', () => {
         expect($$('.reader-content > *', sheet).map((el) => el.textContent)).toEqual(report.sections.filter((s) => !s.isFluffPreamble).map((s) => s.text));
       }
     );
-  });
+  }, HEAVY);
 });
 
 // ── The results page, in the real App ───────────────────────────────────────
