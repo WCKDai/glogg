@@ -17,13 +17,32 @@ services:
     init: true
     ports:
       - "127.0.0.1:${GLOGG_PORT:-4173}:4173"
+    # What .env sets (see .env.example). Where glogg listens and keeps its data is the image's to set.
     environment:
       GLOGG_PASSWORD: ${GLOGG_PASSWORD:-}
+      GLOGG_PASSWORD_FILE: ${GLOGG_PASSWORD_FILE:-}
       GLOGG_ALLOWED_HOSTS: ${GLOGG_ALLOWED_HOSTS:-}
+      GLOGG_ALLOWED_ORIGINS: ${GLOGG_ALLOWED_ORIGINS:-}
+      GLOGG_ALLOW_PRIVATE_FETCH: ${GLOGG_ALLOW_PRIVATE_FETCH:-}
       # Only this machine reaches the port, so believe the client address a local proxy forwards.
       # If you publish the port to your network instead, set GLOGG_TRUST_PROXY=loopback.
       GLOGG_TRUST_PROXY: ${GLOGG_TRUST_PROXY:-uniquelocal}
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      BITMAGNET_URL: ${BITMAGNET_URL:-}
+      IPFS_GATEWAY_URL: ${IPFS_GATEWAY_URL:-}
+      TORZNAB_URL: ${TORZNAB_URL:-}
+      TORZNAB_API_KEY: ${TORZNAB_API_KEY:-}
+      NEWZNAB_URL: ${NEWZNAB_URL:-}
+      NEWZNAB_API_KEY: ${NEWZNAB_API_KEY:-}
+      MARGINALIA_API_KEY: ${MARGINALIA_API_KEY:-}
+      STACKEXCHANGE_KEY: ${STACKEXCHANGE_KEY:-}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      GLOGG_HAPPY_EYEBALLS: ${GLOGG_HAPPY_EYEBALLS:-}
+      GLOGG_CORE_GRACE_MS: ${GLOGG_CORE_GRACE_MS:-}
+      GLOGG_MIN_WAIT_MS: ${GLOGG_MIN_WAIT_MS:-}
+      GLOGG_SOURCE_DEADLINE_MS: ${GLOGG_SOURCE_DEADLINE_MS:-}
+      GLOGG_HARD_DEADLINE_MS: ${GLOGG_HARD_DEADLINE_MS:-}
+      GLOGG_ANSWER_BUDGET_MS: ${GLOGG_ANSWER_BUDGET_MS:-}
     volumes:
       - glogg-data:/data
     # Nothing but /data (and a scratch /tmp) is writable, and the process can't gain privileges.

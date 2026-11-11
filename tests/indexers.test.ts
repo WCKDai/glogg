@@ -244,6 +244,13 @@ const ddgPage = (results: string) => `<!DOCTYPE html><html><body><div class="ser
 // ── P2P ─────────────────────────────────────────────────────────────────────
 
 describe('Bitmagnet', () => {
+  it('asks /graphql when it is given the address of Bitmagnet itself, as .env.example shows it', async () => {
+    upstream('http://bitmagnet.lan:3333/graphql', () => json(bitmagnet()));
+    expect(await p2p.searchBitmagnetGraphQL('sintel', 'http://bitmagnet.lan:3333')).toHaveLength(2);
+    expect(await p2p.searchBitmagnetGraphQL('sintel', 'http://bitmagnet.lan:3333/')).toHaveLength(2);
+    expect(requests.map((r) => r.url.href)).toEqual(['http://bitmagnet.lan:3333/graphql', 'http://bitmagnet.lan:3333/graphql']);
+  });
+
   it("asks its GraphQL API for the query, and returns each torrent's magnet, size, swarm and health", async () => {
     upstream('http://bitmagnet.lan:3333/graphql', () => json(bitmagnet()));
     const results = await p2p.searchBitmagnetGraphQL('sintel', 'http://bitmagnet.lan:3333/graphql');

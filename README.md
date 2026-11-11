@@ -192,7 +192,8 @@ Everything is optional. In Docker, put these in `.env` (see [`.env.example`](./.
 | `GLOGG_HOME` | `~/.glogg` (`/data` in Docker) | Settings, keys, plugins and the deep index |
 | `GLOGG_DOWNLOADS_DIR` | `~/Downloads/glogg` | Where Send saves files when nothing else is set up |
 | `SEARXNG_URL` | `http://localhost:8080` | Your SearXNG (Docker Compose sets its own) |
-| `BITMAGNET_URL`, `IPFS_GATEWAY_URL`, `TORZNAB_URL`, `NEWZNAB_URL` | local ports | Other self-hosted backends |
+| `BITMAGNET_URL`, `IPFS_GATEWAY_URL` | local ports | Other self-hosted backends |
+| `TORZNAB_URL` and `TORZNAB_API_KEY`, `NEWZNAB_URL` and `NEWZNAB_API_KEY` | unset | A Torznab indexer (Prowlarr, Jackett) and a Newznab one (NZBHydra2) for torrent and Usenet search. An address or key saved in Settings → Keys replaces the pair; a search naming another indexer never gets the key |
 | `MARGINALIA_API_KEY`, `STACKEXCHANGE_KEY` | shared keys | Personal keys raise rate limits (Stack Exchange: 10,000 requests a day instead of 300) |
 | `BRAVE_API_KEY` | unset | A Brave Search API key: Brave's web results through its API, since its search page mostly answers a server with a captcha |
 | `GLOGG_CONTAINER_RUNTIME` | `auto` (`none` in Docker) | `docker`, `podman`, or `none` to never run either |

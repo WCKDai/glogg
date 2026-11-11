@@ -63,7 +63,9 @@ export async function searchBitmagnetGraphQL(
         }
       }
     `;
-    const res = await fetchFast(endpointUrl, 2200, {
+    // Bitmagnet's own address works too (BITMAGNET_URL=http://localhost:3333): its GraphQL is at /graphql.
+    const graphql = /^https?:\/\/[^/]+\/?$/i.test(endpointUrl) ? `${endpointUrl.replace(/\/$/, '')}/graphql` : endpointUrl;
+    const res = await fetchFast(graphql, 2200, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

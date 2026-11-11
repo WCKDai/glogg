@@ -24,6 +24,7 @@ import {
   clearFinishedDownloads,
   enqueueDownload,
   getDownloadManagerReport,
+  integrationDefaultsFromEnv,
   loadIntegrationConfig,
   maskConfig,
   removeDownload,
@@ -297,7 +298,14 @@ export async function createGloggServer() {
    * another indexer gets no key, so it can't collect yours.
    */
   const mergeEndpoints = (config?: Partial<SearchFilterConfig>): Partial<SearchFilterConfig> => {
-    const stored = loadIntegrationConfig();
+    // The environment's indexers (TORZNAB_URL …) under what's saved in Settings, each address with its own
+    // key: one saved in Settings, address or key, replaces the environment's pair whole.
+    const saved = loadIntegrationConfig();
+    const fromEnv = integrationDefaultsFromEnv();
+    for (const [urlKey, secretKeys] of SECRET_OWNERS) {
+      if ([urlKey, ...secretKeys].some((k) => saved[k])) for (const k of [urlKey, ...secretKeys]) delete fromEnv[k];
+    }
+    const stored: CustomEndpointsConfig = { ...fromEnv, ...saved };
     const clientEndpoints: CustomEndpointsConfig = Object.fromEntries(
       Object.entries(config?.endpoints || {}).filter(
         ([, v]) => typeof v === 'string' && v.trim() !== '' && !v.startsWith('••••')

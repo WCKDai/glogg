@@ -173,6 +173,9 @@ A security review found these; each now has a test that failed before its fix (`
 - The local API now refuses requests from other websites and DNS-rebinding hosts, except a few public read-only routes (search, OpenSearch, suggestions, Atlas, health, IPFS lookup). Previously any site could call every route, including ones that use stored keys or start containers. Use `GLOGG_ALLOWED_HOSTS` / `GLOGG_ALLOWED_ORIGINS` for custom domains.
 
 ### Fixed
+- **Docker: what you put in `.env` reaches glogg.** The compose file passed on only four settings (the password, allowed hosts, proxy trust and SearXNG), so keys and backends set in `.env` (Marginalia, Stack Exchange, Torznab, Newznab …) never reached glogg. Now every setting `.env.example` documents is passed on, except where glogg listens and keeps its data, and the Coolify setup passes on the search keys and indexers too (`tests/docker.test.ts`).
+  - `TORZNAB_URL` with `TORZNAB_API_KEY`, and `NEWZNAB_URL` with `NEWZNAB_API_KEY`, now set the indexers searched. Before, only the Services page's reachability check read the addresses, and nothing read the keys. An address or key saved in Settings → Keys replaces the pair, and a search naming another indexer never gets the key.
+  - `BITMAGNET_URL` takes Bitmagnet's own address, as `.env.example` shows it, as well as its `/graphql` endpoint. Search used to post to the bare address and fail.
 - **AI answers from servers that don't stream.** A server that ignores `stream: true` (some proxies and local servers do) sends its whole answer as JSON, and glogg showed it as an empty answer; now it reads it. Research now falls back to quoted passages, with a notice saying why, instead of showing a blank, when the model:
   - sends an empty answer;
   - sends a page instead of an answer (a proxy's sign-in page, say);

@@ -58,6 +58,19 @@ function writeJson(file: string, data: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
 }
 
+/** Indexer settings that can come from the environment (.env, Docker); Settings → Keys overrides them. */
+const FROM_ENV: [keyof CustomEndpointsConfig, string][] = [
+  ['torznabUrl', 'TORZNAB_URL'],
+  ['torznabApiKey', 'TORZNAB_API_KEY'],
+  ['newznabUrl', 'NEWZNAB_URL'],
+  ['newznabApiKey', 'NEWZNAB_API_KEY'],
+];
+
+/** The settings the environment gives, for a search to fall back on. Never saved: they stay in the environment. */
+export function integrationDefaultsFromEnv(env: NodeJS.ProcessEnv = process.env): CustomEndpointsConfig {
+  return Object.fromEntries(FROM_ENV.filter(([, name]) => env[name]?.trim()).map(([key, name]) => [key, env[name]!.trim()]));
+}
+
 export function loadIntegrationConfig(): CustomEndpointsConfig {
   return { ...DEFAULT_CONFIG, ...readJson<CustomEndpointsConfig>(CONFIG_PATH, {}) };
 }

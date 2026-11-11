@@ -26,6 +26,15 @@ services:
       # Only Coolify's proxy reaches glogg (no published port), so believe the address it forwards.
       - GLOGG_TRUST_PROXY=uniquelocal
       - SEARXNG_URL=http://searxng:8080
+      # Optional, in Coolify's environment variables (Settings → Keys in glogg works too, and wins).
+      - GLOGG_ALLOWED_ORIGINS=${GLOGG_ALLOWED_ORIGINS:-}
+      - TORZNAB_URL=${TORZNAB_URL:-}
+      - TORZNAB_API_KEY=${TORZNAB_API_KEY:-}
+      - NEWZNAB_URL=${NEWZNAB_URL:-}
+      - NEWZNAB_API_KEY=${NEWZNAB_API_KEY:-}
+      - MARGINALIA_API_KEY=${MARGINALIA_API_KEY:-}
+      - STACKEXCHANGE_KEY=${STACKEXCHANGE_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
       - glogg-data:/data
     read_only: true

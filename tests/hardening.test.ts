@@ -164,6 +164,47 @@ describe('the server, as it runs for real', () => {
     }
   });
 
+  it('searches the indexer set in the environment with its key, and never sends that key anywhere else', async () => {
+    const asked: Record<string, string[]> = { home: [], other: [], saved: [] };
+    const indexers = await Promise.all(
+      Object.keys(asked).map(async (name) => {
+        const srv = http.createServer((req, res) => {
+          asked[name].push(req.url || '');
+          res.writeHead(200, { 'Content-Type': 'application/xml' }).end('<rss><channel></channel></rss>');
+        });
+        await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+        return { name, srv, url: `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api` };
+      })
+    );
+    const url = (name: string) => indexers.find((i) => i.name === name)!.url;
+    const search = (config: object) =>
+      rawRequest(port, { method: 'POST', path: '/api/search', headers: json, body: JSON.stringify({ query: 'ubuntu iso', config: { lens: 'p2p-magnet', ...config } }) });
+    process.env.TORZNAB_URL = url('home');
+    process.env.TORZNAB_API_KEY = 'ENV-KEY-5678';
+    try {
+      expect((await search({})).status).toBe(200);
+      expect(asked.home.some((u) => u.includes('ENV-KEY-5678'))).toBe(true);
+
+      // A request that names another indexer doesn't get the key.
+      expect((await search({ endpoints: { torznabUrl: url('other') } })).status).toBe(200);
+      expect(asked.other.length).toBeGreaterThan(0);
+      for (const u of asked.other) expect(u).not.toContain('ENV-KEY');
+
+      // An address saved in Settings replaces the environment's, without taking its key.
+      dm.saveIntegrationConfig({ torznabUrl: url('saved') });
+      asked.home.length = 0;
+      expect((await search({})).status).toBe(200);
+      expect(asked.saved.length).toBeGreaterThan(0);
+      for (const u of asked.saved) expect(u).not.toContain('ENV-KEY');
+      expect(asked.home).toEqual([]);
+    } finally {
+      delete process.env.TORZNAB_URL;
+      delete process.env.TORZNAB_API_KEY;
+      dm.saveIntegrationConfig({ torznabUrl: '' });
+      await Promise.all(indexers.map((i) => new Promise<void>((r) => i.srv.close(() => r()))));
+    }
+  });
+
   it('sends security headers, and no x-powered-by', async () => {
     for (const p of ['/api/health', '/api/plugins', '/opensearch.xml']) {
       const r = await rawRequest(port, { path: p });
