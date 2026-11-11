@@ -938,7 +938,7 @@ async function searchBraveApi(query: string, apiKey: string, uncensoredMode = fa
       url,
       3800,
       { Accept: 'application/json', 'X-Subscription-Token': apiKey },
-      { 403: "Brave didn't accept the API key: check it in Settings → Keys.", 429: "Over the API key's rate limit or quota." }
+      { 403: "Brave didn't accept the API key: check it in Settings → Keys.", 429: "Over the API key's rate limit or quota.", key: apiKey }
     );
     if (res.status === 401 || res.status === 422) throw new SourceUnavailable('refused', "Brave didn't accept the API key: check it in Settings → Keys.");
     if (!res.ok) return [];

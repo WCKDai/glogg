@@ -420,6 +420,19 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(askedOf('api.search.brave.com').map((u) => u.searchParams.get('safesearch'))).toEqual(['off']);
   });
 
+  it("waits out the Brave API's one-second window only that long, and for that key only", async () => {
+    replies['api.search.brave.com'] = (_url, init) =>
+      new Headers(init.headers).get('x-subscription-token') === 'bk-busy'
+        ? new Response('{"type":"ErrorResponse"}', { status: 429, headers: { 'X-RateLimit-Reset': '1, 1419704', 'X-RateLimit-Remaining': '0, 14123' } })
+        : Response.json({ web: { results: [] } });
+    expect(await timing('rust borrow checker', 'brave', { endpoints: { braveApiKey: 'bk-busy' } })).toMatchObject({
+      status: 'refused',
+      note: "Over the API key's rate limit or quota. Tries again in 1 s.",
+    });
+    fs.clearSearchCache();
+    expect(await timing('rust borrow checker', 'brave', { endpoints: { braveApiKey: 'bk-other' } })).toMatchObject({ status: 'empty' });
+  });
+
   it("says when Brave doesn't accept the key", async () => {
     replies['api.search.brave.com'] = () => Response.json({ type: 'ErrorResponse', error: { code: 'SUBSCRIPTION_TOKEN_INVALID', status: 422 } }, { status: 422 });
     expect(await timing('rust borrow checker', 'brave', { endpoints: { braveApiKey: 'bk-wrong' } })).toMatchObject({
