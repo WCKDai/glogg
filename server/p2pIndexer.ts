@@ -3,6 +3,7 @@ import {
   analyzeQueryIntent,
   assessP2PHealth,
   buildMagnetUri,
+  clip,
   CustomEndpointsConfig,
   formatBytes,
   isValidInfoHash,
@@ -300,7 +301,7 @@ export async function searchInternetArchiveTorrents(query: string): Promise<RawS
         title: `[Archive BT] ${doc.title}`,
         url: detailsUrl,
         snippet:
-          cleanDesc.slice(0, 240) ||
+          clip(cleanDesc, 240) ||
           `Verified Internet Archive BitTorrent Swarm (${doc.mediatype || 'archive'}) · ${formatBytes(
             doc.item_size
           )} · ${doc.downloads ?? 0} archival downloads.`,

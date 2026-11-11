@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { analyzeQueryIntent, RawSearchResult } from '../src/core/index.js';
+import { analyzeQueryIntent, clip, htmlToText, RawSearchResult } from '../src/core/index.js';
 
 function distillSearchQuery(query: string): string {
   const kw = analyzeQueryIntent(query).keywordQuery.trim();
@@ -33,16 +33,7 @@ async function fetchWithTimeout(
 const FOURCHAN_NSFW_BOARDS = new Set('aco b bant d e f gif h hc hm hr i ic pol r r9k s s4s soc t trash u wg y'.split(' '));
 
 function stripHtmlTags(raw: string): string {
-  return raw
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&gt;/g, '>')
-    .replace(/&lt;/g, '<')
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return htmlToText(raw);
 }
 
 /**
@@ -112,7 +103,7 @@ export async function searchFourChanCatalogs(
             matches.push({
               title: `[/${board}/ #${thread.no}] ${title}`,
               url: `https://boards.4chan.org/${board}/thread/${thread.no}`,
-              snippet: `${com.slice(0, 260)} · (${thread.replies ?? 0} replies, ${thread.images ?? 0} images on /${board}/)`,
+              snippet: `${clip(com, 260)} · (${thread.replies ?? 0} replies, ${thread.images ?? 0} images on /${board}/)`,
               source: 'chanboards',
               publishedAt: thread.time
                 ? new Date(thread.time * 1000).toISOString()
@@ -181,7 +172,7 @@ export async function searchChanArchives(
         return {
           title: `[Desuarchive /${board}/] ${title}`,
           url: `https://desuarchive.org/${board}/thread/${threadNum}/#${p.num || threadNum}`,
-          snippet: cleanComment.slice(0, 260) || `Archived /${board}/ imageboard post #${p.num}`,
+          snippet: clip(cleanComment, 260) || `Archived /${board}/ imageboard post #${p.num}`,
           source: 'chanboards' as const,
           publishedAt: p.timestamp
             ? new Date(p.timestamp * 1000).toISOString()

@@ -1,7 +1,9 @@
 import {
   analyzeQueryIntent,
+  clip,
   computeQueryRelevance,
   CustomEndpointsConfig,
+  htmlToText,
   RawSearchResult,
 } from '../src/core/index.js';
 
@@ -81,7 +83,7 @@ export async function searchAtProtocol(
             id: `atproto-post-${post.cid}`,
             title,
             url: targetUrl,
-            snippet: `${text.slice(0, 240)} · AT-URI: ${post.uri}`,
+            snippet: `${clip(text, 240)} · AT-URI: ${post.uri}`,
             source: 'atproto',
             publishedAt: post.record?.createdAt,
             author: `@${post.author.handle}`,
@@ -213,10 +215,7 @@ export async function searchActivityPubMastodon(
             // A status may have no url of its own (a remote post, say): link its uri, or leave it out.
             .filter((st) => isWebLink(st.url) || isWebLink(st.uri))
             .map((st) => {
-              const plainContent = st.content
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
+              const plainContent = htmlToText(st.content);
               const handle = st.account.acct.includes('@')
                 ? `@${st.account.acct}`
                 : `@${st.account.acct}@${inst}`;
@@ -231,7 +230,7 @@ export async function searchActivityPubMastodon(
                     plainContent.length > 76 ? '…' : ''
                   }`,
                 url: isWebLink(cardUrl) ? cardUrl : ownUrl,
-                snippet: `${plainContent.slice(0, 240)} · ActivityPub Actor: ${handle} (${
+                snippet: `${clip(plainContent, 240)} · ActivityPub Actor: ${handle} (${
                   (st.favourites_count ?? 0) + (st.reblogs_count ?? 0)
                 } boosts/favs)`,
                 source: 'activitypub' as const,
@@ -327,7 +326,7 @@ export async function searchMatrixPublicRooms(
         title: `[Matrix Room ${alias}] ${room.name || alias}`,
         url: matrixToUrl,
         snippet: `${
-          room.topic?.replace(/\s+/g, ' ').slice(0, 230) || 'Public federated Matrix room'
+          clip(room.topic?.replace(/\s+/g, ' ').trim() ?? '', 230) || 'Public federated Matrix room'
         } · ${room.num_joined_members ?? 0} members · Room ID: ${room.room_id}`,
         source: 'matrix' as const,
         points: room.num_joined_members,

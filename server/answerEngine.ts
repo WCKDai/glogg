@@ -1,8 +1,10 @@
 import * as cheerio from 'cheerio';
 import {
   analyzeQueryIntent,
+  clip,
   computeQueryRelevance,
   evaluateInstantComputation,
+  htmlToText,
   InstantAnswerPayload,
   InstantCitation,
   QueryAnalysis,
@@ -267,14 +269,11 @@ async function fetchStackExchangeTopAnswer(
     }
   });
 
-  const answerText = paragraphs.join(' ').slice(0, 620);
+  const answerText = clip(paragraphs.join(' '), 620);
   if (answerText.length < 35) return null;
 
   return {
-    questionTitle: topQuestion.title
-      .replace(/&#39;/g, "'")
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&'),
+    questionTitle: htmlToText(topQuestion.title),
     questionUrl: topQuestion.link,
     siteName: primarySite === 'unix' ? 'Unix & Linux StackExchange' : 'Stack Overflow',
     answerText,
@@ -309,12 +308,14 @@ function buildExtractiveTakeaways(
       .replace(/\s+/g, ' ')
       .trim();
 
-    // A link, a vote count or a block of code says nothing about the question.
+    // A link, a vote count, a block of code or a mailing-list header ("On Thu, …, Ada <ada at example.org> wrote: >> …")
+    // says nothing about the question.
     const letters = (cleanSnippet.match(/\p{L}/gu) || []).length;
     if (
       cleanSnippet.length < 35 ||
       (cleanSnippet.match(/\p{L}{3,}/gu) || []).length < 6 ||
       /^[\d,]+ (points?|answers?|comments?)\b/i.test(cleanSnippet) ||
+      /\bOn .{6,120}\bwrote:/.test(cleanSnippet) ||
       letters / cleanSnippet.replace(/\s/g, '').length < 0.6
     )
       continue;
@@ -329,7 +330,7 @@ function buildExtractiveTakeaways(
     });
 
     takeaways.push({
-      text: cleanSnippet.slice(0, 260),
+      text: clip(cleanSnippet, 260),
       citationIndex: citationIdx,
     });
 

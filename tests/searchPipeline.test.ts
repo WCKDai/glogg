@@ -563,3 +563,31 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(fs.isSourceResting('slowpoke')).toBe(false);
   });
 });
+
+describe('upstream text in results', () => {
+  beforeEach(() => {
+    fs.clearSearchCache();
+    fs.resetSourceHealth();
+    answers.clearInstantAnswerCache();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads as text: Stack Exchange titles and Hacker News posts come with their entities decoded', async () => {
+    vi.stubGlobal('fetch', async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.stackexchange.com' && !url.searchParams.has('accepted')) {
+        return Response.json({ items: [{ question_id: 7, title: 'How do I sort a Vec&lt;String&gt; by length? It&#39;s &quot;borrowed&quot;', link: 'https://stackoverflow.com/questions/7/sort-vec', score: 3, answer_count: 2, tags: ['rust'] }] });
+      }
+      if (url.hostname === 'hn.algolia.com') {
+        return Response.json({
+          hits: [{ objectID: '9', title: 'Ask HN: Sorting a Rust Vec of strings', story_text: 'I read (https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;std&#x2F;vec) and it&#x27;s still unclear<p>Any ideas?', points: 5, num_comments: 2 }],
+        });
+      }
+      return new Response('', { status: 404 });
+    });
+    const res = await fs.executeFederatedSearch('sort rust vec of strings by length', { lens: 'all' });
+    const all = [...res.results, ...res.filteredSlop];
+    expect(all.find((r) => r.url === 'https://stackoverflow.com/questions/7/sort-vec')?.title).toBe('How do I sort a Vec<String> by length? It\'s "borrowed"');
+    expect(all.find((r) => r.url === 'https://news.ycombinator.com/item?id=9')?.snippet).toBe("I read (https://doc.rust-lang.org/std/vec) and it's still unclear Any ideas?");
+  });
+});

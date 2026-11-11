@@ -7,7 +7,7 @@
  * tested offline; the I/O lives in server/research.ts.
  */
 import { analyzeQueryIntent, stemToken } from './queryIntelligence.js';
-import { normalizeQuotes } from './text.js';
+import { clip, normalizeQuotes } from './text.js';
 import type { CleanedContentSection, InstantAnswerPayload, RankedSearchResponse, SearchFilterConfig } from './types.js';
 
 export type ResearchDepth = 'quick' | 'deep';
@@ -81,14 +81,6 @@ export function hostOf(url: string): string {
   } catch {
     return '';
   }
-}
-
-export function clip(text: string, max: number): string {
-  const t = text.trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max);
-  const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('\n'));
-  return `${(lastStop > max * 0.6 ? cut.slice(0, lastStop + 1) : cut).trim()}…`;
 }
 
 function tokenize(text: string): string[] {

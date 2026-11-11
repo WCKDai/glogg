@@ -13,6 +13,8 @@ import {
   SearchFilterConfig,
   SearchLensId,
   SourceConnectorId,
+  clip,
+  htmlToText,
   isSearchLens,
   wellFormed,
 } from '../src/core/index.js';
@@ -570,7 +572,7 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
           title: hit.title,
           url: hnThreadUrl,
           snippet:
-            hit.story_text?.replace(/<[^>]+>/g, ' ').slice(0, 260) ||
+            clip(htmlToText(hit.story_text ?? ''), 260) ||
             `${count(hit.points ?? 0, 'point')} · ${count(hit.num_comments ?? 0, 'comment')} on Hacker News`,
           source: 'hn',
           publishedAt: hit.created_at,
@@ -608,11 +610,7 @@ async function searchWikipedia(rawQuery: string, kwQuery: string, entitySubject:
     };
 
     const mapped = (data.query?.search ?? []).map((item) => {
-      const cleanSnippet = item.snippet
-        .replace(/<[^>]+>/g, '')
-        .replace(/&quot;/g, '"')
-        .replace(/&#039;/g, "'")
-        .replace(/&amp;/g, '&');
+      const cleanSnippet = htmlToText(item.snippet);
       const wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(
         item.title.replace(/\s+/g, '_')
       )}`;
@@ -692,10 +690,7 @@ async function searchStackExchange(
 
           return (data.items ?? []).map((item) => ({
             id: `se-${site}-${item.question_id}`,
-            title: item.title
-              .replace(/&#39;/g, "'")
-              .replace(/&quot;/g, '"')
-              .replace(/&amp;/g, '&'),
+            title: htmlToText(item.title),
             url: item.link,
             snippet: [count(item.answer_count ?? 0, 'answer'), `score ${item.score ?? 0}`, (item.tags ?? []).join(', ')].filter(Boolean).join(' · '),
             source: 'stackexchange' as const,
@@ -751,7 +746,7 @@ async function searchArxiv(rawQuery: string, kwQuery: string): Promise<RawSearch
           id: `arxiv-${idUrl}`,
           title: `[arXiv Paper] ${title}`,
           url: idUrl.replace(/^http:\/\//i, 'https://'),
-          snippet: summary.slice(0, 320),
+          snippet: clip(summary, 320),
           source: 'arxiv',
           publishedAt: published || undefined,
           author: author || undefined,
@@ -922,11 +917,6 @@ async function searchBraveWebHtml(
   }
 }
 
-/** Brave's highlights (<strong>) and entities, out of an API title or description. */
-function plainText(html: string): string {
-  return cheerio.load(`<p>${html}</p>`)('p').text().replace(/\s+/g, ' ').trim();
-}
-
 /**
  * 12c. Brave Search API, with your key (Settings → Keys): the same index as
  * its search page, which mostly answers a server with a captcha.
@@ -949,12 +939,13 @@ async function searchBraveApi(query: string, apiKey: string, uncensoredMode = fa
     const found = Array.isArray(data?.web?.results) ? data.web.results : [];
     for (const [idx, r] of found.entries()) {
       if (typeof r?.url !== 'string' || !/^https?:\/\//i.test(r.url)) continue;
-      const title = plainText(r.title || '') || r.url;
+      // Brave marks the words searched for with <strong>.
+      const title = htmlToText(r.title || '') || r.url;
       results.push({
         id: `brave-${idx}-${r.url}`,
         title,
         url: r.url,
-        snippet: plainText(r.description || '') || title,
+        snippet: htmlToText(r.description || '') || title,
         source: 'web',
         publishedAt: typeof r.page_age === 'string' && !Number.isNaN(Date.parse(r.page_age)) ? r.page_age : undefined,
       });
@@ -1046,13 +1037,13 @@ async function searchArchiveDeepTexts(rawQuery: string, kwQuery: string): Promis
       .filter((d) => d.identifier && d.title)
       .map((d) => {
         const rawDesc = Array.isArray(d.description) ? d.description[0] : d.description || '';
-        const cleanDesc = String(rawDesc).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const cleanDesc = htmlToText(String(rawDesc));
         return {
           id: `archive-deep-${d.identifier}`,
           title: `[Deep Archive] ${d.title}`,
           url: `https://archive.org/details/${encodeURIComponent(d.identifier)}`,
           snippet:
-            cleanDesc.slice(0, 260) ||
+            clip(cleanDesc, 260) ||
             `Internet Archive primary preservation record (${d.mediatype || 'texts'}, ${(
               d.downloads ?? 0
             ).toLocaleString()} downloads).`,

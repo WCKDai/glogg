@@ -843,9 +843,9 @@ describe('Mastodon', () => {
     expect(results).toHaveLength(2);
     expect(results[0]).toEqual({
       id: 'ap-mastodon.social-111',
-      title: '[ActivityPub @alice@mastodon.social] My # sourdough starter finally doubled overnight',
+      title: '[ActivityPub @alice@mastodon.social] My #sourdough starter finally doubled overnight',
       url: 'https://mastodon.social/@alice/111',
-      snippet: 'My # sourdough starter finally doubled overnight · ActivityPub Actor: @alice@mastodon.social (15 boosts/favs)',
+      snippet: 'My #sourdough starter finally doubled overnight · ActivityPub Actor: @alice@mastodon.social (15 boosts/favs)',
       source: 'activitypub',
       publishedAt: '2026-11-02T09:00:00.000Z',
       author: '@alice@mastodon.social',

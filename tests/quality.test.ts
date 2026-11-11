@@ -150,6 +150,56 @@ describe('answers quote prose, not plumbing', () => {
     expect(quoted).toContain('Feed a sourdough starter twice a day');
     expect(quoted).not.toMatch(/points|answers ·|\/\/ \|/);
   });
+
+  it('skips mailing-list headers, and ends each quote at a sentence or a word, never mid-word', async () => {
+    const { buildInstantAnswer } = await import('../server/answerEngine.js');
+    const hit = (n: number, snippet: string): ScoredSearchResult =>
+      ({ id: `r${n}`, title: `Result ${n}`, url: `https://site${n}.example/page`, domain: `site${n}.example`, rootDomain: `site${n}.example`, snippet, source: 'web', slopScore: 5, relevanceScore: 80 }) as unknown as ScoredSearchResult;
+    const long = `${'A ZFS scrub reads every block in the pool and checks it against its checksum, '.repeat(3)}repairing what it can from a redundant copy`;
+    const answer = await buildInstantAnswer(
+      'zfs scrub schedule',
+      [
+        hit(1, 'On Thu, Feb 24, 2011 at 21:00, Adam Vande More <amvandemore at gmail.com> wrote: >> Wow! What does scrub do that it slows the zfs pool almost to a halt? >>> I had to schedule it'),
+        hit(2, long),
+        hit(3, 'Schedule a zfs scrub once a month for consumer disks, and every week for cheaper ones. Use a systemd timer or cron for it.'),
+      ],
+      Promise.resolve([null, null, null] as never)
+    );
+    const quotes = [answer!.directAnswer, ...(answer!.takeaways ?? []).map((t) => t.text)];
+    expect(quotes.join(' | ')).not.toContain('wrote:');
+    for (const q of quotes) {
+      expect(q.length).toBeLessThanOrEqual(261);
+      // Ends a sentence, or a whole word followed by "…".
+      expect(q).toMatch(/[.!?]$|\p{L}…$/u);
+    }
+    // The long one is cut between two words of the original.
+    const kept = quotes.find((q) => q.startsWith('A ZFS scrub reads'))!.replace(/…$/, '');
+    expect(long.startsWith(kept)).toBe(true);
+    expect(long[kept.length]).toMatch(/[ ,]/);
+  });
+});
+
+describe('upstream HTML, as text', () => {
+  it('drops tags and decodes every entity, keeping inline words whole', async () => {
+    const { htmlToText } = await import('../src/core/index.js');
+    expect(htmlToText('Just installed it from (https:&#x2F;&#x2F;ubuntu.com&#x2F;download) and it&#x27;s fine<p>Second &amp; last')).toBe(
+      "Just installed it from (https://ubuntu.com/download) and it's fine Second & last"
+    );
+    expect(htmlToText('<span class="searchmatch">Rust</span>&#039;s &quot;borrow&quot; checker')).toBe('Rust\'s "borrow" checker');
+    expect(htmlToText('How do I sort a Vec&lt;String&gt; by length?')).toBe('How do I sort a Vec<String> by length?');
+    expect(htmlToText('https://exa<wbr>mple.com/a<br>next line')).toBe('https://example.com/a next line');
+    // Escaped markup is text, and stays text.
+    expect(htmlToText('&lt;script&gt;alert(1)&lt;/script&gt;')).toBe('<script>alert(1)</script>');
+    expect(htmlToText('&bogus; &#0; &#xD800; &#x1F980;')).toBe('&bogus; \ufffd \ufffd 🦀');
+  });
+
+  it('clips at a sentence or a word, never mid-word or mid-emoji', async () => {
+    const { clip } = await import('../src/core/index.js');
+    expect(clip('Short enough.', 40)).toBe('Short enough.');
+    expect(clip('One sentence ends here. And another one goes on for quite a while after it', 40)).toBe('One sentence ends here.');
+    expect(clip('To disable tunneled clear text passwords set it to no', 37)).toBe('To disable tunneled clear text…');
+    expect(clip(`${'x'.repeat(30)}🦀🦀`, 31)).toBe(`${'x'.repeat(30)}…`);
+  });
 });
 
 describe('interface details', () => {
