@@ -30,3 +30,15 @@ globalThis.fetch = function guardedFetch(input: string | URL | Request, init?: R
   }
   return realFetch(input, init);
 } as typeof fetch;
+
+// jsdom reports CSS it can't parse straight to the terminal, and since vitest 4 nothing quiets it: the extension's
+// hostile-page tests feed it junk <style> on purpose, 67 stack traces a run. That one complaint is dropped here;
+// anything else jsdom reports still shows. (`_virtualConsole` is jsdom's own handle on the window's console.)
+const jsdomConsole = (globalThis as { window?: { _virtualConsole?: NodeJS.EventEmitter } }).window?._virtualConsole;
+if (jsdomConsole) {
+  const forward = jsdomConsole.listeners('jsdomError') as ((e: Error) => void)[];
+  jsdomConsole.removeAllListeners('jsdomError');
+  jsdomConsole.on('jsdomError', (e: Error) => {
+    if (!e.message.startsWith('Could not parse CSS stylesheet')) for (const f of forward) f(e);
+  });
+}
