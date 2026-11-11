@@ -341,11 +341,8 @@ async function searchWiby(rawQuery: string, kwQuery: string): Promise<RawSearchR
 /**
  * 4. SearXNG Meta-Search Connector (Local SearXNG node or user-configured SearXNG instance)
  */
-async function searchSearxngNode(
-  query: string,
-  baseUrl = process.env.SEARXNG_URL || 'http://localhost:8080',
-  uncensoredMode = false
-): Promise<RawSearchResult[]> {
+async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode = false): Promise<RawSearchResult[]> {
+  const baseUrl = setUrl || process.env.SEARXNG_URL || 'http://localhost:8080';
   // Relative to the address, so a SearXNG under a path (https://example.com/searx) is asked there.
   const u = new URL('search', `${baseUrl.replace(/\/+$/, '')}/`);
   try {
@@ -378,7 +375,9 @@ async function searchSearxngNode(
     }));
   } catch (e) {
     // Most installs don't run one at the default address (or Docker Compose's, without its searxng profile).
-    if (nothingListening(e)) throw new SourceUnavailable('unset', `Nothing answers at ${u.host}.`);
+    // Only the built-in address is named: anyone may read a search's notes through the public GET /api/search,
+    // and an address set in Settings or SEARXNG_URL can be a machine on your network.
+    if (nothingListening(e)) throw new SourceUnavailable('unset', setUrl || process.env.SEARXNG_URL ? 'Nothing answers at the address set for it.' : `Nothing answers at ${u.host}.`);
     return unlessRefused(e);
   }
 }

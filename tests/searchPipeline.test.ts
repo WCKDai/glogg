@@ -429,6 +429,14 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(await timing('rust borrow checker', 'searxng')).toMatchObject({ status: 'unset', note: 'Nothing answers at localhost:8080.' });
   });
 
+  it("doesn't name a SearXNG address set in Settings, which anyone calling the public search could read", async () => {
+    const missing = Object.assign(new Error('getaddrinfo ENOTFOUND searx.home.lan'), { code: 'ENOTFOUND' });
+    replies['searx.home.lan'] = () => Promise.reject(new TypeError('fetch failed', { cause: missing }));
+    const t = await timing('rust borrow checker', 'searxng', { endpoints: { searxngUrl: 'http://searx.home.lan:8888' } });
+    expect(t).toMatchObject({ status: 'unset', note: 'Nothing answers at the address set for it.' });
+    expect(JSON.stringify(t)).not.toContain('home.lan');
+  });
+
   it('asks a SearXNG that lives under a path at that path', async () => {
     replies['search.example'] = () => Response.json({ results: [{ url: 'https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html', title: 'References and Borrowing', content: 'How the borrow checker works' }] });
     const t = await timing('rust borrow checker', 'searxng', { endpoints: { searxngUrl: 'https://search.example/searx/' } });

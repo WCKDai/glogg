@@ -18,7 +18,7 @@ A live check of every source on 11 November 2026 found five that returned nothin
   Until then glogg doesn't ask it: DuckDuckGo for a minute after a bot check, Stack Exchange until its quota comes back (at most 30 minutes), GitHub until its window resets. On the network checked, Brave refused every search from glogg's server, and DuckDuckGo refused after one or two searches in a row.
 - **GDELT is asked at most once every 5 seconds,** as it requests. A search sooner than that skips GDELT and says so.
 - **SearXNG:**
-  - When nothing is running at its address, it shows as "not set up", names the address, and isn't counted among the sources asked.
+  - When nothing is running at its address, it shows as "not set up" and isn't counted among the sources asked. The note names the built-in address (`localhost:8080`), never one set in Settings or `SEARXNG_URL`: anyone may read a search's notes through the public `GET /api/search`, and that address can be a machine on your network.
   - A SearXNG with JSON turned off says how to turn it on.
   - A SearXNG under a path (`https://example.com/searx`) is now asked there, not at the root of the domain.
 - "None of the sources answered" now also shows when every source turned glogg away.
