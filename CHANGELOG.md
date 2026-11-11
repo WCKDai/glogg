@@ -15,7 +15,7 @@ A live check of every source on 11 November 2026 found five that returned nothin
   - GitHub allows only 10 searches a minute;
   - any other source answers `403`.
 
-  Until then glogg doesn't ask it: DuckDuckGo for a minute after a bot check, Stack Exchange until its quota comes back (at most 30 minutes), GitHub until its window resets. On the network checked, Brave refused every search from glogg's server, and DuckDuckGo refused after one or two searches in a row.
+  Until then glogg doesn't ask it: DuckDuckGo for a minute after a bot check, Stack Exchange until its quota comes back (at most 30 minutes), GitHub until its window resets, anything else for as long as it says (`Retry-After`, or `x-ratelimit-reset` as GitHub and Brave send it). The wait applies only to the key that was refused, so a Marginalia or Stack Exchange key of your own is asked at once. On the network checked, Brave refused every search from glogg's server, and DuckDuckGo refused after one or two searches in a row.
 - **GDELT is asked at most once every 5 seconds,** as it requests. A search sooner than that skips GDELT and says so.
 - **SearXNG:**
   - When nothing is running at its address, it shows as "not set up" and isn't counted among the sources asked. The note names the built-in address (`localhost:8080`), never one set in Settings or `SEARXNG_URL`: anyone may read a search's notes through the public `GET /api/search`, and that address can be a machine on your network.

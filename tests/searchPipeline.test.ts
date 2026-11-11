@@ -340,7 +340,7 @@ describe('federated search with stubbed upstreams', () => {
 });
 
 describe('sources that turn glogg away, or are not set up', () => {
-  let replies: Record<string, (url: URL) => Response | Promise<Response>> = {};
+  let replies: Record<string, (url: URL, init: RequestInit) => Response | Promise<Response>> = {};
   const asked: URL[] = [];
   const askedOf = (host: string) => asked.filter((u) => u.hostname === host);
 
@@ -350,10 +350,10 @@ describe('sources that turn glogg away, or are not set up', () => {
     fs.clearSearchCache();
     fs.resetSourceHealth();
     answers.clearInstantAnswerCache();
-    vi.stubGlobal('fetch', async (input: string | URL) => {
+    vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
       const url = new URL(String(input));
       asked.push(url);
-      return replies[url.hostname]?.(url) ?? new Response('', { status: 404 });
+      return replies[url.hostname]?.(url, init) ?? new Response('', { status: 404 });
     });
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -375,12 +375,13 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(await timing('rust borrow checker', 'brave')).toMatchObject({ status: 'refused', note: 'Asked for a captcha. Tries again in 5 min.' });
   });
 
-  it("says when Marginalia's shared key is over its limit, which a key of your own avoids", async () => {
+  it("says when Marginalia's shared key is over its limit, and a key of your own is asked at once", async () => {
     replies['api2.marginalia-search.com'] = () => new Response('QPM Limit Exceeded', { status: 429 });
     expect((await timing('rust borrow checker', 'marginalia'))?.note).toBe('The shared key is over its limit: add your own in Settings → Keys. Tries again in 5 min.');
-    fs.resetSourceHealth();
+    // The rest is the shared key's: yours goes out right away (and here is refused on its own account).
     fs.clearSearchCache();
     expect((await timing('rust borrow checker', 'marginalia', { endpoints: { marginaliaApiKey: 'mine' } }))?.note).toBe('Too many searches from this glogg. Tries again in 5 min.');
+    expect(askedOf('api2.marginalia-search.com')).toHaveLength(2);
   });
 
   it('says when Stack Exchange is out of requests for the day, and stops asking it for a while', async () => {
@@ -398,16 +399,48 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(searches()).toHaveLength(before);
   });
 
+  it('words a Stack Exchange throttle by the key actually sent, STACKEXCHANGE_KEY included', async () => {
+    replies['api.stackexchange.com'] = () =>
+      Response.json({ error_id: 502, error_name: 'throttle_violation', error_message: 'too many requests from this IP, more requests available in 600 seconds' }, { status: 400 });
+    process.env.STACKEXCHANGE_KEY = 'env-key';
+    try {
+      expect((await timing('how to undo a git commit', 'se'))?.note).toBe('Out of requests for today. Tries again in 10 min.');
+    } finally {
+      delete process.env.STACKEXCHANGE_KEY;
+    }
+  });
+
+  it('takes a search for "challenge-form" at its word: only the bot-check page itself counts', async () => {
+    replies['html.duckduckgo.com'] = () =>
+      new Response(
+        '<form><input name="q" value="cloudflare challenge-form anomaly-modal"></form><div class="result"><a class="result__a" href="https://developers.cloudflare.com/challenges/">Cloudflare challenges</a><a class="result__snippet">How a challenge form works</a></div>',
+        { status: 200, headers: { 'Content-Type': 'text/html' } }
+      );
+    expect(await timing('cloudflare challenge-form anomaly-modal', 'ddg')).toMatchObject({ status: 'ok', count: 1 });
+  });
+
+  it("says a SearXNG address that isn't a web address is not set up, instead of failing every search", async () => {
+    expect(await timing('rust borrow checker', 'searxng', { endpoints: { searxngUrl: 'searxng:8080' } })).toMatchObject({
+      status: 'unset',
+      note: "The address set for it isn't a web address (http://…).",
+    });
+  });
+
   it("waits out GitHub's rate-limit window instead of asking again", async () => {
     replies['api.github.com'] = () =>
       new Response('{"message":"API rate limit exceeded"}', {
         status: 403,
         headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 50) },
       });
-    expect(await timing('rust borrow checker', 'github')).toMatchObject({ status: 'refused', note: 'Allows 10 searches a minute without signing in. Tries again in 1 min.' });
+    expect(await timing('rust borrow checker', 'github')).toMatchObject({ status: 'refused', note: expect.stringMatching(/^Allows 10 searches a minute without signing in\. Tries again in (49|50) s\.$/) });
     fs.clearSearchCache();
     await timing('tokio runtime internals', 'github');
     expect(askedOf('api.github.com')).toHaveLength(1);
+  });
+
+  it("reads a list of windows in x-ratelimit-reset (Brave's), and waits only as long as the empty one", async () => {
+    replies['hn.algolia.com'] = () => new Response('', { status: 429, headers: { 'x-ratelimit-reset': '1, 1419704', 'x-ratelimit-remaining': '0, 14123' } });
+    expect(await timing('rust borrow checker', 'hn')).toMatchObject({ status: 'refused', note: 'Too many searches from this glogg. Tries again in 1 s.' });
   });
 
   it('counts a 403 from any source as turning glogg away', async () => {
@@ -455,8 +488,22 @@ describe('sources that turn glogg away, or are not set up', () => {
   it("doesn't put a source that refused to rest the way a hang does", async () => {
     const timings: Record<string, import('../server/federatedSearch.js').SourceTiming> = {};
     const refuse = () => Promise.reject(new fs.SourceUnavailable('refused', 'Asked for a captcha.'));
-    for (let i = 0; i < 3; i++) await fs.gatherSources([{ key: 'picky', core: true, run: refuse }], { timings, onSettle: fs.recordSourceOutcome });
+    const told: (boolean | undefined)[] = [];
+    for (let i = 0; i < 3; i++) {
+      await fs.gatherSources([{ key: 'picky', core: true, run: refuse }], {
+        timings,
+        onSettle: (key, ms, count, failed, refused) => {
+          told.push(refused);
+          fs.recordSourceOutcome(key, ms, count, failed, refused);
+        },
+      });
+    }
     expect(timings.picky).toMatchObject({ status: 'refused', count: 0, note: 'Asked for a captcha.' });
+    expect(told).toEqual([true, true, true]);
     expect(fs.isSourceResting('picky')).toBe(false);
+    // Nor a slow one: a bot-check page that took 3.8 s to arrive is still a refusal, not a hang.
+    fs.recordSourceOutcome('slowpoke', 3800, 0, false, true);
+    fs.recordSourceOutcome('slowpoke', 3800, 0, false, true);
+    expect(fs.isSourceResting('slowpoke')).toBe(false);
   });
 });

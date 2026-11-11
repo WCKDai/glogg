@@ -70,9 +70,10 @@ function nothingListening(e: unknown, depth = 0): boolean {
 
 /**
  * Hosts that turned glogg away (429 Too Many Requests, a bot check), until
- * when they're left alone, and why: as long as Retry-After says, otherwise
- * five minutes (30 s to 30 min). Asking again sooner only gets refused and
- * holds a connection.
+ * when they're left alone, and why: as long as the host says, otherwise five
+ * minutes (at most 30). Asking again sooner only gets refused and holds a
+ * connection. Kept per key (`host|key`): a host that refused the shared key
+ * still answers yours.
  */
 const rateLimited = new Map<string, { until: number; why: string }>();
 
@@ -84,28 +85,36 @@ const MIN_GAP: Record<string, { ms: number; why: string }> = {
 const lastAsked = new Map<string, number>();
 
 function restAfterRateLimit(res: Response): number {
-  const retryAfter = res.headers.get('retry-after');
-  // GitHub says when its window resets instead, in Unix seconds.
-  const reset = Number(res.headers.get('x-ratelimit-reset'));
-  const seconds =
-    retryAfter && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter) : retryAfter ? (Date.parse(retryAfter) - Date.now()) / 1000 : reset > 0 ? reset - Date.now() / 1000 : NaN;
-  return Math.min(30 * 60_000, Math.max(30_000, Number.isFinite(seconds) ? seconds * 1000 : 5 * 60_000));
+  const retryAfter = res.headers.get('retry-after')?.trim();
+  let seconds = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) : (Date.parse(retryAfter) - Date.now()) / 1000) : NaN;
+  if (!Number.isFinite(seconds)) {
+    // x-ratelimit-reset: GitHub's is a Unix time; Brave's lists the seconds left in each window ("1, 1419704"),
+    // and the window to wait for is the one with nothing left (x-ratelimit-remaining "0, 14123").
+    const resets = (res.headers.get('x-ratelimit-reset') || '').split(',').map((v) => Number(v.trim()));
+    const left = (res.headers.get('x-ratelimit-remaining') || '').split(',').map((v) => Number(v.trim()));
+    const reset = resets[Math.max(0, left.indexOf(0))];
+    if (reset > 0) seconds = reset > 1e9 ? reset - Date.now() / 1000 : reset;
+  }
+  return Math.min(30 * 60_000, Math.max(1000, Number.isFinite(seconds) ? seconds * 1000 : 5 * 60_000));
 }
 
-/** Leave a host alone for a while, and the refusal to show meanwhile: why, and when glogg asks again. */
-function restHost(host: string, ms: number, why: string): SourceUnavailable {
-  rateLimited.set(host, { until: Date.now() + ms, why });
-  return restingRefusal(host);
+/** Leave a host alone for a while (for this key), and the refusal to show meanwhile: why, and when glogg asks again. */
+function restHost(host: string, ms: number, why: string, key = ''): SourceUnavailable {
+  rateLimited.set(`${host}|${key}`, { until: Date.now() + ms, why });
+  return restingRefusal(host, key);
 }
 
-function restingRefusal(host: string): SourceUnavailable {
-  const rest = rateLimited.get(host)!;
-  const minutes = Math.max(1, Math.round((rest.until - Date.now()) / 60_000));
-  return new SourceUnavailable('refused', `${rest.why} Tries again in ${minutes} min.`);
+function restingRefusal(host: string, key = ''): SourceUnavailable {
+  const rest = rateLimited.get(`${host}|${key}`)!;
+  const seconds = Math.max(1, Math.ceil((rest.until - Date.now()) / 1000));
+  return new SourceUnavailable('refused', `${rest.why} Tries again in ${seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`}.`);
 }
 
-/** What a refusal means, when a source says more than the status code does. */
-type Refusals = { 403?: string; 429?: string };
+/**
+ * What a refusal means, when a source says more than the status code does, and
+ * which key asked (`key`), so a rest for one key doesn't hold back another.
+ */
+type Refusals = { 403?: string; 429?: string; key?: string };
 
 /**
  * A GET with a deadline. A host that refuses (429, or GitHub's 403 with no
@@ -119,7 +128,8 @@ async function fetchWithTimeout(
   refusals: Refusals = {}
 ): Promise<Response> {
   const host = new URL(url).hostname;
-  if ((rateLimited.get(host)?.until ?? 0) > Date.now()) throw restingRefusal(host);
+  const key = refusals.key ?? '';
+  if ((rateLimited.get(`${host}|${key}`)?.until ?? 0) > Date.now()) throw restingRefusal(host, key);
   const gap = MIN_GAP[host];
   if (gap) {
     if (Date.now() - (lastAsked.get(host) ?? 0) < gap.ms) throw new SourceUnavailable('refused', gap.why);
@@ -141,7 +151,7 @@ async function fetchWithTimeout(
       // Unread, the refusal page would hold its connection.
       void res.body?.cancel().catch(() => undefined);
       if (res.status === 429 || res.headers.get('x-ratelimit-remaining') === '0') {
-        throw restHost(host, restAfterRateLimit(res), refusals[429] ?? 'Too many searches from this glogg.');
+        throw restHost(host, restAfterRateLimit(res), refusals[429] ?? 'Too many searches from this glogg.', key);
       }
       throw new SourceUnavailable('refused', refusals[403] ?? 'Turned glogg away (HTTP 403).');
     }
@@ -210,7 +220,7 @@ async function searchMarginalia(rawQuery: string, kwQuery: string, apiKey?: stri
     // "public" is a shared, rate-limited key: a free personal key goes in Settings → Keys.
     const key = apiKey || process.env.MARGINALIA_API_KEY || 'public';
     const url = `https://api2.marginalia-search.com/search?query=${encodeURIComponent(kwQuery || rawQuery)}&count=10`;
-    const res = await fetchWithTimeout(url, 3800, { 'API-Key': key }, key === 'public' ? { 429: 'The shared key is over its limit: add your own in Settings → Keys.' } : {});
+    const res = await fetchWithTimeout(url, 3800, { 'API-Key': key }, key === 'public' ? { 429: 'The shared key is over its limit: add your own in Settings → Keys.', key } : { key });
     if (!res.ok) return [];
     const data = (await res.json()) as {
       results?: Array<{
@@ -343,8 +353,14 @@ async function searchWiby(rawQuery: string, kwQuery: string): Promise<RawSearchR
  */
 async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode = false): Promise<RawSearchResult[]> {
   const baseUrl = setUrl || process.env.SEARXNG_URL || 'http://localhost:8080';
-  // Relative to the address, so a SearXNG under a path (https://example.com/searx) is asked there.
-  const u = new URL('search', `${baseUrl.replace(/\/+$/, '')}/`);
+  let u: URL;
+  try {
+    // Relative to the address, so a SearXNG under a path (https://example.com/searx) is asked there.
+    u = new URL('search', `${baseUrl.replace(/\/+$/, '')}/`);
+    if (!/^https?:$/.test(u.protocol)) throw new TypeError('not http');
+  } catch {
+    throw new SourceUnavailable('unset', "The address set for it isn't a web address (http://…).");
+  }
   try {
     u.searchParams.set('q', query);
     u.searchParams.set('format', 'json');
@@ -649,14 +665,15 @@ async function searchStackExchange(
           const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(
             searchQ
           )}&site=${site}&pagesize=4${stackExchangeKeyParam(apiKey)}`;
-          const res = await fetchWithTimeout(url, 3600);
+          const key = apiKey || process.env.STACKEXCHANGE_KEY || '';
+          const res = await fetchWithTimeout(url, 3600, {}, { key });
           if (res.status === 400) {
             // Out of requests: {"error_name":"throttle_violation","error_message":"too many requests from this IP, more requests available in 70544 seconds"}
             const err = (await res.json().catch(() => ({}))) as { error_name?: string; error_message?: string };
             if (err.error_name === 'throttle_violation') {
               const seconds = Number(/available in (\d+) seconds/.exec(err.error_message || '')?.[1]);
-              const why = apiKey ? 'Out of requests for today.' : "Out of today's 300 requests: a free key in Settings → Keys allows 10,000.";
-              throw restHost('api.stackexchange.com', Math.min(30 * 60_000, Number.isFinite(seconds) ? seconds * 1000 : 30 * 60_000), why);
+              const why = key ? 'Out of requests for today.' : "Out of today's 300 requests: a free key in Settings → Keys allows 10,000.";
+              throw restHost('api.stackexchange.com', Math.min(30 * 60_000, Number.isFinite(seconds) ? seconds * 1000 : 30 * 60_000), why, key);
             }
             return [];
           }
@@ -813,8 +830,9 @@ async function searchDuckDuckGoHtml(
     const res = await fetchWithTimeout(url, 4000);
     if (!res.ok) return [];
     const html = await res.text();
-    // A bot check instead of results: 202 and an "anomaly" page. Asking again at once only gets another.
-    if (res.status === 202 || /anomaly-modal|challenge-form/.test(html)) throw restHost('html.duckduckgo.com', 60_000, 'Asked for a bot check.');
+    // A bot check instead of results: 202 and an "anomaly" page. Asking again at once only gets another. The markup,
+    // not the words: a search for "challenge-form" comes back in the page's search box.
+    if (res.status === 202 || /id="challenge-form"|class="anomaly-modal/.test(html)) throw restHost('html.duckduckgo.com', 60_000, 'Asked for a bot check.');
     const $ = cheerio.load(html);
     const results: RawSearchResult[] = [];
 
@@ -1047,7 +1065,7 @@ export interface GatherOptions {
   minWaitMs?: number;
   timings?: Record<string, SourceTiming>;
   /** Called when each source settles, even after the gather has returned. */
-  onSettle?: (key: string, ms: number, count: number, failed: boolean) => void;
+  onSettle?: (key: string, ms: number, count: number, failed: boolean, refused?: boolean) => void;
   /**
    * Called once with what has arrived so far, as soon as the core sources have
    * enough results, if that is before the gather ends: an early batch to show.
@@ -1136,7 +1154,7 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
       ).then(({ v, failed, unavailable }) => {
         const ms = Date.now() - start;
         // A refusal is the upstream saying no, not hanging: the host rests on its own terms.
-        opts.onSettle?.(t.key, ms, v.length, failed);
+        opts.onSettle?.(t.key, ms, v.length, failed, Boolean(unavailable));
         if (finished) return;
         out[t.key] = v;
         if (opts.timings) {
@@ -1179,7 +1197,9 @@ export function isSourceResting(key: string, now = Date.now()): boolean {
   return (sourceHealth.get(key)?.restUntil ?? 0) > now;
 }
 
-export function recordSourceOutcome(key: string, ms: number, count: number, failed: boolean): void {
+export function recordSourceOutcome(key: string, ms: number, count: number, failed: boolean, refused = false): void {
+  // A refusal, however slow, isn't a hang: the host already rests for as long as it said.
+  if (refused) return;
   const h = sourceHealth.get(key) ?? { fails: 0, restUntil: 0 };
   if (failed || (count === 0 && ms >= HANG_MS)) {
     h.fails += 1;
