@@ -366,8 +366,7 @@ export function clearInstantAnswerCache(): void {
  */
 /** `&key=…` for the Stack Exchange API when a key is configured (300 → 10,000 requests a day). */
 export function stackExchangeKeyParam(key?: string): string {
-  const k = key || process.env.STACKEXCHANGE_KEY;
-  return k ? `&key=${encodeURIComponent(k)}` : '';
+  return key ? `&key=${encodeURIComponent(key)}` : '';
 }
 
 export function prefetchInstantAnswer(rawQuery: string, opts: { stackexchangeKey?: string } = {}): Promise<InstantAnswerLookups> | null {

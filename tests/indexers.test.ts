@@ -644,13 +644,14 @@ describe('the P2P and Usenet search', () => {
     expect(asked('http://nzbhydra.lan:5076/api')[0].searchParams.get('apikey')).toBe('nk');
   });
 
-  it('asks NZB.life only with a key, from the settings or from NZBLIFE_API_KEY', async () => {
+  it('asks NZB.life only with a key (from Settings, or NZBLIFE_API_KEY through the server), and never reads the environment itself', async () => {
     everyIndexAnswers();
     upstream('https://nzb.life.example/api', () => page(newznab(''), 'application/rss+xml'));
-    await withEnv(env, () => p2p.executeP2PAndUsenetSearch('sintel', {}));
+    await withEnv({ ...env, NZBLIFE_API_KEY: 'env-key', NZBLIFE_URL: 'https://nzb.life.example/api' }, () => p2p.executeP2PAndUsenetSearch('sintel', {}));
     expect(asked('https://api.nzb.life/')).toEqual([]);
-    await withEnv({ ...env, NZBLIFE_API_KEY: 'env-key', NZBLIFE_URL: 'https://nzb.life.example/api' }, () => p2p.executeP2PAndUsenetSearch('sintel'));
-    expect(asked('https://nzb.life.example/api')[0].searchParams.get('apikey')).toBe('env-key');
+    expect(asked('https://nzb.life.example/')).toEqual([]);
+    await withEnv(env, () => p2p.executeP2PAndUsenetSearch('sintel', { nzbLifeApiKey: 'lk', nzbLifeUrl: 'https://nzb.life.example/api' }));
+    expect(asked('https://nzb.life.example/api')[0].searchParams.get('apikey')).toBe('lk');
   });
 
   it('passes 18+ mode on to the DHT and Usenet indexes', async () => {

@@ -62,6 +62,8 @@ Measured on five real searches, replayed through the search pipeline (`tests/spe
 - **Rate limits are respected:** a source that answers 429 is left alone for as long as its `Retry-After` says (5 minutes otherwise), instead of being asked and refused on every search.
 
 ### Security
+- **Public searches use none of your keys.** On a glogg without a password, any site may call `GET /api/search` (with CORS `*`). It searched your Torznab, Newznab and NZB.life indexers, whose download links carry their key, so the key came back in the results. It also spent your Brave key, which is paid per search. `GET` now uses only the addresses of search backends (SearXNG, Bitmagnet …); glogg's own pages search with `POST`, which other sites can't, and still use everything. Keys from the environment reach a search only through that same rule; no source reads them itself (`tests/hardening.test.ts`).
+
 A security review found these; each now has a test that failed before its fix (`tests/hardening.test.ts`, `tests/auth.test.ts`, `tests/security.test.ts`).
 - **Critical:** `/API/...` in capitals reached the API past the request guard and the password, because Express matched routes regardless of case. Routing is now case-sensitive (fixed in the import PR), and both checks ignore case.
 - **Stored indexer keys stay home.** A cross-site `POST /api/search` could name its own Torznab/Newznab address and receive your stored key. Cross-site search is GET only, and a stored key only goes to the address it was saved with.

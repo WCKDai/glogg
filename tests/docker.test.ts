@@ -24,7 +24,7 @@ describe('Docker Compose', () => {
 
   it("passes the search keys and indexers on in Coolify's setup too", () => {
     const passed = passedOn(read('docker-compose.coolify.yml'));
-    const keys = ['MARGINALIA_API_KEY', 'STACKEXCHANGE_KEY', 'BRAVE_API_KEY', 'TORZNAB_URL', 'TORZNAB_API_KEY', 'NEWZNAB_URL', 'NEWZNAB_API_KEY', 'GLOGG_ALLOWED_ORIGINS'];
+    const keys = ['MARGINALIA_API_KEY', 'STACKEXCHANGE_KEY', 'BRAVE_API_KEY', 'TORZNAB_URL', 'TORZNAB_API_KEY', 'NEWZNAB_URL', 'NEWZNAB_API_KEY', 'NZBLIFE_URL', 'NZBLIFE_API_KEY', 'GLOGG_ALLOWED_ORIGINS'];
     expect(keys.filter((v) => !passed.has(v))).toEqual([]);
   });
 });

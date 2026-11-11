@@ -517,8 +517,9 @@ export async function executeP2PAndUsenetSearch(
   const kwQuery = analysis.keywordQuery || query;
   if (!kwQuery.trim()) return [];
 
-  const nzbLifeKey = endpoints?.nzbLifeApiKey || process.env.NZBLIFE_API_KEY;
-  const nzbLifeUrl = endpoints?.nzbLifeUrl || process.env.NZBLIFE_URL || 'https://api.nzb.life/api';
+  // From Settings or NZBLIFE_API_KEY / NZBLIFE_URL, through the server, which pairs a key with its address.
+  const nzbLifeKey = endpoints?.nzbLifeApiKey;
+  const nzbLifeUrl = endpoints?.nzbLifeUrl || 'https://api.nzb.life/api';
 
   const [bitmagnetItems, dhtItems, archiveBtItems, nzbItems, torznabItems, newznabItems, nzbLifeItems] =
     await Promise.all([

@@ -218,7 +218,7 @@ async function searchMarginalia(rawQuery: string, kwQuery: string, apiKey?: stri
   try {
     // api.marginalia.nu stopped answering; the API moved to api2.marginalia-search.com.
     // "public" is a shared, rate-limited key: a free personal key goes in Settings → Keys.
-    const key = apiKey || process.env.MARGINALIA_API_KEY || 'public';
+    const key = apiKey || 'public';
     const url = `https://api2.marginalia-search.com/search?query=${encodeURIComponent(kwQuery || rawQuery)}&count=10`;
     const res = await fetchWithTimeout(url, 3800, { 'API-Key': key }, key === 'public' ? { 429: 'The shared key is over its limit: add your own in Settings → Keys.', key } : { key });
     if (!res.ok) return [];
@@ -665,7 +665,7 @@ async function searchStackExchange(
           const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(
             searchQ
           )}&site=${site}&pagesize=4${stackExchangeKeyParam(apiKey)}`;
-          const key = apiKey || process.env.STACKEXCHANGE_KEY || '';
+          const key = apiKey || '';
           const res = await fetchWithTimeout(url, 3600, {}, { key });
           if (res.status === 400) {
             // Out of requests: {"error_name":"throttle_violation","error_message":"too many requests from this IP, more requests available in 70544 seconds"}
@@ -1406,7 +1406,7 @@ export async function executeFederatedSearch(
     {
       key: 'brave',
       run: () => {
-        const braveKey = partialConfig?.endpoints?.braveApiKey || process.env.BRAVE_API_KEY;
+        const braveKey = partialConfig?.endpoints?.braveApiKey;
         return braveKey ? searchBraveApi(raw, braveKey, uncensoredMode) : searchBraveWebHtml(raw, uncensoredMode);
       },
     },

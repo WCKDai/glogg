@@ -26,6 +26,7 @@ import {
   getDownloadManagerReport,
   integrationDefaultsFromEnv,
   loadIntegrationConfig,
+  savedIntegrationConfig,
   maskConfig,
   removeDownload,
   saveIntegrationConfig,
@@ -298,14 +299,14 @@ export async function createGloggServer() {
    * another indexer gets no key, so it can't collect yours.
    */
   const mergeEndpoints = (config?: Partial<SearchFilterConfig>): Partial<SearchFilterConfig> => {
-    // The environment's indexers (TORZNAB_URL …) under what's saved in Settings, each address with its own
-    // key: one saved in Settings, address or key, replaces the environment's pair whole.
-    const saved = loadIntegrationConfig();
+    // The environment's keys and indexers (TORZNAB_URL …) over the built-in defaults and under what's saved in
+    // Settings, each address with its own key: one saved in Settings, address or key, replaces the pair whole.
+    const saved = savedIntegrationConfig();
     const fromEnv = integrationDefaultsFromEnv();
     for (const [urlKey, secretKeys] of SECRET_OWNERS) {
       if ([urlKey, ...secretKeys].some((k) => saved[k])) for (const k of [urlKey, ...secretKeys]) delete fromEnv[k];
     }
-    const stored: CustomEndpointsConfig = { ...fromEnv, ...saved };
+    const stored: CustomEndpointsConfig = { ...loadIntegrationConfig(), ...fromEnv, ...saved };
     const clientEndpoints: CustomEndpointsConfig = Object.fromEntries(
       Object.entries(config?.endpoints || {}).filter(
         ([, v]) => typeof v === 'string' && v.trim() !== '' && !v.startsWith('••••')
@@ -318,6 +319,17 @@ export async function createGloggServer() {
       for (const k of secretKeys) if (!clientEndpoints[k]) delete merged[k];
     }
     return { ...config, endpoints: merged };
+  };
+
+  /**
+   * What a GET search may use: the addresses of search backends, never a key or a private indexer. On a glogg
+   * without a password anyone may call it (CORS *): Torznab and Newznab put their key in every download link,
+   * and a Brave key is paid per search. glogg's own pages search with POST, which other sites can't.
+   */
+  const PUBLIC_ENDPOINTS: (keyof CustomEndpointsConfig)[] = ['searxngUrl', 'bitmagnetUrl', 'ipfsGatewayUrl', 'matrixHomeserverUrl', 'atprotoAppViewUrl'];
+  const publicSearchConfig = (config: Partial<SearchFilterConfig>): Partial<SearchFilterConfig> => {
+    const all = mergeEndpoints(config).endpoints ?? {};
+    return { ...config, endpoints: Object.fromEntries(PUBLIC_ENDPOINTS.filter((k) => all[k]).map((k) => [k, all[k]])) };
   };
 
   app.post('/api/search', async (req, res) => {
@@ -377,7 +389,7 @@ export async function createGloggServer() {
         res.status(400).json({ error: 'Query parameter q is required' });
         return;
       }
-      const response = await executeFederatedSearch(q, mergeEndpoints({ uncensoredMode: uncensored, lens }));
+      const response = await executeFederatedSearch(q, publicSearchConfig({ uncensoredMode: uncensored, lens }));
       res.json(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';

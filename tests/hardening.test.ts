@@ -205,6 +205,72 @@ describe('the server, as it runs for real', () => {
     }
   });
 
+  it('lets GET searches, which any site may make, use none of your keys or indexers; POST still does', async () => {
+    const asked: string[] = [];
+    const indexer = http.createServer((req, res) => {
+      asked.push(req.url || '');
+      res.writeHead(200, { 'Content-Type': 'application/xml' }).end('<rss><channel><item><title>ubuntu-24.04.iso</title><link>http://127.0.0.1:9/dl?apikey=SAVED-KEY-4321</link></item></channel></rss>');
+    });
+    await new Promise<void>((r) => indexer.listen(0, '127.0.0.1', r));
+    const indexerUrl = `http://127.0.0.1:${(indexer.address() as AddressInfo).port}/api`;
+    const sent: { url: string; brave: string | null; marginalia: string | null }[] = [];
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      sent.push({ url: String(input instanceof Request ? input.url : input), brave: headers.get('x-subscription-token'), marginalia: headers.get('api-key') });
+      return real(input, init);
+    });
+    dm.saveIntegrationConfig({ torznabUrl: indexerUrl, torznabApiKey: 'SAVED-KEY-4321' });
+    Object.assign(process.env, { BRAVE_API_KEY: 'BRAVE-ENV-KEY', MARGINALIA_API_KEY: 'MARGINALIA-ENV-KEY', STACKEXCHANGE_KEY: 'SE-ENV-KEY' });
+    try {
+      const get = await rawRequest(port, { path: '/api/search?q=ubuntu%20iso&lens=p2p-magnet' });
+      expect(get.status).toBe(200);
+      expect(asked).toEqual([]);
+      expect(get.body).not.toMatch(/SAVED-KEY|ENV-KEY/);
+      expect(sent.filter((s) => s.brave || s.marginalia === 'MARGINALIA-ENV-KEY' || s.url.includes('SE-ENV-KEY'))).toEqual([]);
+
+      // glogg's own pages (and scripts on this machine) search with POST, which other sites can't: keys and all.
+      sent.length = 0;
+      const post = await rawRequest(port, { method: 'POST', path: '/api/search', headers: json, body: JSON.stringify({ query: 'ubuntu iso', config: { lens: 'p2p-magnet' } }) });
+      expect(post.status).toBe(200);
+      expect(asked.some((u) => u.includes('SAVED-KEY-4321'))).toBe(true);
+      expect(sent.some((s) => s.brave === 'BRAVE-ENV-KEY')).toBe(true);
+      expect(sent.some((s) => s.marginalia === 'MARGINALIA-ENV-KEY')).toBe(true);
+      expect(sent.some((s) => s.url.includes('key=SE-ENV-KEY'))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      for (const k of ['BRAVE_API_KEY', 'MARGINALIA_API_KEY', 'STACKEXCHANGE_KEY']) delete process.env[k];
+      dm.saveIntegrationConfig({ torznabUrl: '', torznabApiKey: '' });
+      await new Promise<void>((r) => indexer.close(() => r()));
+    }
+  });
+
+  it('takes keys and indexers from the environment by their documented names', () => {
+    expect(
+      dm.integrationDefaultsFromEnv({
+        TORZNAB_URL: ' http://prowlarr:9696/1/api ',
+        TORZNAB_API_KEY: 't',
+        NEWZNAB_URL: 'http://hydra:5076/api',
+        NEWZNAB_API_KEY: 'n',
+        NZBLIFE_URL: 'https://api.nzb.life/api',
+        NZBLIFE_API_KEY: 'l',
+        MARGINALIA_API_KEY: '',
+        STACKEXCHANGE_KEY: 's',
+        BRAVE_API_KEY: 'b',
+        UNRELATED: 'x',
+      })
+    ).toEqual({
+      torznabUrl: 'http://prowlarr:9696/1/api',
+      torznabApiKey: 't',
+      newznabUrl: 'http://hydra:5076/api',
+      newznabApiKey: 'n',
+      nzbLifeUrl: 'https://api.nzb.life/api',
+      nzbLifeApiKey: 'l',
+      stackexchangeKey: 's',
+      braveApiKey: 'b',
+    });
+  });
+
   it('sends security headers, and no x-powered-by', async () => {
     for (const p of ['/api/health', '/api/plugins', '/opensearch.xml']) {
       const r = await rawRequest(port, { path: p });

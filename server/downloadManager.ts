@@ -58,12 +58,20 @@ function writeJson(file: string, data: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
 }
 
-/** Indexer settings that can come from the environment (.env, Docker); Settings → Keys overrides them. */
+/**
+ * Keys and indexers that can come from the environment (.env, Docker); Settings → Keys overrides them. Searches
+ * get them from here only (the server decides who may use them), never from process.env inside a connector.
+ */
 const FROM_ENV: [keyof CustomEndpointsConfig, string][] = [
   ['torznabUrl', 'TORZNAB_URL'],
   ['torznabApiKey', 'TORZNAB_API_KEY'],
   ['newznabUrl', 'NEWZNAB_URL'],
   ['newznabApiKey', 'NEWZNAB_API_KEY'],
+  ['nzbLifeUrl', 'NZBLIFE_URL'],
+  ['nzbLifeApiKey', 'NZBLIFE_API_KEY'],
+  ['marginaliaApiKey', 'MARGINALIA_API_KEY'],
+  ['stackexchangeKey', 'STACKEXCHANGE_KEY'],
+  ['braveApiKey', 'BRAVE_API_KEY'],
 ];
 
 /** The settings the environment gives, for a search to fall back on. Never saved: they stay in the environment. */
@@ -71,8 +79,13 @@ export function integrationDefaultsFromEnv(env: NodeJS.ProcessEnv = process.env)
   return Object.fromEntries(FROM_ENV.filter(([, name]) => env[name]?.trim()).map(([key, name]) => [key, env[name]!.trim()]));
 }
 
+/** What was saved in Settings, without the built-in defaults. */
+export function savedIntegrationConfig(): CustomEndpointsConfig {
+  return readJson<CustomEndpointsConfig>(CONFIG_PATH, {});
+}
+
 export function loadIntegrationConfig(): CustomEndpointsConfig {
-  return { ...DEFAULT_CONFIG, ...readJson<CustomEndpointsConfig>(CONFIG_PATH, {}) };
+  return { ...DEFAULT_CONFIG, ...savedIntegrationConfig() };
 }
 
 /**

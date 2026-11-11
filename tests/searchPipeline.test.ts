@@ -409,14 +409,9 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(row).toMatchObject({ title: 'The Rust borrow checker', snippet: 'How the borrow checker works & why' });
   });
 
-  it("turns the Brave API's SafeSearch off only in 18+ mode, and takes the key from BRAVE_API_KEY too", async () => {
+  it("turns the Brave API's SafeSearch off only in 18+ mode", async () => {
     replies['api.search.brave.com'] = () => Response.json({ web: { results: [] } });
-    process.env.BRAVE_API_KEY = 'bk-env';
-    try {
-      await fs.executeFederatedSearch('rust borrow checker', { lens: 'all', uncensoredMode: true });
-    } finally {
-      delete process.env.BRAVE_API_KEY;
-    }
+    await fs.executeFederatedSearch('rust borrow checker', { lens: 'all', uncensoredMode: true, endpoints: { braveApiKey: 'bk-1' } });
     expect(askedOf('api.search.brave.com').map((u) => u.searchParams.get('safesearch'))).toEqual(['off']);
   });
 
@@ -465,15 +460,10 @@ describe('sources that turn glogg away, or are not set up', () => {
     expect(searches()).toHaveLength(before);
   });
 
-  it('words a Stack Exchange throttle by the key actually sent, STACKEXCHANGE_KEY included', async () => {
+  it('words a Stack Exchange throttle by the key actually sent (STACKEXCHANGE_KEY arrives as one too)', async () => {
     replies['api.stackexchange.com'] = () =>
       Response.json({ error_id: 502, error_name: 'throttle_violation', error_message: 'too many requests from this IP, more requests available in 600 seconds' }, { status: 400 });
-    process.env.STACKEXCHANGE_KEY = 'env-key';
-    try {
-      expect((await timing('how to undo a git commit', 'se'))?.note).toBe('Out of requests for today. Tries again in 10 min.');
-    } finally {
-      delete process.env.STACKEXCHANGE_KEY;
-    }
+    expect((await timing('how to undo a git commit', 'se', { endpoints: { stackexchangeKey: 'mine' } }))?.note).toBe('Out of requests for today. Tries again in 10 min.');
   });
 
   it('takes a search for "challenge-form" at its word: only the bot-check page itself counts', async () => {

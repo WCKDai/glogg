@@ -11,6 +11,7 @@ import {
   getContainerStackStatus,
   runContainerOrchestrationAction,
 } from '../server/containerManager.js';
+import { integrationDefaultsFromEnv } from '../server/downloadManager.js';
 import { executeFederatedSearch } from '../server/federatedSearch.js';
 import { configureNetwork } from '../server/net.js';
 
@@ -116,6 +117,8 @@ export async function runCli(argv: string[]): Promise<number> {
       lens,
       uncensoredMode,
       maxPerDomain,
+      // Keys from the environment (MARGINALIA_API_KEY, STACKEXCHANGE_KEY, BRAVE_API_KEY …), as before.
+      endpoints: integrationDefaultsFromEnv(),
     });
 
     if (jsonMode) {
