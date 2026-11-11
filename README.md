@@ -194,6 +194,7 @@ Everything is optional. In Docker, put these in `.env` (see [`.env.example`](./.
 | `SEARXNG_URL` | `http://localhost:8080` | Your SearXNG (Docker Compose sets its own) |
 | `BITMAGNET_URL`, `IPFS_GATEWAY_URL`, `TORZNAB_URL`, `NEWZNAB_URL` | local ports | Other self-hosted backends |
 | `MARGINALIA_API_KEY`, `STACKEXCHANGE_KEY` | shared keys | Personal keys raise rate limits (Stack Exchange: 10,000 requests a day instead of 300) |
+| `BRAVE_API_KEY` | unset | A Brave Search API key: Brave's web results through its API, since its search page mostly answers a server with a captcha |
 | `GLOGG_CONTAINER_RUNTIME` | `auto` (`none` in Docker) | `docker`, `podman`, or `none` to never run either |
 
 <details>

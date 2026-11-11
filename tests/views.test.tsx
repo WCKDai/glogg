@@ -2622,9 +2622,10 @@ describe('settings', () => {
       'GET /api/integrations': { config: { offcloudApiKey: '••••1234', searxngUrl: 'http://localhost:8080' } },
       'PUT /api/integrations': (c: Call) => ({ config: { ...c.body.config, offcloudApiKey: '••••1234' } }),
     });
-    expect($$('legend').map((l) => l.textContent)).toEqual(['Offcloud', 'NZB.life', 'Marginalia', 'Stack Exchange', 'Nextcloud', 'aria2', 'Search backends']);
+    expect($$('legend').map((l) => l.textContent)).toEqual(['Offcloud', 'NZB.life', 'Marginalia', 'Stack Exchange', 'Brave Search', 'Nextcloud', 'aria2', 'Search backends']);
     const key = byLabel('API key', fieldset('Offcloud'));
     expect([key.type, key.value]).toEqual(['password', '••••1234']);
+    expect(byLabel('API key', fieldset('Brave Search')).type).toBe('password');
     expect(byLabel('SearXNG').value).toBe('http://localhost:8080');
     expect(byLabel('Bitmagnet GraphQL').placeholder).toBe('http://localhost:3333/graphql');
     // Says Saved until something changes, then Save.

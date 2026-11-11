@@ -138,6 +138,13 @@ describe('download manager', () => {
     expect(dm.detectKind('https://x.org/blog/post')).toBe('web-archive');
   });
 
+  it('keeps a Brave Search API key, masked like the other secrets', () => {
+    dm.saveIntegrationConfig({ braveApiKey: 'BSA-abcdef7890' });
+    expect(dm.loadIntegrationConfig().braveApiKey).toBe('BSA-abcdef7890');
+    expect(dm.maskConfig(dm.loadIntegrationConfig()).braveApiKey).toBe('••••7890');
+    dm.saveIntegrationConfig({ braveApiKey: '' });
+  });
+
   it('persists secrets server-side, masks them in responses, and keeps masked values unchanged on save', () => {
     dm.saveIntegrationConfig({ offcloudApiKey: 'sk-offcloud-123456', nextcloudUrl: 'https://cloud.example' });
     const masked = dm.maskConfig(dm.loadIntegrationConfig());

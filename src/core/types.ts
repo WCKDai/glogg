@@ -192,6 +192,8 @@ export interface CustomEndpointsConfig {
   marginaliaApiKey?: string;
   /** Stack Exchange app key: 10,000 requests a day instead of 300 per IP. */
   stackexchangeKey?: string;
+  /** Brave Search API key: Brave's index without its search page's captchas. Paid per request. */
+  braveApiKey?: string;
   offcloudApiKey?: string;
   offcloudRemoteOptionId?: string;
   nextcloudUrl?: string;

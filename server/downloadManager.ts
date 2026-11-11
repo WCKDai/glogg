@@ -28,6 +28,7 @@ const SECRET_KEYS: (keyof CustomEndpointsConfig)[] = [
   'nzbLifeApiKey',
   'marginaliaApiKey',
   'stackexchangeKey',
+  'braveApiKey',
   'nextcloudAppPassword',
   'aria2RpcSecret',
   'torznabApiKey',
@@ -89,7 +90,7 @@ export function maskConfig(cfg: CustomEndpointsConfig): CustomEndpointsConfig {
 /** Every setting an integration config may hold; anything else in a patch is ignored. */
 const INTEGRATION_KEYS = new Set<keyof CustomEndpointsConfig>([
   'bitmagnetUrl', 'searxngUrl', 'ipfsGatewayUrl', 'torznabUrl', 'torznabApiKey', 'newznabUrl', 'newznabApiKey',
-  'nzbLifeUrl', 'nzbLifeApiKey', 'marginaliaApiKey', 'stackexchangeKey', 'offcloudApiKey', 'offcloudRemoteOptionId',
+  'nzbLifeUrl', 'nzbLifeApiKey', 'marginaliaApiKey', 'stackexchangeKey', 'braveApiKey', 'offcloudApiKey', 'offcloudRemoteOptionId',
   'nextcloudUrl', 'nextcloudUser', 'nextcloudAppPassword', 'nextcloudFolder', 'aria2RpcUrl', 'aria2RpcSecret',
   'matrixHomeserverUrl', 'atprotoAppViewUrl',
 ]);

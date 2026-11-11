@@ -372,7 +372,60 @@ describe('sources that turn glogg away, or are not set up', () => {
 
   it('says Brave asked for a captcha', async () => {
     replies['search.brave.com'] = () => new Response('<title>Brave Search</title> Your request has been flagged as being suspicious', { status: 429 });
-    expect(await timing('rust borrow checker', 'brave')).toMatchObject({ status: 'refused', note: 'Asked for a captcha. Tries again in 5 min.' });
+    expect(await timing('rust borrow checker', 'brave')).toMatchObject({
+      status: 'refused',
+      note: 'Asked for a captcha: a Brave Search API key in Settings → Keys avoids it. Tries again in 5 min.',
+    });
+  });
+
+  it('searches Brave through its API with your key, instead of its search page', async () => {
+    let token: string | null = null;
+    replies['api.search.brave.com'] = (_url, init) => {
+      token = new Headers(init.headers).get('x-subscription-token');
+      return Response.json({
+        type: 'search',
+        web: {
+          type: 'search',
+          results: [
+            {
+              title: 'The <strong>Rust</strong> borrow checker',
+              url: 'https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html',
+              description: 'How the <strong>borrow checker</strong> works &amp; why',
+              page_age: '2024-05-01T00:00:00',
+            },
+            { title: 'No address' },
+            { title: 'Not a web page', url: 'javascript:alert(1)' },
+          ],
+        },
+      });
+    };
+    const res = await fs.executeFederatedSearch('rust borrow checker', { lens: 'all', endpoints: { braveApiKey: 'bk-1' } });
+    const brave = askedOf('api.search.brave.com');
+    expect(brave.map((u) => Object.fromEntries(u.searchParams))).toEqual([{ q: 'rust borrow checker', count: '20', safesearch: 'moderate' }]);
+    expect(token).toBe('bk-1');
+    expect(askedOf('search.brave.com')).toEqual([]);
+    expect(res.metrics.sourceTimings?.brave).toMatchObject({ status: 'ok', count: 1 });
+    const row = [...res.results, ...res.filteredSlop].find((r) => r.url === 'https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html');
+    expect(row).toMatchObject({ title: 'The Rust borrow checker', snippet: 'How the borrow checker works & why' });
+  });
+
+  it("turns the Brave API's SafeSearch off only in 18+ mode, and takes the key from BRAVE_API_KEY too", async () => {
+    replies['api.search.brave.com'] = () => Response.json({ web: { results: [] } });
+    process.env.BRAVE_API_KEY = 'bk-env';
+    try {
+      await fs.executeFederatedSearch('rust borrow checker', { lens: 'all', uncensoredMode: true });
+    } finally {
+      delete process.env.BRAVE_API_KEY;
+    }
+    expect(askedOf('api.search.brave.com').map((u) => u.searchParams.get('safesearch'))).toEqual(['off']);
+  });
+
+  it("says when Brave doesn't accept the key", async () => {
+    replies['api.search.brave.com'] = () => Response.json({ type: 'ErrorResponse', error: { code: 'SUBSCRIPTION_TOKEN_INVALID', status: 422 } }, { status: 422 });
+    expect(await timing('rust borrow checker', 'brave', { endpoints: { braveApiKey: 'bk-wrong' } })).toMatchObject({
+      status: 'refused',
+      note: "Brave didn't accept the API key: check it in Settings → Keys.",
+    });
   });
 
   it("says when Marginalia's shared key is over its limit, and a key of your own is asked at once", async () => {

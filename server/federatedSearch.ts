@@ -881,8 +881,8 @@ async function searchBraveWebHtml(
   try {
     const safeParam = uncensoredMode ? '&safesearch=off' : '&safesearch=moderate';
     const url = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web${safeParam}`;
-    // Brave often answers a server with a captcha page, as a 429.
-    const res = await fetchWithTimeout(url, 3800, {}, { 429: 'Asked for a captcha.' });
+    // Brave often answers a server with a captcha page, as a 429. Its Search API doesn't.
+    const res = await fetchWithTimeout(url, 3800, {}, { 429: 'Asked for a captcha: a Brave Search API key in Settings → Keys avoids it.' });
     if (!res.ok) return [];
     const html = await res.text();
     const $ = cheerio.load(html);
@@ -899,7 +899,7 @@ async function searchBraveWebHtml(
         anchor.text().replace(/\s+/g, ' ').trim();
       const snippet =
         $(el)
-          .find('.snippet-description, . snippet-content, .generic-snippet .content')
+          .find('.snippet-description, .snippet-content, .generic-snippet .content')
           .first()
           .text()
           .replace(/\s+/g, ' ')
@@ -916,6 +916,49 @@ async function searchBraveWebHtml(
       }
     });
 
+    return results;
+  } catch (e) {
+    return unlessRefused(e);
+  }
+}
+
+/** Brave's highlights (<strong>) and entities, out of an API title or description. */
+function plainText(html: string): string {
+  return cheerio.load(`<p>${html}</p>`)('p').text().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 12c. Brave Search API, with your key (Settings → Keys): the same index as
+ * its search page, which mostly answers a server with a captcha.
+ */
+async function searchBraveApi(query: string, apiKey: string, uncensoredMode = false): Promise<RawSearchResult[]> {
+  try {
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&safesearch=${uncensoredMode ? 'off' : 'moderate'}`;
+    const res = await fetchWithTimeout(
+      url,
+      3800,
+      { Accept: 'application/json', 'X-Subscription-Token': apiKey },
+      { 403: "Brave didn't accept the API key: check it in Settings → Keys.", 429: "Over the API key's rate limit or quota." }
+    );
+    if (res.status === 401 || res.status === 422) throw new SourceUnavailable('refused', "Brave didn't accept the API key: check it in Settings → Keys.");
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      web?: { results?: Array<{ title?: string; url?: string; description?: string; page_age?: string }> };
+    };
+    const results: RawSearchResult[] = [];
+    const found = Array.isArray(data?.web?.results) ? data.web.results : [];
+    for (const [idx, r] of found.entries()) {
+      if (typeof r?.url !== 'string' || !/^https?:\/\//i.test(r.url)) continue;
+      const title = plainText(r.title || '') || r.url;
+      results.push({
+        id: `brave-${idx}-${r.url}`,
+        title,
+        url: r.url,
+        snippet: plainText(r.description || '') || title,
+        source: 'web',
+        publishedAt: typeof r.page_age === 'string' && !Number.isNaN(Date.parse(r.page_age)) ? r.page_age : undefined,
+      });
+    }
     return results;
   } catch (e) {
     return unlessRefused(e);
@@ -1360,7 +1403,13 @@ export async function executeFederatedSearch(
     { key: 'arxiv', run: () => searchArxiv(query, kwQuery) },
     { key: 'github', run: () => searchGitHub(query, kwQuery, analysis.isTechnical) },
     { key: 'ddg', run: () => searchDuckDuckGoHtml(raw, uncensoredMode) },
-    { key: 'brave', run: () => searchBraveWebHtml(raw, uncensoredMode) },
+    {
+      key: 'brave',
+      run: () => {
+        const braveKey = partialConfig?.endpoints?.braveApiKey || process.env.BRAVE_API_KEY;
+        return braveKey ? searchBraveApi(raw, braveKey, uncensoredMode) : searchBraveWebHtml(raw, uncensoredMode);
+      },
+    },
     { key: 'p2p', run: () => executeP2PAndUsenetSearch(query, partialConfig?.endpoints, uncensoredMode) },
     { key: 'mwmbl', run: () => searchMwmbl(query, kwQuery) },
   ];

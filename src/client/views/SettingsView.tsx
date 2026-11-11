@@ -116,6 +116,11 @@ const FIELDS: { group: string; note?: string; fields: { key: keyof CustomEndpoin
     fields: [{ key: 'stackexchangeKey', label: 'App key', secret: true }],
   },
   {
+    group: 'Brave Search',
+    note: "Web results from Brave's own index. Its search page mostly answers glogg with a captcha; with a key from api-dashboard.search.brave.com, glogg uses the Search API instead. Paid per request, with free credit each month.",
+    fields: [{ key: 'braveApiKey', label: 'API key', secret: true }],
+  },
+  {
     group: 'Nextcloud',
     note: 'Save NZBs, torrents and pages to your cloud via WebDAV. Use an app password.',
     fields: [
