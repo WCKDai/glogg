@@ -25,6 +25,12 @@ A live check of every source on 11 November 2026 found five that returned nothin
 - "None of the sources answered" now also shows when every source turned glogg away.
 - `metrics.sourceTimings` has two new statuses, `refused` and `unset`, each with a `note`. `docs/api.md` lists all the statuses.
 
+### Easier to read, on phones too
+- **Status text is readable.** The green, amber and red used for status text ("turned away", "late", errors, tags, notices, required marks) were 3.6:1 (amber) to 4.4:1 (green) on light surfaces, under WCAG AA's 4.5:1 for small text. Text now uses darker shades of each (`--ok-ink`, `--warn-ink`, `--danger-ink`, like `--accent-ink`), at 4.5:1 or better on every surface and on its own tint, in both themes. The brighter colours stay for dots, bars and buttons. `tests/quality.test.ts` checks every combination, and that no rule colours text with a fill.
+- **Phones can see which sources answered.** Phones have no status bar, so the source breakdown, with why a source had nothing, was out of reach there. The results line now has "13/17 sources" on phones, which opens the same breakdown as a sheet above the tab bar.
+- The line under the scopes ("Everything, ranked for signal") started 6 px over the scope bar's bottom edge and looked clipped; it now sits below it.
+- The Tools page said "Settings → Integrations"; that section is called Keys.
+
 ### Easier to use
 From a fresh UX review of the running app, with screenshots at desktop and phone sizes (`tests/ux.test.tsx`, `tests/ux-server.test.ts`).
 - **Answers cite the right sources.** When an accepted answer took citation [1], every other number shifted while the takeaways kept the old ones, so each pointed one source early. Numbers now follow their source, and a takeaway whose source didn't make the list goes with it.

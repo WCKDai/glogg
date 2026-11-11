@@ -2019,7 +2019,7 @@ describe('tools page', () => {
   it('sends you to Settings for a plugin that is set up there', async () => {
     const p = await toolsView();
     await click(byRole('button', 'Nextcloud', nav()));
-    expect(textIn($('.tool-pane .notice')!)).toContain('Set up Nextcloud in Settings → Integrations to use this.');
+    expect(textIn($('.tool-pane .notice')!)).toContain('Set up Nextcloud in Settings → Keys to use this.');
     expect(queryRole('textbox', 'Path')).toBeUndefined();
     await click(byRole('button', 'Open Settings'));
     expect(p.onOpenSettings).toHaveBeenCalled();

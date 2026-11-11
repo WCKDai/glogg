@@ -40,7 +40,7 @@ import { ReaderSheet } from './components/ReaderSheet.js';
 import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
 import { AdvancedRail } from './components/AdvancedRail.js';
 import { Favicon } from './components/Favicon.js';
-import { StatusBar } from './components/StatusBar.js';
+import { SourcesButton, StatusBar } from './components/StatusBar.js';
 import { ResearchPanel } from './components/ResearchPanel.js';
 import { ToolCard } from './components/ToolKit.js';
 import type { InlineToolRun, ToolActionHandlers } from './components/ToolKit.js';
@@ -937,6 +937,7 @@ export function App() {
         <span className="status-count">
           {navList.length} result{navList.length === 1 ? '' : 's'} · {(data.metrics.durationMs / 1000).toFixed(1)}s
         </span>
+        <SourcesButton data={data} />
         {!advanced && !isReleaseScope && (
           <button type="button" className="link-btn dig" onClick={digDeeper} title="Advanced view: read the sources and write a cited answer">
             <Sparkles size={12} /> Dig deeper

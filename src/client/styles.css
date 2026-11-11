@@ -45,6 +45,10 @@
   --ok-soft: rgba(19, 138, 90, 0.1);
   --warn: #b7790a;
   --warn-soft: rgba(183, 121, 10, 0.11);
+  /* Status text: the fills above are 3.6:1 (amber) to 4.4:1 (green) as text; these keep 4.5:1 on every surface and tint */
+  --danger-ink: #b4233c;
+  --ok-ink: #0b6e46;
+  --warn-ink: #8a5a00;
   --scrim: rgba(25, 25, 24, 0.32);
   /* Flat by default; only overlays (menus, palette, sheet, toasts) cast shadows */
   --shadow-sm: none;
@@ -88,6 +92,9 @@ html.dark {
   --ok-soft: rgba(61, 214, 140, 0.12);
   --warn: #f2b84b;
   --warn-soft: rgba(242, 184, 75, 0.12);
+  --danger-ink: #ff6b81;
+  --ok-ink: #3dd68c;
+  --warn-ink: #f2b84b;
   --scrim: rgba(2, 4, 8, 0.6);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 30px -12px rgba(0, 0, 0, 0.7);
   --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.45), 0 26px 64px -16px rgba(0, 0, 0, 0.85);
@@ -746,7 +753,7 @@ kbd,
 
 .tag-danger {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
   border-color: transparent;
 }
 
@@ -856,7 +863,7 @@ html.dark .btn-primary:hover {
 }
 
 .icon-btn.danger-on {
-  color: var(--danger);
+  color: var(--danger-ink);
   background: var(--danger-soft);
 }
 
@@ -1012,7 +1019,7 @@ html.dark .btn-primary:hover {
 
 .notice-error {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 /* ── Results layout ───────────────────────────────────────────────────── */
@@ -1098,6 +1105,20 @@ html.dark .btn-primary:hover {
 }
 
 .status-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* The status bar says which sources answered; phones, which have none, get this instead. */
+.sources-btn {
+  display: none;
+}
+
+.sources-btn > .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--mono);
   font-size: 11.5px;
   white-space: nowrap;
@@ -1732,7 +1753,7 @@ button.sb-item:hover {
 .sb-status.s-late,
 .sb-status.s-error,
 .sb-status.s-refused {
-  color: var(--warn);
+  color: var(--warn-ink);
 }
 
 .sb-status.s-resting,
@@ -1829,7 +1850,7 @@ button.sb-item:hover {
 }
 
 .release-meta .ok {
-  color: var(--ok);
+  color: var(--ok-ink);
 }
 
 .release-actions {
@@ -2366,7 +2387,7 @@ button.sb-item:hover {
 }
 
 .destination.on svg:last-child {
-  color: var(--ok);
+  color: var(--ok-ink);
 }
 
 .destinations-local {
@@ -2419,13 +2440,13 @@ button.sb-item:hover {
 
 .job-failed .job-icon {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .job-completed .job-icon,
 .job-cached-instant .job-icon {
   background: var(--ok-soft);
-  color: var(--ok);
+  color: var(--ok-ink);
 }
 
 .job-main {
@@ -2488,7 +2509,7 @@ button.sb-item:hover {
 }
 
 .status.ok {
-  color: var(--ok);
+  color: var(--ok-ink);
 }
 
 .status.off {
@@ -2690,7 +2711,7 @@ button.sb-item:hover {
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   border-radius: 99px;
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
   font: 600 11px/1.4 var(--mono);
   letter-spacing: 0.02em;
 }
@@ -2860,7 +2881,7 @@ button.sb-item:hover {
 
 .domain-block .chip button:hover {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .section > .setting-hint {
@@ -2960,6 +2981,17 @@ button.sb-item:hover {
   .statusbar {
     display: none;
   }
+
+  .sources-btn {
+    display: inline-flex;
+  }
+
+  /* The breakdown as a sheet above the tab bar, the width of the screen. */
+  .sb-sheet {
+    right: 8px;
+    bottom: calc(58px + 8px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+  }
 }
 
 @media (max-width: 560px) {
@@ -3001,17 +3033,17 @@ button.sb-item:hover {
    ───────────────────────────────────────────────────────────────────────── */
 
 /* Tones shared by tool output, tags and notices */
-.tone-ok { color: var(--ok); }
-.tone-warn { color: var(--warn); }
-.tone-bad { color: var(--danger); }
+.tone-ok { color: var(--ok-ink); }
+.tone-warn { color: var(--warn-ink); }
+.tone-bad { color: var(--danger-ink); }
 .tone-info { color: var(--accent-ink); }
-.tag-ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
-.tag-warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
-.tag-bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.tag-ok { background: var(--ok-soft); color: var(--ok-ink); border-color: transparent; }
+.tag-warn { background: var(--warn-soft); color: var(--warn-ink); border-color: transparent; }
+.tag-bad { background: var(--danger-soft); color: var(--danger-ink); border-color: transparent; }
 .tag-info { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
-.notice-ok { background: var(--ok-soft); color: var(--ok); }
-.notice-warn { background: var(--warn-soft); color: var(--warn); }
-.notice-bad { background: var(--danger-soft); color: var(--danger); }
+.notice-ok { background: var(--ok-soft); color: var(--ok-ink); }
+.notice-warn { background: var(--warn-soft); color: var(--warn-ink); }
+.notice-bad { background: var(--danger-soft); color: var(--danger-ink); }
 .notice .link-btn { margin-left: 8px; }
 .small { font-size: 12.5px; }
 
@@ -3137,8 +3169,8 @@ a.out-list-title:hover { color: var(--accent-ink); }
 }
 .checks li:last-child { border-bottom: 0; }
 .check-icon { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; }
-.checks .pass .check-icon { background: var(--ok-soft); color: var(--ok); }
-.checks .fail .check-icon { background: var(--danger-soft); color: var(--danger); }
+.checks .pass .check-icon { background: var(--ok-soft); color: var(--ok-ink); }
+.checks .fail .check-icon { background: var(--danger-soft); color: var(--danger-ink); }
 .checks .na .check-icon { background: var(--surface-2); color: var(--ink-3); }
 .check-detail { max-width: 46ch; color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; text-align: right; overflow-wrap: anywhere; }
 .out-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -3149,7 +3181,7 @@ a.out-list-title:hover { color: var(--accent-ink); }
 .tool-form > .btn { justify-self: start; }
 .tool-form .field-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
 .field-help { font-size: 11.5px; color: var(--ink-3); }
-.req { color: var(--danger); }
+.req { color: var(--danger-ink); }
 
 /* ── Tools page ──────────────────────────────────────────────────────── */
 .tools { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; align-items: start; }
@@ -3187,7 +3219,7 @@ a.out-list-title:hover { color: var(--accent-ink); }
 .tools-item.active,
 .rail-item.active { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line), var(--shadow-sm); font-weight: 500; }
 .tools-item .dot { margin-left: auto; }
-.tools-item.broken { color: var(--danger); cursor: help; }
+.tools-item.broken { color: var(--danger-ink); cursor: help; }
 .tools-main { min-width: 0; padding: 22px 24px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .plugin-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
 .plugin-icon { width: 38px; height: 38px; border-radius: 11px; }
@@ -3417,8 +3449,8 @@ a.cite-ref {
 .segmented-sm { padding: 2px; }
 .segmented-sm button { height: 22px; padding: 0 8px; font-size: 11.5px; }
 .result-scores { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
-.result-scores .good { color: var(--ok); }
-.result-scores .bad { color: var(--danger); }
+.result-scores .good { color: var(--ok-ink); }
+.result-scores .bad { color: var(--danger-ink); }
 
 @media (max-width: 960px) {
   .adv { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px 64px; }
@@ -3539,7 +3571,7 @@ a.cite-ref {
 
 .signin-card .signin-error {
   margin-top: 0;
-  color: var(--danger);
+  color: var(--danger-ink);
   font-size: 12.5px;
 }
 
@@ -3831,7 +3863,7 @@ html.dark[data-accent='graphite'] { --accent: #a3a7b0; --accent-ink: #c4c7cd; --
 }
 
 .link-btn.danger {
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 /* ── Compact results (Settings → Results → Density) ─────────────────────── */
@@ -3943,9 +3975,9 @@ html.dark[data-accent='graphite'] { --accent: #a3a7b0; --accent-ink: #c4c7cd; --
   font: inherit;
 }
 
-/* What the selected scope searches, under the scope bar */
+/* What the selected scope searches, under the scope bar (not over its bottom edge) */
 .scope-hint {
-  margin: -6px 0 10px;
+  margin: 6px 0 10px;
   color: var(--ink-3);
   font-size: 12px;
 }
@@ -3958,5 +3990,5 @@ html.dark[data-accent='graphite'] { --accent: #a3a7b0; --accent-ink: #c4c7cd; --
 }
 
 .bang-setup {
-  color: var(--warn);
+  color: var(--warn-ink);
 }

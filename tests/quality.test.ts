@@ -167,23 +167,47 @@ describe('interface details', () => {
     expect(css).toMatch(/@media \(max-width: 720px\), \(pointer: coarse\) \{[^@]*font-size: 16px/);
   });
 
+  const themeBlock = (scope: string) => css.match(new RegExp(`${scope} \\{([^}]*)\\}`))?.[1] ?? '';
+  const tokens = (scope: string) => Object.fromEntries([...themeBlock(scope).matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+  const lum = (hex: string) => {
+    const [r, g, b] = (hex.slice(1).match(/../g) ?? []).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  /** A translucent tint (`--ok-soft: rgba(…)`) laid over a surface, as the hex it shows. */
+  const over = (scope: string, tint: string, surface: string) => {
+    const [r, g, b, a] = (themeBlock(scope).match(new RegExp(`--${tint}:\\s*rgba\\(([^)]*)\\)`))?.[1] ?? '0,0,0,0').split(',').map(Number);
+    const base = (surface.slice(1).match(/../g) ?? []).map((x) => parseInt(x, 16));
+    return `#${[r, g, b].map((c, i) => Math.round(c * a + base[i] * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
+  };
+
   it('keeps small grey text readable (WCAG AA, 4.5:1) on every surface, in both themes', () => {
-    const tokens = (scope: string) =>
-      Object.fromEntries([...(css.match(new RegExp(`${scope} \\{([^}]*)\\}`))?.[1] ?? '').matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
-    const lum = (hex: string) => {
-      const [r, g, b] = (hex.slice(1).match(/../g) ?? []).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const contrast = (a: string, b: string) => {
-      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-      return (hi + 0.05) / (lo + 0.05);
-    };
     for (const scope of [':root', 'html.dark']) {
       const t = tokens(scope);
       for (const surface of ['bg', 'surface', 'surface-2', 'surface-3']) {
         expect(contrast(t['ink-3'], t[surface]), `${scope} ink-3 on ${surface}`).toBeGreaterThanOrEqual(4.5);
       }
     }
+  });
+
+  it('keeps status text (ok, warning, error) readable (WCAG AA, 4.5:1) on every surface and on its own tint, in both themes', () => {
+    for (const scope of [':root', 'html.dark']) {
+      const t = tokens(scope);
+      for (const tone of ['ok', 'warn', 'danger']) {
+        for (const surface of ['bg', 'surface', 'surface-2', 'surface-3']) {
+          expect(contrast(t[`${tone}-ink`], t[surface]), `${scope} ${tone}-ink on ${surface}`).toBeGreaterThanOrEqual(4.5);
+          expect(contrast(t[`${tone}-ink`], over(scope, `${tone}-soft`, t[surface])), `${scope} ${tone}-ink on ${tone}-soft over ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it('colours status text with the -ink shades, never the brighter fills', () => {
+    // The fills (dots, bars, buttons) were 3.6:1 (amber) to 4.4:1 (green) as text on light surfaces.
+    expect(css.match(/(?<![\w-])color:\s*var\(--(ok|warn|danger)\)/g) ?? []).toEqual([]);
   });
 });
 

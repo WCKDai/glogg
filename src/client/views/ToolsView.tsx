@@ -22,7 +22,7 @@ interface Props {
   onChanged: () => void;
   onToast: (t: string, tone?: 'ok' | 'error' | 'info') => void;
   handlers: Pick<ToolActionHandlers, 'onSend' | 'onCopied'>;
-  /** Plugins without settings of their own read keys from Settings → Integrations. */
+  /** Plugins without settings of their own read keys from Settings → Keys. */
   onOpenSettings: () => void;
 }
 
@@ -316,7 +316,7 @@ export function ToolsView({ plugins, userDir, target, onReload, onChanged, onToa
                     <div className="notice notice-warn">Add your {plugin.name} settings below to use this.</div>
                   ) : (
                     <div className="notice notice-warn">
-                      Set up {plugin.name} in Settings → Integrations to use this.
+                      Set up {plugin.name} in Settings → Keys to use this.
                       <button type="button" className="link-btn" onClick={onOpenSettings}>
                         Open Settings
                       </button>

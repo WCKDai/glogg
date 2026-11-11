@@ -243,6 +243,32 @@ describe.skipIf(!ready)('in a real browser', () => {
     }
   });
 
+  it('on a phone, the results line says which sources answered; the scope line clears the scope bar', async () => {
+    await browser.viewport(390, 844);
+    try {
+      await browser.goto(`${glogg.url}/?q=${encodeURIComponent(QUERY)}`);
+      await browser.waitFor(`document.querySelectorAll('a.result-title').length`, 'results on a phone');
+      const gap = await browser.eval<number>(`document.querySelector('.scope-hint').getBoundingClientRect().top - document.querySelector('.scopes').getBoundingClientRect().bottom`);
+      expect(gap, 'the scope line overlaps the scope bar').toBeGreaterThanOrEqual(0);
+      await browser.click('.sources-btn button');
+      await browser.waitFor(`document.querySelector('.sb-sheet .sb-row')`, 'the sources sheet');
+      const sheet = await browser.eval<{ left: number; right: number; bottom: number; navTop: number }>(
+        `(() => { const r = document.querySelector('.sb-sheet').getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, navTop: document.querySelector('.appnav').getBoundingClientRect().top }; })()`
+      );
+      expect(sheet.left).toBeGreaterThanOrEqual(0);
+      expect(sheet.right).toBeLessThanOrEqual(390);
+      expect(sheet.bottom, 'the sheet hides behind the tab bar').toBeLessThanOrEqual(sheet.navTop);
+      await browser.press('Escape');
+      await browser.waitFor(`!document.querySelector('.sb-sheet')`, 'the sheet to close');
+    } finally {
+      await browser.send('Emulation.clearDeviceMetricsOverride');
+    }
+    // A wide screen has the status bar for that, so the button stays out of the way.
+    await browser.goto(`${glogg.url}/?q=${encodeURIComponent(QUERY)}`);
+    await browser.waitFor(`document.querySelectorAll('a.result-title').length`, 'results');
+    expect(await browser.eval<string>(`getComputedStyle(document.querySelector('.sources-btn')).display`)).toBe('none');
+  });
+
   it('every control has a name, ids are unique, and the page has one main landmark', async () => {
     for (const page of ['/', `/?q=${encodeURIComponent(QUERY)}`, '/settings', '/tools', '/atlas', '/downloads', '/services']) {
       await browser.goto(`${glogg.url}${page}`);

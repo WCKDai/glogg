@@ -26,6 +26,77 @@ export function sourceSummary(timings: Record<string, Timing> = {}) {
   return { total: all.length, answered, late, failed, refused, resting: all.filter((t) => t.status === 'resting').length };
 }
 
+/** The summary's dot: red when nothing answered, amber when some didn't. */
+function summaryTone(summary: ReturnType<typeof sourceSummary>): string {
+  return summary.answered === 0 ? 'bad' : summary.late || summary.failed || summary.refused ? 'warn' : 'ok';
+}
+
+/** A popover's open state: it closes on a click outside it, on Escape, and when `resetOn` changes (a new search). */
+function usePopover<T extends HTMLElement>(resetOn: unknown) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useClickOutside<T>(close, open);
+  useEffect(() => setOpen(false), [resetOn]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+  return { open, setOpen, ref };
+}
+
+/** Each source a search asked: how it did and how fast, and why when it has nothing. */
+function SourceBreakdown({ data }: { data: RankedSearchResponse }) {
+  const timings = data.metrics.sourceTimings || {};
+  const rows = Object.entries(timings).sort(([, a], [, b]) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.ms - b.ms);
+  const slowest = Math.max(1, ...rows.map(([, t]) => t.ms));
+  return (
+    <>
+      <h3>Sources · {(data.metrics.durationMs / 1000).toFixed(2)} s</h3>
+      {rows.map(([key, t]) => (
+        <React.Fragment key={key}>
+          <div className="sb-row">
+            <span className={`sb-dot ${t.status === 'ok' ? 'ok' : t.status === 'late' || t.status === 'error' || t.status === 'refused' ? 'warn' : ''}`} aria-hidden />
+            <span className="truncate">{SOURCE_NAMES[key] || key}</span>
+            <span className="sb-num">{t.count || ''}</span>
+            <span className={`sb-status s-${t.status}`}>{t.status === 'ok' || t.status === 'empty' ? `${t.ms} ms` : STATUS_LABEL[t.status] ?? t.status}</span>
+          </div>
+          {t.note ? (
+            <p className="sb-note">{t.note}</p>
+          ) : (
+            (t.status === 'ok' || t.status === 'empty') && (
+              <div className="sb-bar" aria-hidden>
+                <span style={{ width: `${Math.max(3, (t.ms / slowest) * 100)}%` }} />
+              </div>
+            )
+          )}
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Phones have no status bar: the same breakdown, from the results line, as a sheet above the tab bar. */
+export function SourcesButton({ data }: { data: RankedSearchResponse }) {
+  const { open, setOpen, ref } = usePopover<HTMLSpanElement>(data);
+  const summary = sourceSummary(data.metrics.sourceTimings || {});
+  if (summary.total === 0) return null;
+  return (
+    <span className="sources-btn" ref={ref}>
+      <button type="button" className="link-btn" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className={`sb-dot ${summaryTone(summary)}`} aria-hidden />
+        {summary.answered}/{summary.total} sources
+      </button>
+      {open && (
+        <div className="sb-pop sb-sheet" role="dialog" aria-label="Sources">
+          <SourceBreakdown data={data} />
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function StatusBar({
   data,
   loading,
@@ -45,27 +116,11 @@ export function StatusBar({
   onToggleMode: () => void;
   onOpenPalette: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
-  const ref = useClickOutside<HTMLDivElement>(close, open);
-
   // A new search (or leaving the results) closes the breakdown.
-  useEffect(() => setOpen(false), [data]);
+  const { open, setOpen, ref } = usePopover<HTMLDivElement>(data);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  const timings = data?.metrics.sourceTimings || {};
-  const summary = sourceSummary(timings);
+  const summary = sourceSummary(data?.metrics.sourceTimings || {});
   const ms = data?.metrics.durationMs ?? 0;
-  const rows = Object.entries(timings).sort(
-    ([, a], [, b]) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.ms - b.ms
-  );
-  const slowest = Math.max(1, ...rows.map(([, t]) => t.ms));
   const researching = research && research.stage !== 'done' && research.stage !== 'error';
 
   return (
@@ -83,7 +138,7 @@ export function StatusBar({
           aria-expanded={open}
           title="Which sources answered, and how fast"
         >
-          <span className={`sb-dot ${summary.answered === 0 ? 'bad' : summary.late || summary.failed || summary.refused ? 'warn' : 'ok'}`} aria-hidden />
+          <span className={`sb-dot ${summaryTone(summary)}`} aria-hidden />
           {summary.answered}/{summary.total} sources
           {summary.failed > 0 && <span className="sb-hide-sm">· {summary.failed} failed</span>}
           {summary.refused > 0 && <span className="sb-hide-sm">· {summary.refused} turned away</span>}
@@ -129,30 +184,7 @@ export function StatusBar({
 
       {open && data && (
         <div className="sb-pop" role="dialog" aria-label="Sources">
-          <h3>
-            Sources · {(ms / 1000).toFixed(2)} s
-          </h3>
-          {rows.map(([key, t]) => (
-            <React.Fragment key={key}>
-              <div className="sb-row">
-                <span className={`sb-dot ${t.status === 'ok' ? 'ok' : t.status === 'late' || t.status === 'error' || t.status === 'refused' ? 'warn' : ''}`} aria-hidden />
-                <span className="truncate">{SOURCE_NAMES[key] || key}</span>
-                <span className="sb-num">{t.count || ''}</span>
-                <span className={`sb-status s-${t.status}`}>
-                  {t.status === 'ok' || t.status === 'empty' ? `${t.ms} ms` : STATUS_LABEL[t.status] ?? t.status}
-                </span>
-              </div>
-              {t.note ? (
-                <p className="sb-note">{t.note}</p>
-              ) : (
-                (t.status === 'ok' || t.status === 'empty') && (
-                  <div className="sb-bar" aria-hidden>
-                    <span style={{ width: `${Math.max(3, (t.ms / slowest) * 100)}%` }} />
-                  </div>
-                )
-              )}
-            </React.Fragment>
-          ))}
+          <SourceBreakdown data={data} />
         </div>
       )}
     </div>

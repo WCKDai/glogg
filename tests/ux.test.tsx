@@ -208,6 +208,27 @@ describe('when a search can\'t run', () => {
     expect($$('.sb-pop .sb-note').map((n) => n.textContent)).toEqual(['Asked for a captcha. Tries again in 5 min.', 'Nothing answers at localhost:8080.']);
   });
 
+  it('on a phone, the results line opens the same breakdown, since phones have no status bar', async () => {
+    reply = (q) =>
+      answer(q, [row(1)], [], {
+        wiki: { ms: 100, count: 1, status: 'ok' },
+        brave: { ms: 300, count: 0, status: 'refused', note: 'Asked for a captcha. Tries again in 5 min.' },
+      });
+    await render();
+    await search();
+    const button = $('.sources-btn button')!;
+    expect(button.textContent).toBe('1/2 sources');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    await click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect($('.sb-sheet[role="dialog"]')?.getAttribute('aria-label')).toBe('Sources');
+    expect($$('.sb-sheet .sb-note').map((n) => n.textContent)).toEqual(['Asked for a captcha. Tries again in 5 min.']);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect($('.sb-sheet')).toBeNull();
+  });
+
   it('the status bar counts failed sources apart from late ones', async () => {
     reply = (q) => answer(q, [row(1)], [], { wiki: { ms: 100, count: 1, status: 'ok' }, se: { ms: 4000, count: 0, status: 'error' }, hn: { ms: 7000, count: 0, status: 'late' } });
     await render();

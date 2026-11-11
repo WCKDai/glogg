@@ -136,7 +136,7 @@ Switch with <kbd>m</kbd>.
 | Rank sites your way | A result's ⋯ menu, or Settings → Domains: **pin** a site (on top whenever it matches), **raise**, **lower** or **hide** it |
 | Take your settings along | Settings → Your settings: export or import a file, or save them on your glogg and load them in another browser |
 
-**Downloads.** **Send** routes a torrent, NZB or page to the first destination that's set up: Offcloud, aria2, Nextcloud, then this machine. Configured debrid, storage and Usenet plugins (Real-Debrid, TorBox, pCloud, SABnzbd) appear as destinations too. Keys go in Settings → Integrations, and are stored server-side (mode 600) and masked in the browser.
+**Downloads.** **Send** routes a torrent, NZB or page to the first destination that's set up: Offcloud, aria2, Nextcloud, then this machine. Configured debrid, storage and Usenet plugins (Real-Debrid, TorBox, pCloud, SABnzbd) appear as destinations too. Keys go in Settings → Keys, and are stored server-side (mode 600) and masked in the browser.
 
 **Tools and plugins.** Every tool is a plugin: a folder with an `index.mjs`. The built-in ones are in `plugins/` (as TypeScript); yours go in `~/.glogg/plugins/` (`/data/plugins` in Docker) and survive updates.
 
