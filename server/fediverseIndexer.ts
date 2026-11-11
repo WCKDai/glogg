@@ -38,9 +38,12 @@ export async function searchAtProtocol(
 
     const results: RawSearchResult[] = [];
 
-    // 1a. Search actual ATProtocol posts first via app.bsky.feed.searchPosts
+    // 1a. Search actual ATProtocol posts first via app.bsky.feed.searchPosts.
+    // The public AppView answers searchPosts with 403 Forbidden; api.bsky.app still answers it without
+    // signing in (checked November 2026). Accounts are still looked up on the public one.
+    const postsBase = /^https:\/\/public\.api\.bsky\.app\/?$/.test(appViewBase) ? 'https://api.bsky.app' : appViewBase;
     try {
-      const postsUrl = `${appViewBase}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(
+      const postsUrl = `${postsBase}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(
         searchQ
       )}&limit=6`;
       const postsRes = await fetchFast(postsUrl, 3200);

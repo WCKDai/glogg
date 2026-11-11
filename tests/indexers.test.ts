@@ -664,7 +664,8 @@ describe('the P2P and Usenet search', () => {
 // ── The Fediverse ───────────────────────────────────────────────────────────
 
 describe('Bluesky', () => {
-  const POSTS = 'https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts';
+  // The public AppView answers searchPosts with 403; api.bsky.app still answers it without signing in.
+  const POSTS = 'https://api.bsky.app/xrpc/app.bsky.feed.searchPosts';
   const ACTORS = 'https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors';
   const long = 'How the Rust borrow checker reasons about lifetimes,   with three small examples that each fail to compile at first';
 
@@ -741,6 +742,18 @@ describe('Bluesky', () => {
     expect(results.map((r) => r.author)).not.toContain('@baker.bsky.social');
   });
 
+  it('searches posts on api.bsky.app, since the public AppView answers searchPosts with 403', async () => {
+    upstream('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', () => page('<html><head><title>403 Forbidden</title></head></html>', 'text/html', 403));
+    upstream(POSTS, () => json({ posts: [bskyPost({ cid: 'bafy-a', record: { text: 'How the Rust borrow checker reasons about lifetimes' } })] }));
+    upstream(ACTORS, () => json({ actors: [] }));
+    expect((await fedi.searchAtProtocol('rust borrow checker')).map((r) => r.id)).toEqual(['atproto-post-bafy-a']);
+    expect(asked('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts')).toEqual([]);
+    // Set to the public AppView by hand, it's the same.
+    requests.length = 0;
+    await fedi.searchAtProtocol('rust borrow checker', 'https://public.api.bsky.app');
+    expect(asked(POSTS)).toHaveLength(1);
+  });
+
   it('asks a custom AppView when one is set', async () => {
     upstream('https://appview.example/', () => json({ posts: [], actors: [] }));
     await fedi.searchAtProtocol('rust borrow checker', 'https://appview.example');
@@ -755,12 +768,14 @@ describe('Bluesky', () => {
 
   it('returns nothing when both searches fail', async () => {
     upstream('https://public.api.bsky.app/', () => json({ error: 'RateLimitExceeded' }, 429));
+    upstream('https://api.bsky.app/', () => json({ error: 'RateLimitExceeded' }, 429));
     expect(await fedi.searchAtProtocol('rust borrow checker')).toEqual([]);
   });
 
   it('gives up on posts, then accounts, each at its own deadline', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     upstream('https://public.api.bsky.app/', silent);
+    upstream('https://api.bsky.app/', silent);
     let settled = false;
     const pending = fedi.searchAtProtocol('rust borrow checker').then((r) => {
       settled = true;
@@ -1008,6 +1023,7 @@ describe('the Fediverse search', () => {
     expect(results.slice(0, 3).map((r) => r.id)).toEqual(['atproto-post-bafy-stoat', 'ap-mastodon.social-777', 'matrix-!stoat:matrix.example']);
     expect(results.length).toBeGreaterThan(3);
     expect(asked('https://public.api.bsky.app/')).toEqual([]);
+    expect(asked('https://api.bsky.app/')).toEqual([]);
     expect(asked('https://matrix.org/')).toEqual([]);
   });
 });
@@ -1729,7 +1745,7 @@ describe('found by these tests, and fixed', () => {
   });
 
   it('keeps the Bluesky posts it found when the account search fails', async () => {
-    upstream('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
+    upstream('https://api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
       json({ posts: [bskyPost({ cid: 'bafy-a', record: { text: 'How the Rust borrow checker reasons about lifetimes' } })] })
     );
     upstream('https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors', () => Promise.reject(new TypeError('fetch failed')));
@@ -1738,7 +1754,7 @@ describe('found by these tests, and fixed', () => {
 
   it('keeps the Bluesky posts it found when the account search times out', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    upstream('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
+    upstream('https://api.bsky.app/xrpc/app.bsky.feed.searchPosts', () =>
       json({ posts: [bskyPost({ cid: 'bafy-a', record: { text: 'How the Rust borrow checker reasons about lifetimes' } })] })
     );
     upstream('https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors', silent);
