@@ -150,6 +150,8 @@ export async function* runResearch(req: ResearchRequest, deps: ResearchDeps): As
           wrote = true;
           yield { type: 'delta', text: piece };
         }
+        // Nothing to show is no answer: the quotes are better than a blank.
+        if (!wrote) throw new Error('the answer was empty');
         yield { type: 'done', mode: 'ai', model: deps.ai.model, durationMs: Date.now() - started };
         return;
       } catch (e) {

@@ -332,3 +332,56 @@ describe('found by these tests, and fixed', () => {
     await expect(completeChat(cfg, [user('hi')])).rejects.toThrow(/Provider disconnected/);
   });
 });
+
+describe('answers that are not a plain stream', () => {
+  it('takes the whole reply from an OpenAI-compatible server that ignores stream: true', async () => {
+    const srv = await modelServer(() => ({
+      type: 'application/json',
+      chunks: [JSON.stringify({ id: 'chatcmpl-1', object: 'chat.completion', choices: [{ index: 0, message: { role: 'assistant', content: 'Ferris says hi' }, finish_reason: 'stop' }] })],
+    }));
+    expect(await completeChat({ provider: 'lmstudio', baseUrl: srv.url, apiKey: '', model: 'local-model' }, [user('hi')])).toBe('Ferris says hi');
+  });
+
+  it("takes Anthropic's whole reply too, text blocks only", async () => {
+    const srv = await modelServer(() => ({
+      type: 'application/json',
+      chunks: [
+        JSON.stringify({
+          id: 'msg_1',
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Hello ' }, { type: 'tool_use', id: 'toolu_1', name: 'x', input: {} }, { type: 'text', text: 'there' }],
+          stop_reason: 'end_turn',
+        }),
+      ],
+    }));
+    expect(await completeChat({ provider: 'anthropic', baseUrl: srv.url, apiKey: 'sk-ant-1', model: 'claude-3-5-haiku-latest' }, [user('hi')])).toBe('Hello there');
+  });
+
+  it('throws the error in a whole reply that came with a 200', async () => {
+    const srv = await modelServer(() => ({ type: 'application/json', chunks: [JSON.stringify({ error: { message: 'model "llama3.1" not found, try pulling it first' } })] }));
+    await expect(completeChat({ provider: 'ollama', baseUrl: srv.url, apiKey: '', model: 'llama3.1' }, [user('hi')])).rejects.toThrow(/not found, try pulling it first/);
+  });
+
+  it('throws when the server sends a page instead of an answer', async () => {
+    const srv = await modelServer(() => ({ type: 'text/html; charset=utf-8', chunks: ['<!doctype html><title>Sign in</title>'] }));
+    await expect(completeChat({ provider: 'custom', baseUrl: srv.url, apiKey: '', model: 'm' }, [user('hi')])).rejects.toThrow('the server sent text/html instead of an answer');
+  });
+
+  it('throws when the answer is empty, so research can show quotes instead of a blank', async () => {
+    const srv = await modelServer(() => ({ chunks: [sse({ choices: [{ index: 0, delta: { role: 'assistant' } }] }), sse('[DONE]')] }));
+    await expect(completeChat({ provider: 'openai', baseUrl: srv.url, apiKey: 'sk-1', model: 'm' }, [user('hi')])).rejects.toThrow('the answer was empty');
+  });
+
+  it('reads the last event when the stream ends without a newline after it', async () => {
+    const srv = await modelServer(() => ({ chunks: [openaiDelta('no '), 'data: {"choices":[{"index":0,"delta":{"content":"newline"}}]}'] }));
+    expect(await completeChat({ provider: 'openai', baseUrl: srv.url, apiKey: 'sk-1', model: 'm' }, [user('hi')])).toBe('no newline');
+  });
+
+  it('lets go of the connection after [DONE], when the server would hold it open', async () => {
+    const srv = await modelServer(() => ({ chunks: [openaiDelta('ok'), sse('[DONE]')], then: 'hold' }));
+    expect(await completeChat({ provider: 'openai', baseUrl: srv.url, apiKey: 'sk-1', model: 'm' }, [user('hi')])).toBe('ok');
+    for (let i = 0; i < 50 && srv.closedResponses() === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(srv.closedResponses()).toBe(1);
+  });
+});

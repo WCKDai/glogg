@@ -43,7 +43,30 @@ export function resolveAiConfig(settings: Record<string, string>): AiConfig | nu
   return cfg;
 }
 
-/** Streams text deltas. Throws with a readable message on HTTP errors, and when the provider reports one partway. */
+type StreamEvent = {
+  choices?: { delta?: { content?: string } }[];
+  type?: string;
+  delta?: { text?: string };
+  error?: { message?: string } | string;
+};
+
+type WholeReply = {
+  choices?: { message?: { content?: unknown } }[];
+  content?: { type?: string; text?: unknown }[];
+  error?: { message?: string } | string;
+};
+
+/** [DONE]: a symbol, since a model may well answer with the word "done". */
+const DONE = Symbol('done');
+
+function errorText(error: { message?: string } | string, fallback: string): string {
+  return (typeof error === 'string' ? error : error.message) || fallback;
+}
+
+/**
+ * Streams text deltas. Throws with a readable message on HTTP errors, when the provider reports one
+ * partway, and when the answer is empty, so callers can fall back instead of showing nothing.
+ */
 export async function* streamChat(
   cfg: AiConfig,
   messages: ChatMessage[],
@@ -85,35 +108,70 @@ export async function* streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  for (;;) {
+  /** The body so far, kept until a `data:` line shows it is an event stream. */
+  let whole = '';
+  let streaming = false;
+  let wrote = false;
+  /** The text one line of the event stream carries, or DONE at [DONE]. */
+  const read = (raw: string): string | typeof DONE | undefined => {
+    const line = raw.trim();
+    if (!line.startsWith('data:')) return undefined;
+    streaming = true;
+    const payload = line.slice(5).trim();
+    if (payload === '[DONE]') return DONE;
+    let j: StreamEvent;
+    try {
+      j = JSON.parse(payload);
+    } catch {
+      return undefined; // partial / keep-alive line
+    }
+    if (!j || typeof j !== 'object') return undefined;
+    // Anthropic's `error` event (overloaded, say) and OpenRouter's `error` field end the answer early: that's a failure, not a finished answer.
+    if (j.error) throw new Error(errorText(j.error, 'The answer stopped with an error'));
+    const piece = isAnthropic ? (j.type === 'content_block_delta' ? j.delta?.text : undefined) : j.choices?.[0]?.delta?.content;
+    return typeof piece === 'string' && piece ? piece : undefined;
+  };
+  reading: for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
-      if (payload === '[DONE]') return;
-      let j: {
-        choices?: { delta?: { content?: string } }[];
-        type?: string;
-        delta?: { text?: string };
-        error?: { message?: string } | string;
-      };
-      try {
-        j = JSON.parse(payload);
-      } catch {
-        continue; // partial / keep-alive line
+    const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true });
+    buf += chunk;
+    if (!streaming) whole += chunk;
+    const lines = buf.split('\n');
+    // A stream may end without a newline after its last event.
+    buf = done ? '' : lines.pop()!;
+    for (const line of lines) {
+      const piece = read(line);
+      if (piece === DONE) {
+        // The server may hold the connection open after [DONE].
+        void reader.cancel().catch(() => undefined);
+        break reading;
       }
-      if (!j || typeof j !== 'object') continue;
-      // Anthropic's `error` event (overloaded, say) and OpenRouter's `error` field end the answer early: that's a failure, not a finished answer.
-      if (j.error) throw new Error((typeof j.error === 'string' ? j.error : j.error.message) || 'The answer stopped with an error');
-      const piece = isAnthropic ? (j.type === 'content_block_delta' ? j.delta?.text : undefined) : j.choices?.[0]?.delta?.content;
-      if (typeof piece === 'string' && piece) yield piece;
+      if (piece) {
+        wrote = true;
+        yield piece;
+      }
+    }
+    if (done) break;
+  }
+  if (!streaming) {
+    // A server that ignores `stream: true` (some proxies and local servers do) sends the whole reply as JSON.
+    let j: WholeReply | undefined;
+    try {
+      j = JSON.parse(whole) as WholeReply;
+    } catch {
+      const type = (res.headers.get('content-type') || 'something').split(';')[0].trim();
+      throw new Error(`the server sent ${type} instead of an answer`);
+    }
+    if (j?.error) throw new Error(errorText(j.error, 'The answer was an error'));
+    const text = isAnthropic
+      ? (Array.isArray(j?.content) ? j.content : []).map((b) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('')
+      : j?.choices?.[0]?.message?.content;
+    if (typeof text === 'string' && text) {
+      yield text;
+      return;
     }
   }
+  if (!wrote) throw new Error('the answer was empty');
 }
 
 export async function completeChat(cfg: AiConfig, messages: ChatMessage[], opts: { signal?: AbortSignal; maxTokens?: number } = {}): Promise<string> {

@@ -293,6 +293,16 @@ describe('research: engine (offline, stubbed I/O)', () => {
     expect(events.at(-1)).toMatchObject({ mode: 'extractive' });
   });
 
+  it('falls back to quotes with a notice when the model sends an empty answer', async () => {
+    const chat = async function* (): AsyncGenerator<string> {};
+    const events = await collect(
+      runResearch({ query: 'undo git commit', candidates }, { ai: { provider: 'ollama', baseUrl: 'x', apiKey: '', model: 'm' }, fetchPage, chat })
+    );
+    expect(events.map((e) => e.type)).toEqual(['status', 'sources', 'status', 'notice', 'delta', 'done']);
+    expect(events.find((e) => e.type === 'notice')).toMatchObject({ message: "Ollama (local) didn't answer (the answer was empty). Showing quoted passages instead." });
+    expect(events.at(-1)).toMatchObject({ mode: 'extractive' });
+  });
+
   it('reports an error, without mixing in quotes, when the model stops mid-answer', async () => {
     const chat = async function* () {
       yield 'Partial';

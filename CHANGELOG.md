@@ -172,6 +172,12 @@ A security review found these; each now has a test that failed before its fix (`
 - The local API now refuses requests from other websites and DNS-rebinding hosts, except a few public read-only routes (search, OpenSearch, suggestions, Atlas, health, IPFS lookup). Previously any site could call every route, including ones that use stored keys or start containers. Use `GLOGG_ALLOWED_HOSTS` / `GLOGG_ALLOWED_ORIGINS` for custom domains.
 
 ### Fixed
+- **AI answers from servers that don't stream.** A server that ignores `stream: true` (some proxies and local servers do) sends its whole answer as JSON, and glogg showed it as an empty answer; now it reads it. Research now falls back to quoted passages, with a notice saying why, instead of showing a blank, when the model:
+  - sends an empty answer;
+  - sends a page instead of an answer (a proxy's sign-in page, say);
+  - reports an error in a `200` reply.
+
+  The last event of a stream is read even when no newline follows it, and glogg closes the connection after `[DONE]` instead of keeping it open (`tests/ai.test.ts`, `tests/research.test.ts`).
 - A search could overrun its deadlines, or never finish when a core source hung: Node can fire a timer a millisecond before `Date.now()` shows its full delay, and the deadline check then missed. Each deadline now counts as reached when its own timer fires.
 - Board catalogs over 1.5 MB (leftypol's) failed as "not a board catalog"; boards now get 8 MB.
 - One site with thousands of feeds (a big Lemmy instance) could fill the crawler's whole batch and slow it to one request a second; sites that are waiting are now skipped when picking the next batch.
