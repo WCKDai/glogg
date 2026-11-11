@@ -354,9 +354,11 @@ describe('start screen and status bar', () => {
     expect(byText('.statusbar button', 'sources')!.textContent).toContain('1 late');
     await click(byText('.statusbar button', 'sources'));
     const rows = $$('.sb-pop .sb-row').map((r) => r.textContent);
-    expect(rows[0]).toContain('Wikipedia');
-    expect(rows.join(' ')).toContain('resting');
-    expect(rows.join(' ')).toContain('late');
+    // The one that didn't answer comes first, since it's why the count is short; then the rest by speed.
+    const names = ['Marginalia', 'Stack Exchange', 'Wikipedia', 'GDELT news'];
+    expect(rows.map((r) => names.find((n) => r?.includes(n)))).toEqual(['Marginalia', 'Wikipedia', 'Stack Exchange', 'GDELT news']);
+    expect(rows[0]).toContain('late');
+    expect(rows[3]).toContain('resting');
   });
 });
 

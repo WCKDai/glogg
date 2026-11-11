@@ -297,8 +297,11 @@ export interface RankedSearchResponse {
     avgAuthenticityScore: number;
     avgSlopScore: number;
     sourcesQueried: SourceConnectorId[];
-    /** Per upstream: time to answer, results returned, and whether it made the deadline. */
-    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' }>;
+    /**
+     * Per upstream: time to answer, results returned, and whether it made the deadline. `refused`: it
+     * turned glogg away (a rate limit, a bot check); `unset`: it isn't set up; `note` says why.
+     */
+    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' | 'refused' | 'unset'; note?: string }>;
     durationMs: number;
   };
 }

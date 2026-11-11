@@ -38,24 +38,93 @@ function count(n: number, word: string): string {
 }
 
 /**
- * Hosts that answered 429 Too Many Requests, and until when they're left
- * alone: as long as Retry-After says, otherwise five minutes (30 s to 30 min).
- * Asking again sooner only gets refused and holds a connection.
+ * A source that didn't search: it turned glogg away (a rate limit, a bot
+ * check, a 403), or it isn't set up. The message is the line the status bar
+ * shows under it, so you can tell a refusal from "nothing matched".
  */
-const rateLimited = new Map<string, number>();
+export class SourceUnavailable extends Error {
+  constructor(
+    readonly status: 'refused' | 'unset',
+    note: string
+  ) {
+    super(note);
+    this.name = 'SourceUnavailable';
+  }
+}
 
-function restAfterRateLimit(retryAfter: string | null): number {
-  const seconds = retryAfter && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter) : retryAfter ? (Date.parse(retryAfter) - Date.now()) / 1000 : NaN;
+/** A connector's catch-all: a refusal goes on to the status bar, anything else means no results. */
+function unlessRefused(e: unknown): RawSearchResult[] {
+  if (e instanceof SourceUnavailable) throw e;
+  return [];
+}
+
+/** True when a fetch failed because nothing listens at the address, or the name doesn't resolve. */
+function nothingListening(e: unknown, depth = 0): boolean {
+  if (!e || typeof e !== 'object' || depth > 4) return false;
+  const err = e as { code?: unknown; errors?: unknown; cause?: unknown };
+  if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') return true;
+  // Node tries each address of a name and reports them together.
+  if (Array.isArray(err.errors) && err.errors.some((x) => nothingListening(x, depth + 1))) return true;
+  return nothingListening(err.cause, depth + 1);
+}
+
+/**
+ * Hosts that turned glogg away (429 Too Many Requests, a bot check), until
+ * when they're left alone, and why: as long as Retry-After says, otherwise
+ * five minutes (30 s to 30 min). Asking again sooner only gets refused and
+ * holds a connection.
+ */
+const rateLimited = new Map<string, { until: number; why: string }>();
+
+/** Hosts that ask for a pause between searches, and when each was last asked. */
+const MIN_GAP: Record<string, { ms: number; why: string }> = {
+  // "Please limit requests to one every 5 seconds", and it answers that slowly.
+  'api.gdeltproject.org': { ms: 5000, why: 'Allows one search every 5 seconds.' },
+};
+const lastAsked = new Map<string, number>();
+
+function restAfterRateLimit(res: Response): number {
+  const retryAfter = res.headers.get('retry-after');
+  // GitHub says when its window resets instead, in Unix seconds.
+  const reset = Number(res.headers.get('x-ratelimit-reset'));
+  const seconds =
+    retryAfter && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter) : retryAfter ? (Date.parse(retryAfter) - Date.now()) / 1000 : reset > 0 ? reset - Date.now() / 1000 : NaN;
   return Math.min(30 * 60_000, Math.max(30_000, Number.isFinite(seconds) ? seconds * 1000 : 5 * 60_000));
 }
 
+/** Leave a host alone for a while, and the refusal to show meanwhile: why, and when glogg asks again. */
+function restHost(host: string, ms: number, why: string): SourceUnavailable {
+  rateLimited.set(host, { until: Date.now() + ms, why });
+  return restingRefusal(host);
+}
+
+function restingRefusal(host: string): SourceUnavailable {
+  const rest = rateLimited.get(host)!;
+  const minutes = Math.max(1, Math.round((rest.until - Date.now()) / 60_000));
+  return new SourceUnavailable('refused', `${rest.why} Tries again in ${minutes} min.`);
+}
+
+/** What a refusal means, when a source says more than the status code does. */
+type Refusals = { 403?: string; 429?: string };
+
+/**
+ * A GET with a deadline. A host that refuses (429, or GitHub's 403 with no
+ * requests left) rests, and a 403 or 429 throws SourceUnavailable, worded by
+ * `refusals` where the source's own reason is known.
+ */
 async function fetchWithTimeout(
   url: string,
   timeoutMs = 4200,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  refusals: Refusals = {}
 ): Promise<Response> {
   const host = new URL(url).hostname;
-  if ((rateLimited.get(host) ?? 0) > Date.now()) return new Response('', { status: 429, statusText: 'Resting after a rate limit' });
+  if ((rateLimited.get(host)?.until ?? 0) > Date.now()) throw restingRefusal(host);
+  const gap = MIN_GAP[host];
+  if (gap) {
+    if (Date.now() - (lastAsked.get(host) ?? 0) < gap.ms) throw new SourceUnavailable('refused', gap.why);
+    lastAsked.set(host, Date.now());
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -68,7 +137,14 @@ async function fetchWithTimeout(
         ...headers,
       },
     });
-    if (res.status === 429) rateLimited.set(host, Date.now() + restAfterRateLimit(res.headers.get('retry-after')));
+    if (res.status === 429 || res.status === 403) {
+      // Unread, the refusal page would hold its connection.
+      void res.body?.cancel().catch(() => undefined);
+      if (res.status === 429 || res.headers.get('x-ratelimit-remaining') === '0') {
+        throw restHost(host, restAfterRateLimit(res), refusals[429] ?? 'Too many searches from this glogg.');
+      }
+      throw new SourceUnavailable('refused', refusals[403] ?? 'Turned glogg away (HTTP 403).');
+    }
     return res;
   } finally {
     clearTimeout(timer);
@@ -131,10 +207,10 @@ export function searchCuratedIndieIndex(query: string): RawSearchResult[] {
 async function searchMarginalia(rawQuery: string, kwQuery: string, apiKey?: string): Promise<RawSearchResult[]> {
   try {
     // api.marginalia.nu stopped answering; the API moved to api2.marginalia-search.com.
-    // "public" is a shared, rate-limited key: a free personal key goes in Settings → Integrations.
+    // "public" is a shared, rate-limited key: a free personal key goes in Settings → Keys.
     const key = apiKey || process.env.MARGINALIA_API_KEY || 'public';
     const url = `https://api2.marginalia-search.com/search?query=${encodeURIComponent(kwQuery || rawQuery)}&count=10`;
-    const res = await fetchWithTimeout(url, 3800, { 'API-Key': key });
+    const res = await fetchWithTimeout(url, 3800, { 'API-Key': key }, key === 'public' ? { 429: 'The shared key is over its limit: add your own in Settings → Keys.' } : {});
     if (!res.ok) return [];
     const data = (await res.json()) as {
       results?: Array<{
@@ -160,8 +236,8 @@ async function searchMarginalia(rawQuery: string, kwQuery: string, apiKey?: stri
         const rel = computeQueryRelevance(rawQuery, r.title, r.snippet, r.url);
         return rel.matchedAnchor && rel.relevanceScore >= 46;
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -178,8 +254,8 @@ async function searchMwmbl(rawQuery: string, kwQuery: string): Promise<RawSearch
       .filter((r) => /^https?:\/\//.test(r.url))
       .slice(0, 10)
       .map((r, i) => ({ id: `mwmbl-${i}-${r.url}`, title: join(r.title) || r.url, url: r.url, snippet: join(r.extract), source: 'mwmbl' as const }));
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -257,8 +333,8 @@ async function searchWiby(rawQuery: string, kwQuery: string): Promise<RawSearchR
         const rel = computeQueryRelevance(rawQuery, r.title, r.snippet, r.url);
         return rel.matchedAnchor && rel.relevanceScore >= 48;
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -270,12 +346,16 @@ async function searchSearxngNode(
   baseUrl = process.env.SEARXNG_URL || 'http://localhost:8080',
   uncensoredMode = false
 ): Promise<RawSearchResult[]> {
+  // Relative to the address, so a SearXNG under a path (https://example.com/searx) is asked there.
+  const u = new URL('search', `${baseUrl.replace(/\/+$/, '')}/`);
   try {
-    const u = new URL('/search', baseUrl);
     u.searchParams.set('q', query);
     u.searchParams.set('format', 'json');
     u.searchParams.set('safesearch', uncensoredMode ? '0' : '1');
-    const res = await fetchWithTimeout(u.toString(), 2400);
+    const res = await fetchWithTimeout(u.toString(), 2400, {}, {
+      403: "Doesn't answer in JSON: add json to search.formats in its settings.yml.",
+      429: 'Its rate limiter turned glogg away.',
+    });
     if (!res.ok) return [];
     const data = (await res.json()) as {
       results?: Array<{
@@ -296,8 +376,10 @@ async function searchSearxngNode(
       source: 'web' as const,
       publishedAt: r.publishedDate,
     }));
-  } catch {
-    return [];
+  } catch (e) {
+    // Most installs don't run one at the default address (or Docker Compose's, without its searxng profile).
+    if (nothingListening(e)) throw new SourceUnavailable('unset', `Nothing answers at ${u.host}.`);
+    return unlessRefused(e);
   }
 }
 
@@ -369,8 +451,8 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
       });
     }
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -421,8 +503,8 @@ async function searchOpenAlex(rawQuery: string, kwQuery: string): Promise<RawSea
           points: w.cited_by_count,
         };
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -484,8 +566,8 @@ async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawS
       }
     }
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -535,8 +617,8 @@ async function searchWikipedia(rawQuery: string, kwQuery: string, entitySubject:
 
     mapped.sort((a, b) => b.score - a.score);
     return mapped.map((m) => m.raw);
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -561,6 +643,7 @@ async function searchStackExchange(
       sites.push('unix', 'superuser');
     }
 
+    let refusal: SourceUnavailable | undefined;
     const siteResponses = await Promise.all(
       sites.map(async (site) => {
         try {
@@ -568,6 +651,16 @@ async function searchStackExchange(
             searchQ
           )}&site=${site}&pagesize=4${stackExchangeKeyParam(apiKey)}`;
           const res = await fetchWithTimeout(url, 3600);
+          if (res.status === 400) {
+            // Out of requests: {"error_name":"throttle_violation","error_message":"too many requests from this IP, more requests available in 70544 seconds"}
+            const err = (await res.json().catch(() => ({}))) as { error_name?: string; error_message?: string };
+            if (err.error_name === 'throttle_violation') {
+              const seconds = Number(/available in (\d+) seconds/.exec(err.error_message || '')?.[1]);
+              const why = apiKey ? 'Out of requests for today.' : "Out of today's 300 requests: a free key in Settings → Keys allows 10,000.";
+              throw restHost('api.stackexchange.com', Math.min(30 * 60_000, Number.isFinite(seconds) ? seconds * 1000 : 30 * 60_000), why);
+            }
+            return [];
+          }
           if (!res.ok) return [];
           const data = (await res.json()) as {
             items?: Array<{
@@ -597,15 +690,19 @@ async function searchStackExchange(
             commentsCount: item.answer_count,
             tags: item.tags,
           }));
-        } catch {
+        } catch (e) {
+          if (e instanceof SourceUnavailable) refusal = e;
           return [];
         }
       })
     );
 
-    return siteResponses.flat();
-  } catch {
-    return [];
+    const found = siteResponses.flat();
+    // One site's refusal still leaves the others' answers; with none, say why.
+    if (found.length === 0 && refusal) throw refusal;
+    return found;
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -647,8 +744,8 @@ async function searchArxiv(rawQuery: string, kwQuery: string): Promise<RawSearch
     });
 
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -664,9 +761,12 @@ async function searchGitHub(
     const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(
       kwQuery || rawQuery
     )}&sort=stars&order=desc&per_page=6`;
-    const res = await fetchWithTimeout(url, 3800, {
-      Accept: 'application/vnd.github+json',
-    });
+    const res = await fetchWithTimeout(
+      url,
+      3800,
+      { Accept: 'application/vnd.github+json' },
+      { 429: 'Allows 10 searches a minute without signing in.' }
+    );
     if (!res.ok) return [];
     const data = (await res.json()) as {
       items?: Array<{
@@ -696,8 +796,8 @@ async function searchGitHub(
       });
     }
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -714,6 +814,8 @@ async function searchDuckDuckGoHtml(
     const res = await fetchWithTimeout(url, 4000);
     if (!res.ok) return [];
     const html = await res.text();
+    // A bot check instead of results: 202 and an "anomaly" page. Asking again at once only gets another.
+    if (res.status === 202 || /anomaly-modal|challenge-form/.test(html)) throw restHost('html.duckduckgo.com', 60_000, 'Asked for a bot check.');
     const $ = cheerio.load(html);
     const results: RawSearchResult[] = [];
 
@@ -747,8 +849,8 @@ async function searchDuckDuckGoHtml(
     });
 
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -762,7 +864,8 @@ async function searchBraveWebHtml(
   try {
     const safeParam = uncensoredMode ? '&safesearch=off' : '&safesearch=moderate';
     const url = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web${safeParam}`;
-    const res = await fetchWithTimeout(url, 3800);
+    // Brave often answers a server with a captcha page, as a 429.
+    const res = await fetchWithTimeout(url, 3800, {}, { 429: 'Asked for a captcha.' });
     if (!res.ok) return [];
     const html = await res.text();
     const $ = cheerio.load(html);
@@ -797,8 +900,8 @@ async function searchBraveWebHtml(
     });
 
     return results;
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -843,8 +946,8 @@ async function searchGdeltRawNews(rawQuery: string, kwQuery: string): Promise<Ra
           publishedAt: isoDate,
         };
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -898,8 +1001,8 @@ async function searchArchiveDeepTexts(rawQuery: string, kwQuery: string): Promis
           points: d.downloads,
         };
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return unlessRefused(e);
   }
 }
 
@@ -928,7 +1031,10 @@ interface SourceTask {
 export interface SourceTiming {
   ms: number;
   count: number;
-  status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off';
+  /** `refused`: it turned glogg away (a rate limit, a bot check); `unset`: it isn't set up. */
+  status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' | 'refused' | 'unset';
+  /** Why, for `refused` and `unset`: one line for the status bar. */
+  note?: string;
 }
 
 /** How long an early batch waits for the full answer before going out on its own. */
@@ -1026,14 +1132,19 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
         p = Promise.reject(e);
       }
       p.then(
-        (v) => ({ v: Array.isArray(v) ? v : [], failed: false }),
-        () => ({ v: [] as RawSearchResult[], failed: true })
-      ).then(({ v, failed }) => {
+        (v) => ({ v: Array.isArray(v) ? v : [], failed: false, unavailable: undefined as SourceUnavailable | undefined }),
+        (e) => ({ v: [] as RawSearchResult[], failed: !(e instanceof SourceUnavailable), unavailable: e instanceof SourceUnavailable ? e : undefined })
+      ).then(({ v, failed, unavailable }) => {
         const ms = Date.now() - start;
+        // A refusal is the upstream saying no, not hanging: the host rests on its own terms.
         opts.onSettle?.(t.key, ms, v.length, failed);
         if (finished) return;
         out[t.key] = v;
-        if (opts.timings) opts.timings[t.key] = { ms, count: v.length, status: failed ? 'error' : v.length ? 'ok' : 'empty' };
+        if (opts.timings) {
+          opts.timings[t.key] = unavailable
+            ? { ms, count: 0, status: unavailable.status, note: unavailable.message }
+            : { ms, count: v.length, status: failed ? 'error' : v.length ? 'ok' : 'empty' };
+        }
         settled += 1;
         if (t.core) {
           coreCount += v.length;
@@ -1061,6 +1172,7 @@ const sourceHealth = new Map<string, { fails: number; restUntil: number }>();
 
 export function resetSourceHealth(): void {
   rateLimited.clear();
+  lastAsked.clear();
   sourceHealth.clear();
 }
 

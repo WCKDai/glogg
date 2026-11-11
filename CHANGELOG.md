@@ -4,6 +4,26 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Sources say why they came back empty
+A live check of every source on 11 November 2026 found five that returned nothing while the status bar said they had no matches (`tests/searchPipeline.test.ts`, `tests/ux.test.tsx`, `tests/indexers.test.ts`).
+- **Bluesky posts are back.** Bluesky's public AppView now answers post searches with 403 Forbidden, so the Fediverse source found only accounts. glogg searches posts on `api.bsky.app`, which still answers without signing in.
+- **A source that turns glogg away says so.** The status bar counts it as "turned away" and says why under its name, along with when glogg tries again:
+  - DuckDuckGo "Asked for a bot check";
+  - Brave "Asked for a captcha";
+  - Marginalia "The shared key is over its limit: add your own in Settings → Keys";
+  - Stack Exchange is out of the day's requests;
+  - GitHub allows only 10 searches a minute;
+  - any other source answers `403`.
+
+  Until then glogg doesn't ask it: DuckDuckGo for a minute after a bot check, Stack Exchange until its quota comes back (at most 30 minutes), GitHub until its window resets. On the network checked, Brave refused every search from glogg's server, and DuckDuckGo refused after one or two searches in a row.
+- **GDELT is asked at most once every 5 seconds,** as it requests. A search sooner than that skips GDELT and says so.
+- **SearXNG:**
+  - When nothing is running at its address, it shows as "not set up", names the address, and isn't counted among the sources asked.
+  - A SearXNG with JSON turned off says how to turn it on.
+  - A SearXNG under a path (`https://example.com/searx`) is now asked there, not at the root of the domain.
+- "None of the sources answered" now also shows when every source turned glogg away.
+- `metrics.sourceTimings` has two new statuses, `refused` and `unset`, each with a `note`. `docs/api.md` lists all the statuses.
+
 ### Easier to use
 From a fresh UX review of the running app, with screenshots at desktop and phone sizes (`tests/ux.test.tsx`, `tests/ux-server.test.ts`).
 - **Answers cite the right sources.** When an accepted answer took citation [1], every other number shifted while the takeaways kept the old ones, so each pointed one source early. Numbers now follow their source, and a takeaway whose source didn't make the list goes with it.

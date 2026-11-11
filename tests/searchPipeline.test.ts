@@ -338,3 +338,117 @@ describe('federated search with stubbed upstreams', () => {
     expect(Date.now() - t).toBeLessThan(1100);
   });
 });
+
+describe('sources that turn glogg away, or are not set up', () => {
+  let replies: Record<string, (url: URL) => Response | Promise<Response>> = {};
+  const asked: URL[] = [];
+  const askedOf = (host: string) => asked.filter((u) => u.hostname === host);
+
+  beforeEach(() => {
+    replies = {};
+    asked.length = 0;
+    fs.clearSearchCache();
+    fs.resetSourceHealth();
+    answers.clearInstantAnswerCache();
+    vi.stubGlobal('fetch', async (input: string | URL) => {
+      const url = new URL(String(input));
+      asked.push(url);
+      return replies[url.hostname]?.(url) ?? new Response('', { status: 404 });
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const timing = async (q: string, key: string, config: object = {}) =>
+    (await fs.executeFederatedSearch(q, { lens: 'all', ...config })).metrics.sourceTimings?.[key];
+
+  it('says DuckDuckGo asked for a bot check, rather than that nothing matched, and leaves it be for a minute', async () => {
+    replies['html.duckduckgo.com'] = () =>
+      new Response('<div class="anomaly-modal__modal"><form id="challenge-form" action="//duckduckgo.com/anomaly.js"></form></div>', { status: 202, headers: { 'Content-Type': 'text/html' } });
+    expect(await timing('rust borrow checker', 'ddg')).toMatchObject({ status: 'refused', count: 0, note: 'Asked for a bot check. Tries again in 1 min.' });
+    fs.clearSearchCache();
+    expect(await timing('zfs scrub schedule', 'ddg')).toMatchObject({ status: 'refused', note: 'Asked for a bot check. Tries again in 1 min.' });
+    expect(askedOf('html.duckduckgo.com')).toHaveLength(1);
+  });
+
+  it('says Brave asked for a captcha', async () => {
+    replies['search.brave.com'] = () => new Response('<title>Brave Search</title> Your request has been flagged as being suspicious', { status: 429 });
+    expect(await timing('rust borrow checker', 'brave')).toMatchObject({ status: 'refused', note: 'Asked for a captcha. Tries again in 5 min.' });
+  });
+
+  it("says when Marginalia's shared key is over its limit, which a key of your own avoids", async () => {
+    replies['api2.marginalia-search.com'] = () => new Response('QPM Limit Exceeded', { status: 429 });
+    expect((await timing('rust borrow checker', 'marginalia'))?.note).toBe('The shared key is over its limit: add your own in Settings → Keys. Tries again in 5 min.');
+    fs.resetSourceHealth();
+    fs.clearSearchCache();
+    expect((await timing('rust borrow checker', 'marginalia', { endpoints: { marginaliaApiKey: 'mine' } }))?.note).toBe('Too many searches from this glogg. Tries again in 5 min.');
+  });
+
+  it('says when Stack Exchange is out of requests for the day, and stops asking it for a while', async () => {
+    replies['api.stackexchange.com'] = () =>
+      Response.json({ error_id: 502, error_name: 'throttle_violation', error_message: 'too many requests from this IP, more requests available in 70544 seconds' }, { status: 400 });
+    // The instant answer asks Stack Exchange too (for accepted answers only), on its own terms.
+    const searches = () => askedOf('api.stackexchange.com').filter((u) => !u.searchParams.has('accepted'));
+    expect(await timing('how to undo a git commit', 'se')).toMatchObject({
+      status: 'refused',
+      note: "Out of today's 300 requests: a free key in Settings → Keys allows 10,000. Tries again in 30 min.",
+    });
+    const before = searches().length;
+    fs.clearSearchCache();
+    await timing('how to revert a git merge', 'se');
+    expect(searches()).toHaveLength(before);
+  });
+
+  it("waits out GitHub's rate-limit window instead of asking again", async () => {
+    replies['api.github.com'] = () =>
+      new Response('{"message":"API rate limit exceeded"}', {
+        status: 403,
+        headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 50) },
+      });
+    expect(await timing('rust borrow checker', 'github')).toMatchObject({ status: 'refused', note: 'Allows 10 searches a minute without signing in. Tries again in 1 min.' });
+    fs.clearSearchCache();
+    await timing('tokio runtime internals', 'github');
+    expect(askedOf('api.github.com')).toHaveLength(1);
+  });
+
+  it('counts a 403 from any source as turning glogg away', async () => {
+    replies['hn.algolia.com'] = () => new Response('Forbidden', { status: 403 });
+    expect(await timing('rust borrow checker', 'hn')).toMatchObject({ status: 'refused', note: 'Turned glogg away (HTTP 403).' });
+  });
+
+  it('asks GDELT once every 5 seconds at most, as it asks to be', async () => {
+    replies['api.gdeltproject.org'] = () => Response.json({ articles: [] });
+    await timing('ukraine grain exports', 'gdelt');
+    fs.clearSearchCache();
+    expect(await timing('semiconductor export rules', 'gdelt')).toMatchObject({ status: 'refused', note: 'Allows one search every 5 seconds.' });
+    expect(askedOf('api.gdeltproject.org')).toHaveLength(1);
+  });
+
+  it('says SearXNG is not set up when nothing answers at its address', async () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8080'), { code: 'ECONNREFUSED' });
+    replies['localhost'] = () => Promise.reject(new TypeError('fetch failed', { cause: refused }));
+    expect(await timing('rust borrow checker', 'searxng')).toMatchObject({ status: 'unset', note: 'Nothing answers at localhost:8080.' });
+  });
+
+  it('asks a SearXNG that lives under a path at that path', async () => {
+    replies['search.example'] = () => Response.json({ results: [{ url: 'https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html', title: 'References and Borrowing', content: 'How the borrow checker works' }] });
+    const t = await timing('rust borrow checker', 'searxng', { endpoints: { searxngUrl: 'https://search.example/searx/' } });
+    expect(askedOf('search.example').map((u) => u.pathname)).toEqual(['/searx/search']);
+    expect(t).toMatchObject({ status: 'ok', count: 1 });
+  });
+
+  it("says when a SearXNG doesn't answer in JSON", async () => {
+    replies['search.example'] = () => new Response('Forbidden', { status: 403 });
+    expect(await timing('rust borrow checker', 'searxng', { endpoints: { searxngUrl: 'https://search.example' } })).toMatchObject({
+      status: 'refused',
+      note: "Doesn't answer in JSON: add json to search.formats in its settings.yml.",
+    });
+  });
+
+  it("doesn't put a source that refused to rest the way a hang does", async () => {
+    const timings: Record<string, import('../server/federatedSearch.js').SourceTiming> = {};
+    const refuse = () => Promise.reject(new fs.SourceUnavailable('refused', 'Asked for a captcha.'));
+    for (let i = 0; i < 3; i++) await fs.gatherSources([{ key: 'picky', core: true, run: refuse }], { timings, onSettle: fs.recordSourceOutcome });
+    expect(timings.picky).toMatchObject({ status: 'refused', count: 0, note: 'Asked for a captcha.' });
+    expect(fs.isSourceResting('picky')).toBe(false);
+  });
+});

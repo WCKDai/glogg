@@ -46,7 +46,7 @@ const row = (i: number, extra: object = {}) => ({
   rootDomain: `site${i}.example`, tld: 'example', slopScore: 5, authenticityScore: 70, relevanceScore: 80, netScore: 80, verdict: 'clean',
   signals: [], isPreLlm: false, isIndieWeb: true, isPrimarySource: false, isSponsored: false, isBigTechMonoculture: false, ...extra,
 });
-type Timing = { ms: number; count: number; status: string };
+type Timing = { ms: number; count: number; status: string; note?: string };
 let reply: (query: string) => Response | Promise<Response>;
 const answer = (query: string, results = [row(1), row(2), row(3)], hidden: object[] = [], timings: Record<string, Timing> = { wiki: { ms: 100, count: 3, status: 'ok' } }) =>
   new Response(
@@ -176,6 +176,36 @@ describe('when a search can\'t run', () => {
     await search('something else');
     expect($('.search-problem')).toBeNull();
     expect($('.empty')?.textContent).toContain('No results for “something else”');
+  });
+
+  it('counts sources that turned glogg away as not answering', async () => {
+    reply = (q) =>
+      answer(q, [], [], {
+        ddg: { ms: 80, count: 0, status: 'refused', note: 'Asked for a bot check. Tries again in 1 min.' },
+        searxng: { ms: 1, count: 0, status: 'unset', note: 'Nothing answers at localhost:8080.' },
+      });
+    await render();
+    await search();
+    expect($('.search-problem')?.textContent).toContain('None of the sources answered');
+  });
+
+  it('the status bar says which sources turned glogg away and why, and leaves out ones not set up', async () => {
+    reply = (q) =>
+      answer(q, [row(1)], [], {
+        wiki: { ms: 100, count: 1, status: 'ok' },
+        brave: { ms: 300, count: 0, status: 'refused', note: 'Asked for a captcha. Tries again in 5 min.' },
+        searxng: { ms: 2, count: 0, status: 'unset', note: 'Nothing answers at localhost:8080.' },
+      });
+    await render();
+    await search();
+    const summary = $$('.statusbar button').find((b) => b.textContent?.includes('sources'))!;
+    expect(summary.textContent).toContain('1/2 sources');
+    expect(summary.textContent).toContain('1 turned away');
+    await click(summary);
+    const rows = $$('.sb-pop .sb-row').map((r) => r.textContent);
+    expect(rows.find((r) => r?.includes('Brave'))).toContain('turned away');
+    expect(rows.find((r) => r?.includes('SearXNG'))).toContain('not set up');
+    expect($$('.sb-pop .sb-note').map((n) => n.textContent)).toEqual(['Asked for a captcha. Tries again in 5 min.', 'Nothing answers at localhost:8080.']);
   });
 
   it('the status bar counts failed sources apart from late ones', async () => {

@@ -8,17 +8,22 @@ import type { Mode, ResearchState } from '../lib.js';
 /** Names for the server's source tasks (metrics.sourceTimings keys). */
 const SOURCE_NAMES = SEARCH_SOURCE_NAMES;
 
-const STATUS_ORDER = { ok: 0, empty: 1, late: 2, error: 3, resting: 4, off: 5 } as const;
+/** The breakdown's order: sources that didn't answer first (why the count is short), then the rest by speed. */
+const STATUS_ORDER = { refused: 0, error: 1, late: 2, ok: 3, empty: 4, resting: 5, unset: 6, off: 7 } as const;
+
+/** What a row says in place of a time. */
+const STATUS_LABEL: Partial<Record<keyof typeof STATUS_ORDER, string>> = { refused: 'turned away', unset: 'not set up' };
 
 type Timing = NonNullable<RankedSearchResponse['metrics']['sourceTimings']>[string];
 
 export function sourceSummary(timings: Record<string, Timing> = {}) {
-  // Sources you turned off weren't asked.
-  const all = Object.values(timings).filter((t) => t.status !== 'off');
+  // Sources you turned off weren't asked, and ones that aren't set up couldn't be.
+  const all = Object.values(timings).filter((t) => t.status !== 'off' && t.status !== 'unset');
   const answered = all.filter((t) => t.status === 'ok' || t.status === 'empty').length;
   const late = all.filter((t) => t.status === 'late').length;
   const failed = all.filter((t) => t.status === 'error').length;
-  return { total: all.length, answered, late, failed, resting: all.filter((t) => t.status === 'resting').length };
+  const refused = all.filter((t) => t.status === 'refused').length;
+  return { total: all.length, answered, late, failed, refused, resting: all.filter((t) => t.status === 'resting').length };
 }
 
 export function StatusBar({
@@ -78,9 +83,10 @@ export function StatusBar({
           aria-expanded={open}
           title="Which sources answered, and how fast"
         >
-          <span className={`sb-dot ${summary.answered === 0 ? 'bad' : summary.late || summary.failed ? 'warn' : 'ok'}`} aria-hidden />
+          <span className={`sb-dot ${summary.answered === 0 ? 'bad' : summary.late || summary.failed || summary.refused ? 'warn' : 'ok'}`} aria-hidden />
           {summary.answered}/{summary.total} sources
           {summary.failed > 0 && <span className="sb-hide-sm">· {summary.failed} failed</span>}
+          {summary.refused > 0 && <span className="sb-hide-sm">· {summary.refused} turned away</span>}
           {summary.late > 0 && <span className="sb-hide-sm">· {summary.late} late</span>}
         </button>
       ) : (
@@ -129,17 +135,21 @@ export function StatusBar({
           {rows.map(([key, t]) => (
             <React.Fragment key={key}>
               <div className="sb-row">
-                <span className={`sb-dot ${t.status === 'ok' ? 'ok' : t.status === 'late' || t.status === 'error' ? 'warn' : ''}`} aria-hidden />
+                <span className={`sb-dot ${t.status === 'ok' ? 'ok' : t.status === 'late' || t.status === 'error' || t.status === 'refused' ? 'warn' : ''}`} aria-hidden />
                 <span className="truncate">{SOURCE_NAMES[key] || key}</span>
                 <span className="sb-num">{t.count || ''}</span>
                 <span className={`sb-status s-${t.status}`}>
-                  {t.status === 'ok' || t.status === 'empty' ? `${t.ms} ms` : t.status === 'resting' ? 'resting' : t.status}
+                  {t.status === 'ok' || t.status === 'empty' ? `${t.ms} ms` : STATUS_LABEL[t.status] ?? t.status}
                 </span>
               </div>
-              {(t.status === 'ok' || t.status === 'empty') && (
-                <div className="sb-bar" aria-hidden>
-                  <span style={{ width: `${Math.max(3, (t.ms / slowest) * 100)}%` }} />
-                </div>
+              {t.note ? (
+                <p className="sb-note">{t.note}</p>
+              ) : (
+                (t.status === 'ok' || t.status === 'empty') && (
+                  <div className="sb-bar" aria-hidden>
+                    <span style={{ width: `${Math.max(3, (t.ms / slowest) * 100)}%` }} />
+                  </div>
+                )
               )}
             </React.Fragment>
           ))}

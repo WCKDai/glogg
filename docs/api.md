@@ -37,3 +37,18 @@ With `GLOGG_PASSWORD` set, every route except `/api/health` and the three `/api/
 | `/api/containers/action` | `POST` | `up`, `stop`, `restart`, `logs`, `stack-up`, `stack-down` or `start-daemon` (refused with `GLOGG_CONTAINER_RUNTIME=none`) |
 | `/api/nodes` | `GET` | Reachability of the self-hosted services and upstream connectors |
 | `/opensearch.xml` | `GET` | OpenSearch 1.1 descriptor, so a browser can use glogg as its search engine |
+
+## How each source did
+
+A search response's `metrics.sourceTimings` has one entry per source asked, keyed as in `config.disabledSources`: `{ms, count, status, note?}`.
+
+| `status` | Meaning |
+| :--- | :--- |
+| `ok` | Answered with `count` results in `ms` |
+| `empty` | Answered, with nothing that matched |
+| `late` | Hadn't answered by the deadline; it keeps running, and a repeat of the search picks it up |
+| `error` | Failed with an error |
+| `refused` | Turned glogg away: a rate limit, a bot check or captcha, a `403`. `note` says which, and when glogg asks again (as its `Retry-After` says, otherwise in five minutes); until then the source isn't asked |
+| `unset` | Not set up: nothing answers at its address (SearXNG, say). `note` names the address |
+| `resting` | Skipped: it hung or failed twice in a row, so it rests for five minutes |
+| `off` | Turned off in `config.disabledSources` |

@@ -119,10 +119,10 @@ function readUrlState(): { q: string; scope: SearchLensId | null; view: View } {
   };
 }
 
-/** True when no source answered at all (each failed or ran out of time), as opposed to none matching. */
+/** True when no source answered at all (each failed, ran out of time or turned glogg away), as opposed to none matching. */
 function allSourcesFailed(data: RankedSearchResponse): boolean {
-  const asked = Object.values(data.metrics.sourceTimings || {}).filter((t) => t.status !== 'off' && t.status !== 'resting');
-  return asked.length > 0 && asked.every((t) => t.status === 'error' || t.status === 'late');
+  const asked = Object.values(data.metrics.sourceTimings || {}).filter((t) => t.status !== 'off' && t.status !== 'resting' && t.status !== 'unset');
+  return asked.length > 0 && asked.every((t) => t.status === 'error' || t.status === 'late' || t.status === 'refused');
 }
 
 function hostOf(url: string): string {
