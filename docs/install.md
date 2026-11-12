@@ -76,9 +76,9 @@ echo "$VOL"                  # e.g. glogg_glogg-data
 # Back up
 docker compose stop glogg
 # The archive holds your keys, so your shell writes it, readable by you only (0600), to a
-# temporary file; the previous backup is replaced only once the new one is complete.
-(umask 077 && docker run --rm -v "$VOL":/data:ro alpine tar czf - -C /data . > glogg-data.tgz.part) \
-  && mv glogg-data.tgz.part glogg-data.tgz
+# temporary file of its own; the previous backup is replaced only once the new one is complete.
+tmp=$(mktemp glogg-data.tgz.XXXXXX) \
+  && { docker run --rm -v "$VOL":/data:ro alpine tar czf - -C /data . > "$tmp" && mv "$tmp" glogg-data.tgz || { rm -f "$tmp"; false; }; }
 docker compose start glogg
 
 # Restore
