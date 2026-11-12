@@ -76,7 +76,7 @@ Open <http://localhost:4173>.
 
 - **Better web results:** run a private SearXNG next to it with `docker compose --profile searxng up -d`. glogg is already pointed at it.
 - **Update:** `git pull && docker compose up -d --build`.
-- **Your data:** settings, keys and the deep index are in the `glogg-data` volume. To back it up, run `docker run --rm -v glogg_glogg-data:/data -v "$PWD":/backup alpine tar czf /backup/glogg-data.tgz -C /data .`
+- **Your data:** settings, keys and the deep index are in the `glogg-data` volume. See [backing up and restoring](./docs/install.md#your-data); stop glogg first so the deep index isn't copied mid-write.
 - **Settings:** optional; copy [`.env.example`](./.env.example) to `.env` and set what you need.
 
 glogg answers only on this machine (`127.0.0.1`). To use it from your phone or other computers:
