@@ -75,12 +75,16 @@ echo "$VOL"                  # e.g. glogg_glogg-data
 
 # Back up
 docker compose stop glogg
-docker run --rm -v "$VOL":/data:ro -v "$PWD":/backup alpine tar czf /backup/glogg-data.tgz -C /data .
+# The archive holds your keys: create it readable by you only (0600), owned by you.
+docker run --rm -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -v "$VOL":/data:ro -v "$PWD":/backup alpine \
+  sh -c 'umask 077 && rm -f /backup/glogg-data.tgz && tar czf /backup/glogg-data.tgz -C /data . && chown "$HOST_UID:$HOST_GID" /backup/glogg-data.tgz'
 docker compose start glogg
 
 # Restore
 docker compose stop glogg
-docker run --rm -v "$VOL":/data -v "$PWD":/backup alpine sh -c "find /data -mindepth 1 -delete && tar xzf /backup/glogg-data.tgz -C /data"
+# Reads the whole archive first: if it's missing or corrupt, nothing in the volume is touched.
+docker run --rm -v "$VOL":/data -v "$PWD":/backup:ro alpine \
+  sh -c 'tar tzf /backup/glogg-data.tgz >/dev/null && find /data -mindepth 1 -delete && tar xzf /backup/glogg-data.tgz -C /data'
 docker compose start glogg
 ```
 
