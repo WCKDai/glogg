@@ -149,6 +149,12 @@ export class DeepCrawler {
     clearTimeout(this.timer);
   }
 
+  /** Halts for a shutdown without recording it: a crawl that was on resumes on the next start. */
+  stop(): void {
+    this.running = false;
+    clearTimeout(this.timer);
+  }
+
   private pump(): void {
     clearTimeout(this.timer);
     if (!this.running) return;

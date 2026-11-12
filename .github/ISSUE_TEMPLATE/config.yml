@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/WCKDai/glogg/security/advisories/new
+    about: Privately, please. See SECURITY.md.
+  - name: Install and usage help
+    url: https://github.com/WCKDai/glogg/blob/main/docs/troubleshooting.md
+    about: Common problems and fixes, before opening an issue.

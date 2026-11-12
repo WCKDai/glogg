@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,8 +16,11 @@ concurrency:
 jobs:
   check:
     name: check
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
+    # GitHub-hosted runners for a public repository: a pull request from a fork runs its own code,
+    # which must never reach a self-hosted machine. While the repository is private, the owner's
+    # self-hosted runner is used instead.
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -41,3 +45,39 @@ jobs:
         run: npm run test:e2e
       - name: Check bundle size
         run: npm run check:bundle
+
+  docker:
+    name: docker image
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      # GitHub-hosted runners always have Docker; a self-hosted one may not, and then this job only says so.
+      - name: Is Docker available?
+        id: docker
+        run: |
+          if docker info >/dev/null 2>&1; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "::notice::No Docker on this runner; skipping the image check."; fi
+      - name: Build the image
+        if: steps.docker.outputs.ok == 'true'
+        run: docker build -t glogg:ci .
+      # The image must start, answer its health check, and stop promptly on SIGTERM.
+      - name: Start, check health, stop
+        if: steps.docker.outputs.ok == 'true'
+        run: |
+          docker run -d --name glogg-ci -p 127.0.0.1:4173:4173 --read-only --tmpfs /tmp --cap-drop ALL glogg:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4173/api/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/api/health
+          start=$(date +%s)
+          docker stop -t 15 glogg-ci
+          took=$(( $(date +%s) - start ))
+          echo "stopped in ${took}s"
+          docker logs glogg-ci
+          test "$took" -lt 10
+      - name: Clean up
+        if: always() && steps.docker.outputs.ok == 'true'
+        run: docker rm -f glogg-ci || true

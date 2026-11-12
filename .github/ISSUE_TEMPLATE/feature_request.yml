@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a source, tool, integration or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or the search you couldn't get done, rather than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working. Links to APIs or similar tools welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New search source
+        - New tool / plugin
+        - Debrid, storage or Usenet integration
+        - AI / Research
+        - Interface
+        - Self-hosting / deployment
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: plugin
+    attributes:
+      label: Could it be a plugin?
+      description: Most tools and integrations can be a plugin folder ([docs/plugins.md](https://github.com/WCKDai/glogg/blob/main/docs/plugins.md)).
+      options:
+        - label: I'd be willing to write or test it

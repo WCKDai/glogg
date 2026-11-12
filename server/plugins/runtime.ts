@@ -28,6 +28,7 @@ import type {
   PluginDefinition,
 } from './sdk.js';
 import { PluginError } from './sdk.js';
+import { envNumber } from '../env.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,7 +38,7 @@ const SETTINGS_PATH = () => path.join(GLOGG_HOME(), 'plugins.json');
 export const BUILTIN_PLUGIN_DIR = path.resolve(__dirname, '../../plugins');
 export const USER_PLUGIN_DIR = () => path.join(GLOGG_HOME(), 'plugins');
 
-const TOOL_TIMEOUT_MS = Number(process.env.GLOGG_TOOL_TIMEOUT_MS || 45_000);
+const TOOL_TIMEOUT_MS = envNumber('GLOGG_TOOL_TIMEOUT_MS', 45_000, { min: 1 });
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
 interface Loaded {
