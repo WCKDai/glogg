@@ -75,9 +75,12 @@ jobs:
           start=$(date +%s)
           docker stop -t 15 glogg-ci
           took=$(( $(date +%s) - start ))
-          echo "stopped in ${took}s"
+          code=$(docker wait glogg-ci)
+          echo "stopped in ${took}s with exit code ${code}"
           docker logs glogg-ci
+          # A clean shutdown exits 0; the 5-second fallback exits 1.
+          test "$code" = 0
           test "$took" -lt 10
       - name: Clean up
         if: always() && steps.docker.outputs.ok == 'true'
-        run: docker rm -f glogg-ci || true
+        run: docker rm -f -v glogg-ci || true

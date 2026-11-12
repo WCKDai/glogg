@@ -67,13 +67,21 @@ On Intel Macs the folder is `/usr/local/lib/docker/cli-plugins`. Check with `doc
 
 ### Your data
 
-Settings, keys, plugins and the deep index live in the `glogg-data` volume (`/data` in the container).
+Settings, keys, plugins and the deep index live in the `glogg-data` volume (`/data` in the container). Stop glogg while you back up or restore, so the deep index's SQLite database isn't copied mid-write. Run these from the glogg folder; the first line finds the volume's real name, even under another Compose project name (`-p` or `COMPOSE_PROJECT_NAME`).
 
 ```bash
+VOL=$(docker compose config | awk '/^volumes:/ { v = 1 } v && $1 == "name:" { print $2; exit }')
+echo "$VOL"                  # e.g. glogg_glogg-data
+
 # Back up
-docker run --rm -v glogg_glogg-data:/data -v "$PWD":/backup alpine tar czf /backup/glogg-data.tgz -C /data .
-# Restore (with glogg stopped)
-docker run --rm -v glogg_glogg-data:/data -v "$PWD":/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/glogg-data.tgz -C /data"
+docker compose stop glogg
+docker run --rm -v "$VOL":/data:ro -v "$PWD":/backup alpine tar czf /backup/glogg-data.tgz -C /data .
+docker compose start glogg
+
+# Restore
+docker compose stop glogg
+docker run --rm -v "$VOL":/data -v "$PWD":/backup alpine sh -c "find /data -mindepth 1 -delete && tar xzf /backup/glogg-data.tgz -C /data"
+docker compose start glogg
 ```
 
 ### Reaching it from other devices
@@ -234,11 +242,20 @@ glogg.example.com {
 }
 ```
 
-**nginx**:
+**nginx** (certificates from [Certbot](https://certbot.eff.org), for example; never serve the sign-in page over plain HTTP):
 
 ```nginx
 server {
+  listen 80;
   server_name glogg.example.com;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl;
+  server_name glogg.example.com;
+  ssl_certificate     /etc/letsencrypt/live/glogg.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/glogg.example.com/privkey.pem;
   location / {
     proxy_pass http://127.0.0.1:4173;
     proxy_set_header Host $host;
