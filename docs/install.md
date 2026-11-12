@@ -75,9 +75,10 @@ echo "$VOL"                  # e.g. glogg_glogg-data
 
 # Back up
 docker compose stop glogg
-# The archive holds your keys: create it readable by you only (0600), owned by you.
-docker run --rm -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -v "$VOL":/data:ro -v "$PWD":/backup alpine \
-  sh -c 'umask 077 && rm -f /backup/glogg-data.tgz && tar czf /backup/glogg-data.tgz -C /data . && chown "$HOST_UID:$HOST_GID" /backup/glogg-data.tgz'
+# The archive holds your keys, so your shell writes it, readable by you only (0600), to a
+# temporary file; the previous backup is replaced only once the new one is complete.
+(umask 077 && docker run --rm -v "$VOL":/data:ro alpine tar czf - -C /data . > glogg-data.tgz.part) \
+  && mv glogg-data.tgz.part glogg-data.tgz
 docker compose start glogg
 
 # Restore
