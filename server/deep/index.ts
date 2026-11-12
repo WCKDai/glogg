@@ -70,6 +70,19 @@ export function resetDeepIndex(): void {
   unavailable = '';
 }
 
+/** For shutdown: stops the crawler without recording it as paused, and closes the database. */
+export function closeDeepIndex(): void {
+  crawler?.stop();
+  crawler = null;
+  try {
+    store?.close();
+  } catch {
+    // Already closed.
+  }
+  store = null;
+  opening = null;
+}
+
 export async function getCrawler(opts?: ConstructorParameters<typeof DeepCrawler>[1]): Promise<DeepCrawler | null> {
   const s = await getDeepStore();
   if (!s) return null;

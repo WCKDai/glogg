@@ -4,6 +4,22 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-12
+
+First public release. The first two sections are new in this release; the rest cover the work merged since 0.3.0.
+
+### Ready for a public repository
+- **Guides:** [install](docs/install.md) (Docker on macOS/Linux/Windows, Colima and Homebrew's Compose plugin, Podman, systemd and launchd services, reverse proxies, updates, backups), [usage](docs/usage.md) (views, scopes, syntax, keyboard, BYOK AI, downloads, debrid and cloud storage set-up, tools, the deep index, the CLI), [troubleshooting](docs/troubleshooting.md) and [writing plugins](docs/plugins.md).
+- **Community files:** bug and feature issue forms, a security policy with private reporting, a code of conduct, Dependabot for npm, Actions and the Docker base image, and an accurate project map in CONTRIBUTING.
+- **CI is safe to run on pull requests from forks:** a public repository uses GitHub-hosted runners, never a self-hosted machine. A new job builds the Docker image, waits for its health check, and checks it stops within 10 seconds.
+
+### Steadier server
+- **Stops cleanly.** `SIGTERM` and Ctrl-C finish open requests (up to 5 seconds), close the deep index database, and exit. Before, glogg was killed mid-request, and run without an init process (a plain `docker run`) it ignored `docker stop` until Docker killed it 10 seconds later. A crawl you started still resumes after the restart.
+- **Says why it can't start.** A port already in use, a privileged port or a foreign address gets a sentence saying what to do, instead of a stack trace; Node older than 22.13 is refused at once with how to upgrade.
+- **One failed promise doesn't stop every search.** Unhandled rejections are logged instead of ending the process.
+- **Number settings are checked.** An empty value (as Docker Compose passes unset settings) means the default, and a typo like `GLOGG_HARD_DEADLINE_MS=7s` falls back to the default with a warning instead of becoming a zero deadline. `GLOGG_CACHE_TTL_MS`, `GLOGG_SOURCE_REST_MS` and `GLOGG_TOOL_TIMEOUT_MS` are now in `.env.example` and reach glogg in Docker.
+- `/api/health` reports the version from `package.json`.
+
 ### Sources say why they came back empty
 A live check of every source on 11 November 2026 found five that returned nothing while the status bar said they had no matches (`tests/searchPipeline.test.ts`, `tests/ux.test.tsx`, `tests/indexers.test.ts`).
 - **Bluesky posts are back.** Bluesky's public AppView now answers post searches with 403 Forbidden, so the Fediverse source found only accounts. glogg searches posts on `api.bsky.app`, which still answers without signing in.

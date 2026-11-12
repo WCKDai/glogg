@@ -1,6 +1,6 @@
 {
   "name": "glogg",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "author": "wckdboy <boy@wckd.cc>",
   "description": "glogg.app — Unslop & deshittify the internet. Anti-slop meta-indexer, Fediverse (ATProto/ActivityPub/Matrix/Stoat) explorer, Bitmagnet DHT & Usenet NZB workbench, self-hosted Docker/Podman orchestrator, clean reader, and Manifest V3 browser extension.",

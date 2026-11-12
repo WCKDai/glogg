@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in glogg doesn't work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Remove API keys, passwords and private URLs** from anything you paste.
+        Security problems go to a [private advisory](https://github.com/WCKDai/glogg/security/advisories/new), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what glogg did instead.
+      placeholder: |
+        1. Searched for "…" in the Forums scope
+        2. Expected …
+        3. Got …
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run glogg?
+      options:
+        - Docker Compose
+        - Coolify
+        - From source (npm start)
+        - From source (npm run dev)
+        - Browser extension only
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Search results / ranking
+        - A source (empty, wrong, refused)
+        - Instant answers / Research / AI
+        - Reader
+        - Downloads / debrid / cloud storage
+        - Tools / plugins
+        - Deep index / Atlas
+        - Settings / appearance
+        - Install / Docker / startup
+        - Browser extension
+        - CLI
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`curl -s localhost:4173/api/health`, or the commit (`git rev-parse --short HEAD`)"
+      placeholder: 0.4.0 / abc1234
+  - type: input
+    id: env
+    attributes:
+      label: System
+      description: OS, browser, and `node -v` or `docker version`
+      placeholder: macOS 26, Firefox 140, Node 22.13
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Server output (`docker compose logs glogg`, or the terminal running glogg) and any browser console errors."
+      render: text

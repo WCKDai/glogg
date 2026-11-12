@@ -61,8 +61,19 @@ import { apiGuard, contentSecurityPolicy, securityHeaders } from './security.js'
 import { isIconDomain, siteIcon } from './favicons.js';
 import { compressJson, hashedAssets } from './compress.js';
 import { loadProfile, saveProfile } from './profile.js';
+import { closeDeepIndex } from './deep/index.js';
+import { createShutdown, installProcessGuards, listenErrorMessage, nodeVersionProblem } from './lifecycle.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** glogg's version, from package.json (the Docker image copies it next to server/). */
+export const GLOGG_VERSION: string = (() => {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as { version?: string }).version ?? 'dev';
+  } catch {
+    return 'dev';
+  }
+})();
 
 /** Search config fields that must be lists of strings, numbers or switches when a request sends them. */
 const LIST_FIELDS = ['blockedDomains', 'boostedDomains', 'loweredDomains', 'pinnedDomains', 'blockedPhrases', 'disabledSources'] as const;
@@ -149,7 +160,7 @@ export async function createGloggServer() {
   await loadPlugins();
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'glogg-engine', version: '0.3.0', connectors: 20 });
+    res.json({ status: 'ok', service: 'glogg-engine', version: GLOGG_VERSION, connectors: 20 });
   });
 
   app.get('/api/containers', async (_req, res) => {
@@ -707,18 +718,27 @@ export async function createGloggServer() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const tooOld = nodeVersionProblem();
+  if (tooOld) {
+    console.error(tooOld);
+    process.exit(1);
+  }
   // A search looks up two dozen host names at once, and Node resolves them on its thread pool:
   // with the default 4 threads they queue (123-502 ms for 24 names), with 32 they don't (18-24 ms).
   // It takes effect only before the pool's first use, which is why it's set here, first.
   process.env.UV_THREADPOOL_SIZE ??= '32';
   configureNetwork();
+  installProcessGuards();
   const port = Number(process.env.PORT || 4173);
+  // This machine only, unless HOST says otherwise (the Docker image listens on all interfaces).
+  const host = process.env.HOST || '127.0.0.1';
   createGloggServer()
     .then((app) => {
-      // This machine only, unless HOST says otherwise (the Docker image listens on all interfaces).
-      const host = process.env.HOST || '127.0.0.1';
-      app.listen(port, host, () => {
-        console.log(`glogg engine listening on http://localhost:${port}`);
+      const server = app.listen(port, host, (err?: Error) => {
+        // Express 5 hands a listen error to this callback too; the 'error' handler below reports it.
+        if (err) return;
+        const shown = ['0.0.0.0', '::', '127.0.0.1', '::1'].includes(host) ? 'localhost' : host;
+        console.log(`glogg engine listening on http://${shown}:${port}`);
         const password = configuredPassword();
         if (password) {
           console.log('Password protection is on.');
@@ -729,6 +749,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         // Pick up a deep-index crawl you started before the last restart.
         resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
       });
+      server.on('error', (err: NodeJS.ErrnoException) => {
+        console.error(listenErrorMessage(err, host, port));
+        process.exit(1);
+      });
+      const shutdown = createShutdown(server, { onClose: () => closeDeepIndex() });
+      for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void shutdown(signal));
     })
     .catch((e) => {
       console.error(`glogg couldn't start: ${e instanceof Error ? e.message : e}`);

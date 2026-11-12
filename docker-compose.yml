@@ -45,6 +45,9 @@ services:
       GLOGG_SOURCE_DEADLINE_MS: ${GLOGG_SOURCE_DEADLINE_MS:-}
       GLOGG_HARD_DEADLINE_MS: ${GLOGG_HARD_DEADLINE_MS:-}
       GLOGG_ANSWER_BUDGET_MS: ${GLOGG_ANSWER_BUDGET_MS:-}
+      GLOGG_CACHE_TTL_MS: ${GLOGG_CACHE_TTL_MS:-}
+      GLOGG_SOURCE_REST_MS: ${GLOGG_SOURCE_REST_MS:-}
+      GLOGG_TOOL_TIMEOUT_MS: ${GLOGG_TOOL_TIMEOUT_MS:-}
     volumes:
       - glogg-data:/data
     # Nothing but /data (and a scratch /tmp) is writable, and the process can't gain privileges.

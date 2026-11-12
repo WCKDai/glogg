@@ -538,6 +538,22 @@ describe('deep index service', () => {
     expect(store.getMeta('seeded_at')).toBeTruthy();
   });
 
+  it('a shutdown closes the database but leaves a running crawl on, so it resumes after a restart', async () => {
+    const { impl } = fakeFetch({});
+    const crawler = (await deep.getCrawler({ fetch: impl }))!;
+    crawler.start();
+    deep.closeDeepIndex();
+    expect(crawler.isRunning).toBe(false);
+    const reopened = (await deep.getDeepStore())!;
+    expect(reopened.getMeta('crawl')).toBe('on');
+    // A pause, by contrast, is remembered.
+    (await deep.getCrawler({ fetch: impl }))!.pause();
+    deep.closeDeepIndex();
+    expect((await deep.getDeepStore())!.getMeta('crawl')).toBe('off');
+    deep.closeDeepIndex();
+    deep.closeDeepIndex(); // twice is harmless
+  });
+
   it("doesn't make the Atlas wait for the big directories", async () => {
     const routes = directoryRoutes();
     routes[sources.SEED_LISTS.lemmy.url] = { ...routes[sources.SEED_LISTS.lemmy.url], delayMs: 400 };

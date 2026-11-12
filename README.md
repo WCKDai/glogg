@@ -9,7 +9,12 @@
 A self-hosted search workbench: answers first, real sites instead of ads and SEO filler,<br />
 its own index of the small web, imageboards and forums, and the tools you reach for after a search.
 
-[Install](#install) · [Using it](#using-glogg) · [Configuration](#configuration) · [Security](#security) · [API](./docs/api.md) · [Contributing](./CONTRIBUTING.md)
+[![CI](https://github.com/WCKDai/glogg/actions/workflows/ci.yml/badge.svg)](https://github.com/WCKDai/glogg/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-287BE8.svg)](./LICENSE)
+![Node 22.13+](https://img.shields.io/badge/node-%E2%89%A522.13-172C46.svg)
+![Self-hosted](https://img.shields.io/badge/self--hosted-Docker%20%7C%20Node-287BE8.svg)
+
+[Install](./docs/install.md) · [Usage guide](./docs/usage.md) · [Plugins](./docs/plugins.md) · [Troubleshooting](./docs/troubleshooting.md) · [Configuration](#configuration) · [Security](#security) · [API](./docs/api.md) · [Contributing](./CONTRIBUTING.md)
 
 </div>
 
@@ -41,6 +46,21 @@ its own index of the small web, imageboards and forums, and the tools you reach 
 </table>
 
 ## Install
+
+**Quick start** (Docker):
+
+```bash
+git clone https://github.com/WCKDai/glogg.git && cd glogg && docker compose up -d
+# open http://localhost:4173
+```
+
+**Quick start** (Node.js 22.13+):
+
+```bash
+git clone https://github.com/WCKDai/glogg.git && cd glogg && npm install && npm run build && npm start
+```
+
+The full [install guide](./docs/install.md) covers Docker on macOS (Colima, Homebrew's Compose plugin), Linux and Windows, Podman, running as a systemd or launchd service, reverse proxies, updates and backups. Then read the [usage guide](./docs/usage.md).
 
 ### Docker Compose
 
@@ -114,6 +134,8 @@ These come from [`infra/docker-compose.services.yml`](./infra/docker-compose.ser
 
 ## Using glogg
 
+The [usage guide](./docs/usage.md) walks through everything below in more detail, including setting up debrid, cloud storage, Usenet and AI.
+
 glogg has two views:
 
 - **Simple:** one search box and one column of answers and sites.
@@ -138,7 +160,7 @@ Switch with <kbd>m</kbd>.
 
 **Downloads.** **Send** routes a torrent, NZB or page to the first destination that's set up: Offcloud, aria2, Nextcloud, then this machine. Configured debrid, storage and Usenet plugins (Real-Debrid, TorBox, pCloud, SABnzbd) appear as destinations too. Keys go in Settings → Keys, and are stored server-side (mode 600) and masked in the browser.
 
-**Tools and plugins.** Every tool is a plugin: a folder with an `index.mjs`. The built-in ones are in `plugins/` (as TypeScript); yours go in `~/.glogg/plugins/` (`/data/plugins` in Docker) and survive updates.
+**Tools and plugins.** Every tool is a plugin: a folder with an `index.mjs` ([how to write one](./docs/plugins.md)). The built-in ones are in `plugins/` (as TypeScript); yours go in `~/.glogg/plugins/` (`/data/plugins` in Docker) and survive updates.
 
 - A plugin declares settings, tools with typed inputs and an optional `>trigger`, and optionally a container and a download hand-off.
 - Tools return generic blocks (tables, key/value lists, checklists, code, buttons), so a new tool needs no front-end code.
@@ -276,6 +298,12 @@ The suites cover:
 - **Browser:** `tests/e2e/` drives headless Chrome over the DevTools protocol against a production glogg with canned upstreams: search, the reader, the palette, Back, themes, phone layout, accessibility on every section, sign-in, and that the page fetches nothing from third parties. On CI a missing Chrome fails the run.
 
 [CONTRIBUTING.md](./CONTRIBUTING.md) maps the code and explains how to add a source or a plugin. [docs/api.md](./docs/api.md) lists every endpoint.
+
+## Getting help
+
+- Something not working? [Troubleshooting](./docs/troubleshooting.md) covers the common problems.
+- Found a bug or want a feature? [Open an issue](https://github.com/WCKDai/glogg/issues/new/choose).
+- Found a vulnerability? Report it privately ([SECURITY.md](./SECURITY.md)).
 
 ## License
 

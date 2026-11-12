@@ -69,7 +69,7 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
     expect(osintHits.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('serves /api/health with version 0.3.0 and 20 active connectors', async () => {
+  it("serves /api/health with package.json's version and 20 active connectors", async () => {
     const res = await fetch(`${baseUrl}/api/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -80,7 +80,8 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
     };
     expect(body.status).toBe('ok');
     expect(body.service).toBe('glogg-engine');
-    expect(body.version).toBe('0.3.0');
+    const { version } = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    expect(body.version).toBe(version);
     expect(body.connectors).toBe(20);
   });
 

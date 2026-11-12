@@ -30,6 +30,7 @@ import {
   searchFourChanCatalogs,
   searchObscureForumsAndWildWest,
 } from './wildWestIndexer.js';
+import { envNumber } from './env.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -1067,10 +1068,10 @@ async function searchArchiveDeepTexts(rawQuery: string, kwQuery: string): Promis
  * Late sources are dropped, so one slow upstream never stalls the page; a cold
  * start with empty core sources still waits up to the hard deadline.
  */
-const SOFT_DEADLINE_MS = Number(process.env.GLOGG_SOURCE_DEADLINE_MS || 2000);
-const HARD_DEADLINE_MS = Number(process.env.GLOGG_HARD_DEADLINE_MS || 7000);
-const CORE_GRACE_MS = Number(process.env.GLOGG_CORE_GRACE_MS || 500);
-const MIN_WAIT_MS = Number(process.env.GLOGG_MIN_WAIT_MS || 1000);
+const SOFT_DEADLINE_MS = envNumber('GLOGG_SOURCE_DEADLINE_MS', 2000);
+const HARD_DEADLINE_MS = envNumber('GLOGG_HARD_DEADLINE_MS', 7000);
+const CORE_GRACE_MS = envNumber('GLOGG_CORE_GRACE_MS', 500);
+const MIN_WAIT_MS = envNumber('GLOGG_MIN_WAIT_MS', 1000);
 const MIN_CORE_RESULTS = 6;
 
 interface SourceTask {
@@ -1218,7 +1219,7 @@ export async function gatherSources(tasks: SourceTask[], opts: GatherOptions = {
 // or throws. Fast empties (no match, rate limit) cost nothing and don't count.
 const HANG_MS = 3000;
 const FAILS_TO_REST = 2;
-const REST_MS = Number(process.env.GLOGG_SOURCE_REST_MS || 5 * 60_000);
+const REST_MS = envNumber('GLOGG_SOURCE_REST_MS', 5 * 60_000);
 const sourceHealth = new Map<string, { fails: number; restUntil: number }>();
 
 export function resetSourceHealth(): void {
@@ -1249,7 +1250,7 @@ export function recordSourceOutcome(key: string, ms: number, count: number, fail
 // Scope switches, filter toggles, back/forward and research follow-ups repeat
 // the same upstream calls; ranking still runs fresh with the current filters.
 // A source that answers after the deadline still lands here for next time.
-const CACHE_TTL_MS = Number(process.env.GLOGG_CACHE_TTL_MS ?? 10 * 60_000);
+const CACHE_TTL_MS = envNumber('GLOGG_CACHE_TTL_MS', 10 * 60_000);
 const CACHE_EMPTY_TTL_MS = Math.min(CACHE_TTL_MS, 60_000);
 const CACHE_MAX = 600;
 const sourceCache = new Map<string, { at: number; ttl: number; value: Promise<RawSearchResult[]> }>();
@@ -1302,7 +1303,7 @@ const DEEP_KINDS_BY_LENS: Partial<Record<SearchLensId, DeepKind[] | 'all'>> = {
   'wild-west': ['board', 'forum'],
 };
 /** Time from the start of a search that the instant answer may take. */
-const ANSWER_BUDGET_MS = Number(process.env.GLOGG_ANSWER_BUDGET_MS || 2200);
+const ANSWER_BUDGET_MS = envNumber('GLOGG_ANSWER_BUDGET_MS', 2200);
 
 /** Longest title and snippet kept from an upstream: one GitHub description ran to 224 KB. */
 const MAX_TITLE = 300;

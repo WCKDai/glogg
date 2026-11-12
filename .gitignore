@@ -7,3 +7,6 @@ dist-extension/
 .env.*
 !.env.example
 .tmp/
+.vite/
+coverage/
+*.tgz

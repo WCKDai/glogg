@@ -10,6 +10,7 @@ import {
   QueryAnalysis,
   ScoredSearchResult,
 } from '../src/core/index.js';
+import { envNumber } from './env.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -351,7 +352,7 @@ export type InstantAnswerLookups = [
 
 // Lookups are cached per question: repeat searches, scope switches and research
 // follow-ups reuse them. Misses expire sooner so a network blip isn't remembered.
-const LOOKUP_TTL_MS = Number(process.env.GLOGG_CACHE_TTL_MS ?? 10 * 60_000);
+const LOOKUP_TTL_MS = envNumber('GLOGG_CACHE_TTL_MS', 10 * 60_000);
 const LOOKUP_MISS_TTL_MS = Math.min(LOOKUP_TTL_MS, 60_000);
 const LOOKUP_CACHE_MAX = 300;
 const lookupCache = new Map<string, { at: number; ttl: number; value: Promise<InstantAnswerLookups> }>();
