@@ -1,6 +1,7 @@
 import express from 'express';
 import { SEARCH_SOURCES } from '../src/core/sourceCatalog.js';
 import { capabilities, publicServiceGuard, serviceMode, serviceSearchConfig } from './serviceMode.js';
+import { getTelemetrySnapshot } from './telemetry.js';
 import { apiCapacity, BusyError, configuredLimit, createWorkLimit } from './workLimits.js';
 import { envNumber } from './env.js';
 import fs from 'node:fs';
@@ -173,6 +174,11 @@ export async function createGloggServer() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'glogg-engine', version: GLOGG_VERSION, connectors: SEARCH_SOURCES.length });
+  });
+
+  app.get('/api/telemetry', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(getTelemetrySnapshot());
   });
 
   app.get('/api/containers', async (_req, res) => {

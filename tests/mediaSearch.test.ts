@@ -51,4 +51,54 @@ describe('Commons media search', () => {
     await expect(searchCommonsMedia('ocean', 'video')).rejects.toThrow(/limit/);
     expect(fetch).toHaveBeenCalledOnce();
   });
+  it('surfaces Commons files whose subject lives in topical Categories while stripping housekeeping categories', async () => {
+    const { diversifyAndRankResults } = await import('../src/core/ranker.js');
+    vi.stubGlobal('fetch', async () => Response.json({ query: { pages: {
+      4: {
+        ...page,
+        title: 'File:Porto Covo July 2011-6.jpg',
+        imageinfo: [{
+          ...page.imageinfo[0],
+          extmetadata: {
+            Artist: { value: 'Alvesgaspar' },
+            ImageDescription: { value: 'Playing with the breaking waves. Porto Covo, Portugal' },
+            LicenseShortName: { value: 'CC BY-SA 3.0' },
+            Categories: {
+              value: 'Personality rights warning|Self-published work|Taken with Nikon D810|Files with no machine-readable source|Featured pictures of Porto Covo|Featured pictures of the Atlantic Ocean|Breaking ocean waves',
+            },
+          },
+        }],
+      },
+    } } }));
+    const raw = await searchCommonsMedia('ocean waves', 'image');
+    expect(raw[0].tags).toEqual(['Porto Covo', 'the Atlantic Ocean', 'Breaking ocean waves']);
+    const ranked = diversifyAndRankResults(raw, { lens: 'images' }, 'ocean waves');
+    expect(ranked.surfaced).toHaveLength(1);
+    expect(ranked.surfaced[0].title).toBe('Porto Covo July 2011-6');
+  });
+  it('expands UK/US spelling twins in Commons search queries and ranks US-titled media for UK queries', async () => {
+    const { diversifyAndRankResults } = await import('../src/core/ranker.js');
+    const video = 'https://upload.wikimedia.org/wikipedia/commons/transcoded/a/ab/Tire.webm/Tire.webm.480p.vp9.webm';
+    const fetch = vi.fn(async (_url: unknown) => Response.json({ query: { pages: {
+      4: {
+        pageid: 9,
+        title: 'File:Automotive Help - Introduction to Tires including Tools Needed for a Repair.webm',
+        index: 1,
+        videoinfo: [{
+          url: image.replace('Ocean.jpg', 'Tire.webm'),
+          thumburl: thumb,
+          mime: 'video/webm',
+          duration: 95,
+          derivatives: [{ src: video, type: 'video/webm', height: 480, width: 854 }],
+          extmetadata: { ImageDescription: { value: 'How to inspect and repair a punctured tire.' }, Categories: { value: 'Tires|Videos from YouTube' } },
+        }],
+      },
+    } } }));
+    vi.stubGlobal('fetch', fetch);
+    const raw = await searchCommonsMedia('tyre repair', 'video');
+    const url = new URL(String(fetch.mock.calls[0][0]));
+    expect(url.searchParams.get('gsrsearch')).toBe('(tyre OR tire) repair filetype:video');
+    const ranked = diversifyAndRankResults(raw, { lens: 'videos' }, 'tyre repair');
+    expect(ranked.surfaced).toHaveLength(1);
+  });
 });

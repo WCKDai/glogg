@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import type { SearchFilterConfig } from '../src/core/types.js';
+import { hasValidTelemetryToken } from './telemetry.js';
 
 export function serviceMode(env = process.env): 'private' | 'public' {
   const mode = env.GLOGG_MODE?.trim() || 'private';
@@ -22,7 +23,11 @@ const WRITE_PATHS = /^\/api\/(?:search|inspect|auth\/login|auth\/logout)\/?$/;
 export const publicServiceGuard: RequestHandler = (req, res, next) => {
   if (!req.path.toLowerCase().startsWith('/api')) return next();
   const method = req.method === 'OPTIONS' ? String(req.headers['access-control-request-method'] || 'GET') : req.method;
-  const allowed = (['GET', 'HEAD'].includes(method) && READ_PATHS.test(req.path)) || (method === 'POST' && WRITE_PATHS.test(req.path));
+  const operatorTelemetry =
+    ['GET', 'HEAD'].includes(method) &&
+    /^\/api\/telemetry\/?$/.test(req.path) &&
+    hasValidTelemetryToken(req.headers.authorization);
+  const allowed = operatorTelemetry || (['GET', 'HEAD'].includes(method) && READ_PATHS.test(req.path)) || (method === 'POST' && WRITE_PATHS.test(req.path));
   if (allowed) return next();
   res.status(403).json({ error: 'This operation is unavailable on a public glogg. Use a private instance to manage services and data.' });
 };
