@@ -95,7 +95,7 @@ describe('capability-aware workspace', () => {
   });
   it('public Atlas is readable without crawl or source-writing controls', async () => {
     await mount('/atlas?tab=index');
-    expect(requests).toContain('/api/deep');
+    expect(requests).not.toContain('/api/deep');
     expect(container.textContent).not.toContain('Build the deep index');
     expect(container.querySelector('#deep-add')).toBeNull();
     expect(privateRequests()).toEqual([]);

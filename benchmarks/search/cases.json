@@ -1,0 +1,1539 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-11-15T12:00:00Z",
+  "judging": "agent-authored synthetic provisional labels; not independent human evaluation",
+  "grades": {
+    "0": "Irrelevant, wrong, ineligible under an explicit constraint, or duplicate without added utility.",
+    "1": "Related background that does not answer the task.",
+    "2": "Helpful supporting material.",
+    "3": "Directly useful for the stated task."
+  },
+  "notes": [
+    "All candidate titles, snippets, dates, engagement counts and assets are synthetic. Familiar domains provide controlled provenance signals, not claims that these pages exist or contain these words.",
+    "Media URLs are metadata-only synthetic fixtures and must not be fetched by the offline evaluator.",
+    "Current-event examples do not assert real contemporary facts. Freshness is judged against the fixed asOf clock.",
+    "Operators appear in both query text and explicit ranking config where needed so rank-only evaluation can preserve the contract without reimplementing query parsing.",
+    "A duplicate candidate receives grade 0; distinct media assets and genuinely different historical documents may each have positive grades.",
+    "Freeze this corpus before collecting the baseline. Changes to judgments require a separately versioned corpus and cannot be used to erase a failing result."
+  ],
+  "cases": [
+    {
+      "id": "sourdough-feeding",
+      "query": "sourdough starter feeding schedule",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "A direct everyday answer should outrank adjacent baking topics, advertisements and generic authority.",
+      "candidates": [
+        {
+          "id": "starter-direct",
+          "title": "Sourdough starter feeding schedule at home",
+          "url": "https://breadnotes.example/starter-feeding",
+          "snippet": "A practical sourdough starter feeding schedule, with separate routines for a starter kept at room temperature and one kept in the fridge.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly addresses the requested routine."
+        },
+        {
+          "id": "starter-support",
+          "title": "How a sourdough starter changes after feeding",
+          "url": "https://bakingscience.example/starter-cycle",
+          "snippet": "Photos of a sourdough starter rising and falling after feeding, with notes on signs that it is ready to use.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful supporting observations, but not a complete schedule."
+        },
+        {
+          "id": "starter-history",
+          "title": "A history of sourdough bread",
+          "url": "https://en.wikipedia.org/wiki/Sourdough_fixture",
+          "snippet": "The history of fermented bread, regional baking traditions and commercial bakeries.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background rather than feeding instructions."
+        },
+        {
+          "id": "starter-ad",
+          "title": "Sponsored sourdough starter feeding kits",
+          "url": "https://starterdeals.example/feeding?tag=affiliate",
+          "snippet": "Sponsored. We may earn a commission when you buy starter feeding kits through our links.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Commercial sponsorship violates the default no-sponsored-results preference."
+        },
+        {
+          "id": "starter-unrelated",
+          "title": "The chemistry of ocean salt",
+          "url": "https://www.nasa.gov/science/ocean-salt-fixture",
+          "snippet": "Research into salt transport in oceans and measurements from satellites.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "An authoritative domain does not make this answer the baking question."
+        }
+      ],
+      "expect": {
+        "first": "starter-direct",
+        "include": [
+          "starter-direct"
+        ],
+        "exclude": [
+          "starter-ad",
+          "starter-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "kettle-limescale",
+      "query": "remove limescale from electric kettle",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Relevant practical instructions from a small site must remain useful without an institutional-domain advantage.",
+      "candidates": [
+        {
+          "id": "kettle-direct",
+          "title": "Remove limescale from an electric kettle",
+          "url": "https://repairnotes.example/kettle-limescale",
+          "snippet": "Step-by-step notes for removing limescale from an electric kettle, including checking the appliance instructions and rinsing after cleaning.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly answers the removal task."
+        },
+        {
+          "id": "kettle-manual",
+          "title": "Electric kettle care and cleaning manual",
+          "url": "https://appliancemanuals.example/kettle-care",
+          "snippet": "The electric kettle manual explains permitted cleaning products and precautions before descaling.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Supports the task with appliance-specific precautions."
+        },
+        {
+          "id": "kettle-hardwater",
+          "title": "Why hard water leaves mineral deposits",
+          "url": "https://waternotes.example/hard-water",
+          "snippet": "An explanation of dissolved minerals, hard water and the deposits left after heating.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Explains the cause but does not provide the requested procedure."
+        },
+        {
+          "id": "kettle-ad",
+          "title": "Sponsored: best electric kettles to buy",
+          "url": "https://kettleoffers.example/best-electric-kettles",
+          "snippet": "Sponsored affiliate shopping guide. We may earn a commission from qualifying purchases.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A sponsored replacement shopping page is not a removal answer."
+        },
+        {
+          "id": "kettle-unrelated",
+          "title": "Electric circuits and current",
+          "url": "https://en.wikipedia.org/wiki/Electric_circuit_fixture",
+          "snippet": "An introduction to circuit diagrams and the movement of charge through conductors.",
+          "source": "wikipedia",
+          "grade": 0,
+          "judgment": "Shares an adjective but does not answer the appliance-cleaning task."
+        }
+      ],
+      "expect": {
+        "first": "kettle-direct",
+        "include": [
+          "kettle-direct"
+        ],
+        "exclude": [
+          "kettle-ad",
+          "kettle-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "wool-mending",
+      "query": "repair small hole in wool sweater",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Practical repair should win over buying replacements or merely describing wool.",
+      "candidates": [
+        {
+          "id": "wool-direct",
+          "title": "Repair a small hole in a wool sweater by darning",
+          "url": "https://mendingnotes.example/wool-hole",
+          "snippet": "A photographed sequence for repairing a small hole in a wool sweater, with matching yarn and a darning needle.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Direct instructions for the specified damage and material."
+        },
+        {
+          "id": "wool-support",
+          "title": "Choosing yarn for a wool sweater repair",
+          "url": "https://needlework.example/repair-yarn",
+          "snippet": "How yarn thickness, fibre and colour affect a visible mend in a knitted sweater.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful preparation for the requested repair."
+        },
+        {
+          "id": "wool-background",
+          "title": "Wool fibres under a microscope",
+          "url": "https://textileresearch.example/wool-fibres",
+          "snippet": "A description of the structure of wool fibres and how they differ from synthetic fibres.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Related material background, not repair instructions."
+        },
+        {
+          "id": "wool-shopping",
+          "title": "Sponsored replacement wool sweaters",
+          "url": "https://winterdeals.example/sweaters",
+          "snippet": "Sponsored affiliate links to a collection of new wool sweaters.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A sponsored shopping replacement does not answer the repair task."
+        },
+        {
+          "id": "wool-unrelated",
+          "title": "Repairing a bicycle puncture",
+          "url": "https://repairarchive.example/puncture",
+          "snippet": "Repair a small hole in a bicycle inner tube with a patch.",
+          "source": "archive-deep",
+          "grade": 0,
+          "judgment": "The matching hole/repair wording refers to the wrong object."
+        }
+      ],
+      "expect": {
+        "first": "wool-direct",
+        "include": [
+          "wool-direct"
+        ],
+        "exclude": [
+          "wool-shopping",
+          "wool-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "bicycle-brake-rub",
+      "query": "bicycle brake rubbing after removing wheel",
+      "lens": "forums",
+      "expectedFreshness": "none",
+      "rationale": "Troubleshooting discussions should remain about the concrete symptom rather than general cycling.",
+      "candidates": [
+        {
+          "id": "brake-direct",
+          "title": "Brake rubbing after removing and reinstalling the wheel",
+          "url": "https://cycleforum.example/thread/wheel-brake-rub",
+          "snippet": "The bicycle brake began rubbing after the wheel was removed. Riders explain checking wheel seating and brake alignment before changing parts.",
+          "source": "discourse",
+          "grade": 3,
+          "judgment": "Directly matches the symptom and trigger."
+        },
+        {
+          "id": "brake-support",
+          "title": "Checking whether a bicycle wheel is seated correctly",
+          "url": "https://workshop.example/bicycle-wheel-seat",
+          "snippet": "A workshop checklist for checking that a bicycle wheel sits correctly in the frame.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Helpful diagnostic step for the stated symptom."
+        },
+        {
+          "id": "brake-background",
+          "title": "How disc brakes work",
+          "url": "https://en.wikipedia.org/wiki/Bicycle_disc_brake_fixture",
+          "snippet": "An overview of braking forces, calipers, rotors and brake pad materials.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related explanation without the post-removal diagnosis."
+        },
+        {
+          "id": "brake-unrelated",
+          "title": "Ask HN: commuting to work by bicycle",
+          "url": "https://news.ycombinator.com/item?id=910001",
+          "snippet": "A popular discussion of routes, rain gear and commuting distances.",
+          "source": "hn",
+          "points": 5000,
+          "grade": 0,
+          "judgment": "Popularity and forum provenance do not answer the mechanical problem."
+        },
+        {
+          "id": "brake-ad",
+          "title": "Sponsored bicycle brake upgrade roundup",
+          "url": "https://cycledeals.example/brakes",
+          "snippet": "Sponsored. We earn a commission from these recommended brake upgrades.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Sponsored upgrades are outside the requested troubleshooting."
+        }
+      ],
+      "expect": {
+        "first": "brake-direct",
+        "include": [
+          "brake-direct"
+        ],
+        "exclude": [
+          "brake-unrelated",
+          "brake-ad"
+        ]
+      }
+    },
+    {
+      "id": "balcony-tomatoes",
+      "query": "growing tomatoes on a shaded balcony",
+      "lens": "small-web",
+      "expectedFreshness": "none",
+      "rationale": "Small-web preference should preserve relevant personal experience without rewarding unrelated blogs.",
+      "candidates": [
+        {
+          "id": "tomato-direct",
+          "title": "Growing tomatoes on my shaded balcony",
+          "url": "https://balconynotes.example/posts/shaded-tomatoes",
+          "snippet": "A growing-season diary about tomatoes on a shaded balcony, recording light exposure, plant growth and the resulting harvest.",
+          "source": "deep-blogs",
+          "grade": 3,
+          "judgment": "Direct firsthand account of the requested conditions."
+        },
+        {
+          "id": "tomato-support",
+          "title": "Tracking sunlight on a balcony garden",
+          "url": "https://gardenjournal.example/notes/balcony-light",
+          "snippet": "A practical method for measuring how many hours of direct sun a balcony receives before choosing plants.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful supporting step for understanding the growing conditions."
+        },
+        {
+          "id": "tomato-background",
+          "title": "Tomato cultivation overview",
+          "url": "https://en.wikipedia.org/wiki/Tomato_cultivation_fixture",
+          "snippet": "An overview of tomato cultivation and commercial greenhouse production.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Relevant background but not the balcony/shade situation."
+        },
+        {
+          "id": "tomato-unrelated-blog",
+          "title": "My favourite walks around the harbour",
+          "url": "https://harbourjournal.example/posts/walks",
+          "snippet": "A personal blog about paths, ships and coastal weather.",
+          "source": "deep-blogs",
+          "grade": 0,
+          "judgment": "Being a small personal blog does not provide topical relevance."
+        },
+        {
+          "id": "tomato-ad",
+          "title": "Sponsored tomato growing kits for every balcony",
+          "url": "https://gardenoffers.example/tomato-kits",
+          "snippet": "Sponsored affiliate recommendations for balcony tomato kits.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Sponsored sales copy is excluded by the default preference."
+        }
+      ],
+      "expect": {
+        "first": "tomato-direct",
+        "include": [
+          "tomato-direct"
+        ],
+        "exclude": [
+          "tomato-unrelated-blog",
+          "tomato-ad"
+        ]
+      }
+    },
+    {
+      "id": "keyboard-long-term",
+      "query": "quiet mechanical keyboard long term review",
+      "lens": "forums",
+      "expectedFreshness": "none",
+      "rationale": "Relevant long-term ownership reports should outrank sponsored lists and unrelated high-engagement threads.",
+      "candidates": [
+        {
+          "id": "keyboard-direct",
+          "title": "Quiet mechanical keyboard: a two-year ownership review",
+          "url": "https://keyboardforum.example/thread/quiet-two-years",
+          "snippet": "An owner describes the noise, wear, repairs and annoyances of a quiet mechanical keyboard after two years of daily use.",
+          "source": "discourse",
+          "grade": 3,
+          "judgment": "Direct long-term ownership evidence on the requested topic."
+        },
+        {
+          "id": "keyboard-support",
+          "title": "Measuring mechanical keyboard noise at home",
+          "url": "https://soundnotes.example/keyboard-noise",
+          "snippet": "A repeatable method for comparing mechanical keyboard noise under the same recording conditions.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful support for assessing quietness, but not an ownership review."
+        },
+        {
+          "id": "keyboard-background",
+          "title": "Mechanical keyboard switch types",
+          "url": "https://en.wikipedia.org/wiki/Keyboard_switch_fixture",
+          "snippet": "An overview of switch mechanisms, spring weights and key travel.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background without long-term evidence."
+        },
+        {
+          "id": "keyboard-ad",
+          "title": "Sponsored: 20 best quiet mechanical keyboards",
+          "url": "https://bestkeyboarddeals.example/quiet",
+          "snippet": "Sponsored affiliate guide. We may earn commissions on every purchase.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Sponsored listicle violates the selected result preference."
+        },
+        {
+          "id": "keyboard-unrelated",
+          "title": "Ask HN: which programming language will last?",
+          "url": "https://news.ycombinator.com/item?id=910002",
+          "snippet": "A highly rated conversation about programming language longevity.",
+          "source": "hn",
+          "points": 12000,
+          "grade": 0,
+          "judgment": "High engagement is unrelated to the requested product experience."
+        }
+      ],
+      "expect": {
+        "first": "keyboard-direct",
+        "include": [
+          "keyboard-direct"
+        ],
+        "exclude": [
+          "keyboard-ad",
+          "keyboard-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "git-keep-changes",
+      "query": "undo last git commit keep changes",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Matching the preservation requirement matters more than generic Git relevance.",
+      "candidates": [
+        {
+          "id": "git-direct",
+          "title": "Undo the last Git commit while keeping changes",
+          "url": "https://stackoverflow.com/questions/910003/undo-git-keep-changes-fixture",
+          "snippet": "A local-commit example uses git reset --soft HEAD~1 and explains that working changes remain available.",
+          "source": "stackexchange",
+          "points": 300,
+          "grade": 3,
+          "judgment": "Directly answers the keep-changes requirement in this synthetic example."
+        },
+        {
+          "id": "git-docs",
+          "title": "Git reset documentation",
+          "url": "https://git-scm.com/docs/git-reset",
+          "snippet": "git reset modes differ in how they update the index and working tree; the manual describes --soft, --mixed and --hard.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Authoritative supporting reference, broader than the exact task."
+        },
+        {
+          "id": "git-background",
+          "title": "A history of Git",
+          "url": "https://en.wikipedia.org/wiki/Git_history_fixture",
+          "snippet": "The origins of Git and the development of distributed version control.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background, not instructions."
+        },
+        {
+          "id": "git-destructive",
+          "title": "Undo all Git changes with a hard reset",
+          "url": "https://quickcommands.example/git-hard-reset",
+          "snippet": "Use git reset --hard to discard working changes and reset the repository state.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Violates the explicit requirement to keep changes."
+        },
+        {
+          "id": "git-ad",
+          "title": "Sponsored Git hosting comparison",
+          "url": "https://gitoffers.example/hosting",
+          "snippet": "Sponsored affiliate comparison of Git hosting plans.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Sponsored hosting does not answer the local operation."
+        }
+      ],
+      "expect": {
+        "first": "git-direct",
+        "include": [
+          "git-direct"
+        ],
+        "exclude": [
+          "git-ad"
+        ]
+      }
+    },
+    {
+      "id": "python-order",
+      "query": "python remove duplicates from list preserve order",
+      "lens": "primary",
+      "expectedFreshness": "none",
+      "rationale": "A direct order-preserving answer should beat a superficially similar solution that destroys order.",
+      "candidates": [
+        {
+          "id": "python-direct",
+          "title": "Remove duplicates from a Python list while preserving order",
+          "url": "https://pythonnotes.example/list-duplicates-order",
+          "snippet": "A worked Python example removes repeated items from a list and shows that the original order is preserved.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly satisfies both removal and order requirements."
+        },
+        {
+          "id": "python-reference",
+          "title": "Dictionary insertion order in Python",
+          "url": "https://docs.python.org/3/library/stdtypes.html#dict",
+          "snippet": "The dictionary reference explains insertion order and key uniqueness.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful explanation behind an order-preserving implementation."
+        },
+        {
+          "id": "python-related",
+          "title": "Python list data type",
+          "url": "https://en.wikipedia.org/wiki/Python_list_fixture",
+          "snippet": "An overview of sequence containers and Python lists.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "General background without the requested transformation."
+        },
+        {
+          "id": "python-wrong",
+          "title": "Remove duplicates from a list by sorting a set",
+          "url": "https://codefragments.example/sorted-set",
+          "snippet": "This example sorts the unique values, replacing the original order with alphabetical order.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Explicitly changes the order, contrary to the query."
+        },
+        {
+          "id": "python-unrelated",
+          "title": "Python release schedule",
+          "url": "https://www.python.org/downloads/fixture-release-schedule",
+          "snippet": "Dates for language maintenance releases and support windows.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Official provenance does not make the page answer the list operation."
+        }
+      ],
+      "expect": {
+        "first": "python-direct",
+        "include": [
+          "python-direct"
+        ]
+      }
+    },
+    {
+      "id": "printer-exact-model",
+      "query": "Brother HL-L2350DW Linux driver",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Model identifiers must distinguish the requested device from similar-looking identifiers.",
+      "config": {
+        "maxPerDomain": 0
+      },
+      "candidates": [
+        {
+          "id": "printer-direct",
+          "title": "HL-L2350DW Linux driver installation",
+          "url": "https://printerdocs.example/models/HL-L2350DW/linux",
+          "snippet": "Synthetic installation notes specifically for the Brother HL-L2350DW printer on Linux.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Exact model and operating system match."
+        },
+        {
+          "id": "printer-support",
+          "title": "Brother printer packages on Linux",
+          "url": "https://linuxprint.example/brother-packages",
+          "snippet": "Background on selecting printer packages and checking the model listed in the package instructions.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Helpful general setup context, not specific installation instructions."
+        },
+        {
+          "id": "printer-background",
+          "title": "How laser printers work",
+          "url": "https://en.wikipedia.org/wiki/Laser_printer_fixture",
+          "snippet": "An overview of laser printing and toner transfer.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background only."
+        },
+        {
+          "id": "printer-wrong-model",
+          "title": "HL-L2370DW Linux driver installation",
+          "url": "https://printerdocs.example/models/HL-L2370DW/linux",
+          "snippet": "Synthetic installation notes for a different model, HL-L2370DW.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A nearby model number is not the requested device."
+        },
+        {
+          "id": "printer-wrong-os",
+          "title": "HL-L2350DW Windows driver installation",
+          "url": "https://printerdocs.example/models/HL-L2350DW/windows",
+          "snippet": "Synthetic installation notes for the requested model on Windows only.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Correct model but wrong operating system."
+        }
+      ],
+      "expect": {
+        "first": "printer-direct",
+        "include": [
+          "printer-direct"
+        ]
+      }
+    },
+    {
+      "id": "site-constraint",
+      "query": "site:gov.uk passport renewal",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "The explicit site filter overrides broad source scores and permits several useful pages from the requested site.",
+      "config": {
+        "onlySites": [
+          "gov.uk"
+        ]
+      },
+      "candidates": [
+        {
+          "id": "passport-direct",
+          "title": "Renew a passport: application steps",
+          "url": "https://www.gov.uk/fixture/passport-renewal",
+          "snippet": "Synthetic official renewal instructions describing the application steps and where to begin.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Direct answer on the explicitly requested site."
+        },
+        {
+          "id": "passport-support",
+          "title": "Documents needed for passport renewal",
+          "url": "https://www.gov.uk/fixture/passport-renewal-documents",
+          "snippet": "Synthetic supporting checklist of documents for a renewal application.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful complementary page on the requested site."
+        },
+        {
+          "id": "passport-related",
+          "title": "A history of passports",
+          "url": "https://www.gov.uk/fixture/passport-history",
+          "snippet": "Background on the historical development of travel documents.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "On-site background rather than renewal instructions."
+        },
+        {
+          "id": "passport-outside",
+          "title": "Passport renewal help",
+          "url": "https://travelnotes.example/passport-renewal",
+          "snippet": "A practical renewal guide hosted outside the site requested by the query.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Excluded by the explicit site constraint, regardless of usefulness in another query."
+        },
+        {
+          "id": "passport-deceptive",
+          "title": "Passport renewal instructions",
+          "url": "https://gov.uk.example/passport-renewal",
+          "snippet": "A page whose hostname contains gov.uk but is not that site or a subdomain.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A lookalike hostname does not satisfy the site constraint."
+        }
+      ],
+      "expect": {
+        "first": "passport-direct",
+        "include": [
+          "passport-direct",
+          "passport-support"
+        ],
+        "exclude": [
+          "passport-outside",
+          "passport-deceptive"
+        ]
+      }
+    },
+    {
+      "id": "excluded-site",
+      "query": "crochet granny square pattern -site:pinterest.com",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "A user-excluded site and its subdomains must stay out while direct pattern pages remain.",
+      "config": {
+        "excludeSites": [
+          "pinterest.com"
+        ]
+      },
+      "candidates": [
+        {
+          "id": "crochet-direct",
+          "title": "Crochet granny square pattern with row-by-row instructions",
+          "url": "https://crochetnotes.example/granny-square",
+          "snippet": "A complete synthetic granny square crochet pattern with row-by-row instructions and stitch counts.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Direct pattern page on an allowed site."
+        },
+        {
+          "id": "crochet-support",
+          "title": "Reading granny square crochet charts",
+          "url": "https://stitchjournal.example/granny-square-chart",
+          "snippet": "A supporting explanation of symbols used in crochet charts for granny squares.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful supporting explanation."
+        },
+        {
+          "id": "crochet-background",
+          "title": "The history of crochet",
+          "url": "https://en.wikipedia.org/wiki/Crochet_history_fixture",
+          "snippet": "An overview of the development of crochet and regional techniques.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background rather than a usable pattern."
+        },
+        {
+          "id": "crochet-excluded",
+          "title": "Crochet granny square pattern",
+          "url": "https://www.pinterest.com/pin/910004",
+          "snippet": "A relevant-looking pattern bookmark on the site explicitly excluded by the query.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Excluded by the user's site instruction."
+        },
+        {
+          "id": "crochet-subdomain",
+          "title": "Crochet granny square pattern collection",
+          "url": "https://ideas.pinterest.com/fixture/granny-square",
+          "snippet": "A collection on a subdomain of the excluded site.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Subdomains must obey the same exclusion."
+        }
+      ],
+      "expect": {
+        "first": "crochet-direct",
+        "include": [
+          "crochet-direct"
+        ],
+        "exclude": [
+          "crochet-excluded",
+          "crochet-subdomain"
+        ]
+      }
+    },
+    {
+      "id": "phrase-and-exclusion",
+      "query": "\"right to repair\" -phone",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Exact phrase matches should be preferred, and the explicit excluded word must be respected.",
+      "config": {
+        "phrases": [
+          "right to repair"
+        ],
+        "excludeWords": [
+          "phone"
+        ]
+      },
+      "candidates": [
+        {
+          "id": "repair-direct",
+          "title": "Right to repair for household appliances",
+          "url": "https://repairrights.example/household-appliances",
+          "snippet": "A synthetic explanation of the right to repair and access to parts for household appliances.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Literal phrase and intended topic, without the excluded word."
+        },
+        {
+          "id": "repair-support",
+          "title": "Right to repair: replacement parts for washing machines",
+          "url": "https://workshoprights.example/washing-machines",
+          "snippet": "A practical supporting article about spare parts and repair documentation for washing machines.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Literal phrase with useful supporting detail."
+        },
+        {
+          "id": "repair-related",
+          "title": "Repairing things without specialist tools",
+          "url": "https://fixingnotes.example/simple-repairs",
+          "snippet": "A general discussion of repairing household objects with basic tools.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Related repair topic but does not discuss the specified concept."
+        },
+        {
+          "id": "repair-excluded",
+          "title": "Right to repair a phone",
+          "url": "https://devicerepair.example/phone-rights",
+          "snippet": "An explanation focused on phone repair and mobile devices.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Contains the explicitly excluded word."
+        },
+        {
+          "id": "repair-offtopic",
+          "title": "Getting a legal answer right",
+          "url": "https://lawnotes.example/answer-right",
+          "snippet": "General advice about writing clear explanations of legal terminology.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Scattered vocabulary is not the quoted concept."
+        }
+      ],
+      "expect": {
+        "first": "repair-direct",
+        "include": [
+          "repair-direct"
+        ],
+        "exclude": [
+          "repair-excluded"
+        ]
+      }
+    },
+    {
+      "id": "cat-care-boundaries",
+      "query": "cat care",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Substring matches inside education and career must not masquerade as whole topic words.",
+      "candidates": [
+        {
+          "id": "cat-direct",
+          "title": "Cat care: a daily routine",
+          "url": "https://catnotes.example/daily-routine",
+          "snippet": "A synthetic cat care checklist covering feeding, fresh water, a clean litter tray and play.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Direct whole-word topic match."
+        },
+        {
+          "id": "cat-hyphen",
+          "title": "A cat-care checklist for a new home",
+          "url": "https://petjournal.example/checklist",
+          "snippet": "A supporting checklist for preparing a home and maintaining a daily cat-care routine.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Hyphen punctuation should not destroy a valid topic match."
+        },
+        {
+          "id": "cat-related",
+          "title": "The history of domestic cats",
+          "url": "https://en.wikipedia.org/wiki/Domestic_cat_history_fixture",
+          "snippet": "Historical background on domestication and the spread of household cats.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background rather than daily care."
+        },
+        {
+          "id": "cat-substrings",
+          "title": "Educational careers and training pathways",
+          "url": "https://education.example.edu/careers",
+          "snippet": "Education and career development resources for students choosing training pathways.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "The letters in education and careers are accidental substrings, not cat-care relevance."
+        },
+        {
+          "id": "cat-dog",
+          "title": "Dog care routines",
+          "url": "https://dognotes.example/routine",
+          "snippet": "A daily routine for feeding, exercising and grooming dogs.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Care for a different animal does not answer this query."
+        }
+      ],
+      "expect": {
+        "first": "cat-direct",
+        "include": [
+          "cat-direct",
+          "cat-hyphen"
+        ],
+        "exclude": [
+          "cat-substrings"
+        ]
+      }
+    },
+    {
+      "id": "japanese-exact",
+      "query": "猫の世話",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Exact Japanese text must remain matchable without transliteration or Latin characters.",
+      "candidates": [
+        {
+          "id": "japanese-direct",
+          "title": "猫の世話",
+          "url": "https://nekonote.example/daily",
+          "snippet": "猫の世話について、毎日の食事、水、トイレの掃除、遊びをまとめた架空の手引き。",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Exact Japanese query and a directly useful synthetic guide."
+        },
+        {
+          "id": "japanese-support",
+          "title": "猫の世話に必要な道具",
+          "url": "https://kurashinote.example/cat-supplies",
+          "snippet": "猫の世話を始める前に用意する道具を説明する架空の記事。",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Exact phrase with useful supporting preparation."
+        },
+        {
+          "id": "japanese-related",
+          "title": "猫の写真集",
+          "url": "https://shashin.example/cats",
+          "snippet": "さまざまな猫の写真を集めた架空のページ。",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Related animal, but pictures do not answer the care request."
+        },
+        {
+          "id": "japanese-unrelated",
+          "title": "電車の時刻表",
+          "url": "https://railnote.example/timetable",
+          "snippet": "駅と電車の時刻について説明する架空のページ。",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Unrelated Japanese text should not tie with an exact match."
+        },
+        {
+          "id": "japanese-english-unrelated",
+          "title": "A guide to compiler optimization",
+          "url": "https://docs.compiler.example/reference",
+          "snippet": "Instruction scheduling and register allocation in a compiler.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A familiar technical domain and Latin text are unrelated."
+        }
+      ],
+      "expect": {
+        "first": "japanese-direct",
+        "include": [
+          "japanese-direct"
+        ],
+        "exclude": [
+          "japanese-unrelated",
+          "japanese-english-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "arabic-exact",
+      "query": "العناية بالقطط",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Exact Arabic topic text must survive analysis and ranking.",
+      "candidates": [
+        {
+          "id": "arabic-direct",
+          "title": "العناية بالقطط",
+          "url": "https://qitat.example/daily",
+          "snippet": "دليل افتراضي عن العناية بالقطط والطعام والماء وتنظيف مكانها واللعب معها.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Exact Arabic query with a directly relevant synthetic guide."
+        },
+        {
+          "id": "arabic-support",
+          "title": "أدوات العناية بالقطط",
+          "url": "https://manzil.example/cat-supplies",
+          "snippet": "مقال افتراضي يشرح الأدوات المطلوبة للعناية بالقطط في المنزل.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Exact topic with helpful supporting preparation."
+        },
+        {
+          "id": "arabic-related",
+          "title": "صور القطط",
+          "url": "https://suwar.example/cats",
+          "snippet": "صفحة افتراضية تضم صوراً لقطط مختلفة.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Related subject but not care instructions."
+        },
+        {
+          "id": "arabic-unrelated",
+          "title": "مواعيد القطارات",
+          "url": "https://qitar.example/timetable",
+          "snippet": "صفحة افتراضية عن مواعيد القطارات والمحطات.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Unrelated Arabic text must not tie with an exact topic match."
+        },
+        {
+          "id": "arabic-english-unrelated",
+          "title": "Understanding database indexes",
+          "url": "https://docs.database.example/reference",
+          "snippet": "An introduction to B-tree indexes and query plans.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Unrelated technical content must not gain an advantage from script handling."
+        }
+      ],
+      "expect": {
+        "first": "arabic-direct",
+        "include": [
+          "arabic-direct"
+        ],
+        "exclude": [
+          "arabic-unrelated",
+          "arabic-english-unrelated"
+        ]
+      }
+    },
+    {
+      "id": "malformed-result-url",
+      "query": "bicycle chain cleaning",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Useful-looking text must not make an invalid or executable URL a usable search result.",
+      "candidates": [
+        {
+          "id": "url-valid",
+          "title": "Bicycle chain cleaning instructions",
+          "url": "https://bikenotes.example/chain-cleaning",
+          "snippet": "A practical synthetic bicycle chain cleaning guide with tools, cleaning steps and lubrication notes.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly useful content with a valid HTTP URL."
+        },
+        {
+          "id": "url-support",
+          "title": "Choosing a brush for bicycle chain cleaning",
+          "url": "http://workshopnotes.example/chain-brush",
+          "snippet": "Supporting notes on brushes and access to the chain while cleaning.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Helpful supporting content with a valid HTTP URL; HTTPS is not required by this ranking fixture."
+        },
+        {
+          "id": "url-background",
+          "title": "How a bicycle chain transmits power",
+          "url": "https://en.wikipedia.org/wiki/Bicycle_chain_fixture",
+          "snippet": "An overview of links, sprockets and chain-driven transmission.",
+          "source": "wikipedia",
+          "grade": 1,
+          "judgment": "Related background rather than cleaning instructions."
+        },
+        {
+          "id": "url-javascript",
+          "title": "Bicycle chain cleaning instructions",
+          "url": "javascript:alert(1)",
+          "snippet": "A practical bicycle chain cleaning guide with tools, cleaning steps and lubrication notes.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Executable schemes are not eligible web results even when text is relevant."
+        },
+        {
+          "id": "url-malformed",
+          "title": "Bicycle chain cleaning manual",
+          "url": "https://",
+          "snippet": "Instructions for bicycle chain cleaning and lubrication.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "An incomplete URL cannot lead to a usable source."
+        }
+      ],
+      "expect": {
+        "first": "url-valid",
+        "include": [
+          "url-valid"
+        ],
+        "exclude": [
+          "url-javascript",
+          "url-malformed"
+        ]
+      }
+    },
+    {
+      "id": "case-sensitive-url-paths",
+      "query": "Python dictionary keys",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Case-sensitive paths can identify different documents; hostname case does not create a different source.",
+      "config": {
+        "maxPerDomain": 0
+      },
+      "candidates": [
+        {
+          "id": "urlcase-upper",
+          "title": "Iterating over Python dictionary keys",
+          "url": "https://case.example/docs/Keys",
+          "snippet": "A synthetic guide to iterating over Python dictionary keys in a case-sensitive documentation fixture.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly useful document at the uppercase path."
+        },
+        {
+          "id": "urlcase-lower",
+          "title": "Understanding the Python dictionary keys view",
+          "url": "https://case.example/docs/keys",
+          "snippet": "A separate synthetic reference explains the dynamic keys view returned by a Python dictionary.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Genuinely distinct supporting document at the lowercase path."
+        },
+        {
+          "id": "urlcase-host-alias",
+          "title": "Iterating over Python dictionary keys",
+          "url": "https://CASE.example/docs/Keys",
+          "snippet": "A synthetic guide to iterating over Python dictionary keys in a case-sensitive documentation fixture.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Duplicate of urlcase-upper; changing hostname case does not create another useful document."
+        },
+        {
+          "id": "urlcase-related",
+          "title": "Python mapping data types",
+          "url": "https://types.example/python-mappings",
+          "snippet": "General background about mapping types in Python.",
+          "source": "web",
+          "grade": 1,
+          "judgment": "Related background."
+        },
+        {
+          "id": "urlcase-unrelated",
+          "title": "How to cut a replacement door key",
+          "url": "https://locknotes.example/keys",
+          "snippet": "A workshop description of mechanical door keys.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "The word keys is used in the wrong sense."
+        }
+      ],
+      "expect": {
+        "include": [
+          "urlcase-upper",
+          "urlcase-lower"
+        ],
+        "exclude": [
+          "urlcase-host-alias"
+        ]
+      }
+    },
+    {
+      "id": "news-current-versus-old",
+      "query": "latest lunar mission news",
+      "lens": "raw-news",
+      "expectedFreshness": "news",
+      "rationale": "Current relevant reporting should outrank old archive pages and high-engagement discussions, even when they reuse the same generic headline.",
+      "candidates": [
+        {
+          "id": "news-current",
+          "title": "New lunar mission prepares for launch",
+          "url": "https://reporting.example/2026/lunar-launch",
+          "snippet": "Synthetic report published today about preparations for a new lunar mission, with an update to the current launch plan.",
+          "source": "web",
+          "publishedAt": "2026-11-15T10:00:00Z",
+          "grade": 3,
+          "judgment": "Direct current reporting as of the fixed benchmark clock."
+        },
+        {
+          "id": "news-support",
+          "title": "Lunar mission launch preparations: current operations update",
+          "url": "https://missionnotes.example/2026/operations",
+          "snippet": "A synthetic current operations note with supporting details about launch preparations for the lunar mission.",
+          "source": "web",
+          "publishedAt": "2026-11-15T09:00:00Z",
+          "grade": 2,
+          "judgment": "Useful current supporting material."
+        },
+        {
+          "id": "news-old-hn",
+          "title": "New lunar mission prepares for launch",
+          "url": "https://news.ycombinator.com/item?id=910005",
+          "snippet": "A 2019 discussion of a different lunar mission proposal and the engineering ideas discussed at the time.",
+          "source": "hn",
+          "publishedAt": "2019-06-10T12:00:00Z",
+          "points": 50000,
+          "grade": 1,
+          "judgment": "Genuinely distinct historical discussion; context only, not today's news."
+        },
+        {
+          "id": "news-old-archive",
+          "title": "New lunar mission prepares for launch",
+          "url": "https://archive.org/details/lunar-mission-1998-fixture",
+          "snippet": "A 1998 archived report about an earlier lunar mission program, preserved as historical background.",
+          "source": "archive-deep",
+          "publishedAt": "1998-03-01T12:00:00Z",
+          "grade": 1,
+          "judgment": "Genuinely distinct historical document with a reused generic title; not current news."
+        },
+        {
+          "id": "news-offtopic",
+          "title": "Ocean research expedition prepares for launch",
+          "url": "https://www.nasa.gov/science/ocean-expedition-fixture",
+          "snippet": "A synthetic current report about an ocean expedition with no lunar mission coverage.",
+          "source": "web",
+          "publishedAt": "2026-11-15T11:00:00Z",
+          "grade": 0,
+          "judgment": "Recency and authoritative provenance do not establish topical relevance."
+        },
+        {
+          "id": "news-ad",
+          "title": "Sponsored lunar mission souvenir sale",
+          "url": "https://spaceoffers.example/souvenirs",
+          "snippet": "Sponsored affiliate offers for lunar mission merchandise.",
+          "source": "web",
+          "publishedAt": "2026-11-15T11:30:00Z",
+          "grade": 0,
+          "judgment": "Sponsored merchandise is not reporting."
+        }
+      ],
+      "expect": {
+        "first": "news-current",
+        "include": [
+          "news-current"
+        ],
+        "exclude": [
+          "news-ad"
+        ]
+      }
+    },
+    {
+      "id": "image-assets",
+      "query": "ocean waves",
+      "lens": "images",
+      "expectedFreshness": "none",
+      "rationale": "Media scope should retain distinct relevant assets on one host, remove repeated assets and exclude text-only results.",
+      "candidates": [
+        {
+          "id": "image-a",
+          "title": "Ocean waves at a rocky shore",
+          "url": "https://commons.wikimedia.org/wiki/File:Ocean_waves_fixture_A.jpg",
+          "snippet": "Synthetic photograph fixture of ocean waves breaking against a rocky shore.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "image",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Ocean_waves_fixture_A.jpg/480px-Ocean_waves_fixture_A.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Ocean_waves_fixture_A.jpg",
+            "mimeType": "image/jpeg",
+            "width": 1600,
+            "height": 900,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 3,
+          "judgment": "Direct image match; asset A."
+        },
+        {
+          "id": "image-b",
+          "title": "Ocean waves at sunset",
+          "url": "https://commons.wikimedia.org/wiki/File:Ocean_waves_fixture_B.jpg",
+          "snippet": "A distinct synthetic photograph fixture of ocean waves at sunset.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "image",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Ocean_waves_fixture_B.jpg/480px-Ocean_waves_fixture_B.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/b/b2/Ocean_waves_fixture_B.jpg",
+            "mimeType": "image/jpeg",
+            "width": 1600,
+            "height": 900,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 3,
+          "judgment": "Direct image match; genuinely distinct asset B."
+        },
+        {
+          "id": "image-a-copy",
+          "title": "Ocean waves at a rocky shore",
+          "url": "https://commons.wikimedia.org/wiki/File:Ocean_waves_fixture_A_copy.jpg",
+          "snippet": "Synthetic photograph fixture of ocean waves breaking against a rocky shore.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "image",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Ocean_waves_fixture_A.jpg/480px-Ocean_waves_fixture_A.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Ocean_waves_fixture_A.jpg",
+            "mimeType": "image/jpeg",
+            "width": 1600,
+            "height": 900,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 0,
+          "judgment": "Duplicate asset A under another source-page URL; no additional useful result."
+        },
+        {
+          "id": "image-cat",
+          "title": "Portrait of a cat",
+          "url": "https://commons.wikimedia.org/wiki/File:Cat_portrait_fixture.jpg",
+          "snippet": "A synthetic cat portrait with no ocean or wave content.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "image",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Cat_portrait_fixture.jpg/480px-Cat_portrait_fixture.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cat_portrait_fixture.jpg",
+            "mimeType": "image/jpeg",
+            "width": 1600,
+            "height": 900,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 0,
+          "judgment": "Wrong image subject."
+        },
+        {
+          "id": "image-text",
+          "title": "Ocean waves explained",
+          "url": "https://oceantext.example/waves",
+          "snippet": "A written explanation of ocean waves without image metadata.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A text page does not satisfy the Images scope."
+        }
+      ],
+      "expect": {
+        "include": [
+          "image-a",
+          "image-b"
+        ],
+        "exclude": [
+          "image-a-copy",
+          "image-cat",
+          "image-text"
+        ]
+      }
+    },
+    {
+      "id": "video-assets",
+      "query": "bicycle tyre repair",
+      "lens": "videos",
+      "expectedFreshness": "none",
+      "rationale": "Video results must contain usable video metadata and match the repair task; distinct clips should survive a shared host.",
+      "candidates": [
+        {
+          "id": "video-a",
+          "title": "Bicycle tyre repair: finding and patching a puncture",
+          "url": "https://commons.wikimedia.org/wiki/File:Bicycle_tyre_repair_fixture_A.webm",
+          "snippet": "Synthetic instructional clip showing a bicycle tyre repair sequence from locating a puncture to applying a patch.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "video",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Bicycle_tyre_repair_fixture_A.webm/480px--Bicycle_tyre_repair_fixture_A.webm.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a1/Bicycle_tyre_repair_fixture_A.webm/Bicycle_tyre_repair_fixture_A.webm.480p.vp9.webm",
+            "mimeType": "video/webm",
+            "width": 854,
+            "height": 480,
+            "durationSeconds": 45,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 3,
+          "judgment": "Direct instructional video match; asset A."
+        },
+        {
+          "id": "video-b",
+          "title": "Bicycle tyre repair: checking the repaired tube",
+          "url": "https://commons.wikimedia.org/wiki/File:Bicycle_tyre_repair_fixture_B.webm",
+          "snippet": "A distinct synthetic instructional clip showing how a repaired bicycle tube is checked before fitting.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "video",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Bicycle_tyre_repair_fixture_B.webm/480px--Bicycle_tyre_repair_fixture_B.webm.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/b/b2/Bicycle_tyre_repair_fixture_B.webm/Bicycle_tyre_repair_fixture_B.webm.480p.vp9.webm",
+            "mimeType": "video/webm",
+            "width": 854,
+            "height": 480,
+            "durationSeconds": 45,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 2,
+          "judgment": "Useful supporting repair video; genuinely distinct asset B."
+        },
+        {
+          "id": "video-a-copy",
+          "title": "Bicycle tyre repair: finding and patching a puncture",
+          "url": "https://commons.wikimedia.org/wiki/File:Bicycle_tyre_repair_fixture_A_copy.webm",
+          "snippet": "Synthetic instructional clip showing a bicycle tyre repair sequence from locating a puncture to applying a patch.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "video",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Bicycle_tyre_repair_fixture_A.webm/480px--Bicycle_tyre_repair_fixture_A.webm.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a1/Bicycle_tyre_repair_fixture_A.webm/Bicycle_tyre_repair_fixture_A.webm.480p.vp9.webm",
+            "mimeType": "video/webm",
+            "width": 854,
+            "height": 480,
+            "durationSeconds": 45,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 0,
+          "judgment": "Duplicate of asset A, not a second useful clip."
+        },
+        {
+          "id": "video-ride",
+          "title": "A bicycle ride through the countryside",
+          "url": "https://commons.wikimedia.org/wiki/File:Bicycle_ride_fixture.webm",
+          "snippet": "A synthetic ride recording without tyre repair instructions.",
+          "source": "wikimedia",
+          "media": {
+            "kind": "video",
+            "previewUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Bicycle_ride_fixture.webm/480px--Bicycle_ride_fixture.webm.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c3/Bicycle_ride_fixture.webm/Bicycle_ride_fixture.webm.480p.vp9.webm",
+            "mimeType": "video/webm",
+            "width": 854,
+            "height": 480,
+            "durationSeconds": 45,
+            "attribution": "Synthetic fixture author",
+            "license": "Synthetic CC0 fixture label",
+            "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+          },
+          "grade": 0,
+          "judgment": "A cycling video is not necessarily a repair answer."
+        },
+        {
+          "id": "video-text",
+          "title": "Bicycle tyre repair instructions",
+          "url": "https://bikerepair.example/tyre",
+          "snippet": "Written bicycle tyre repair instructions without video metadata.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "A text page does not satisfy the Videos scope."
+        }
+      ],
+      "expect": {
+        "include": [
+          "video-a",
+          "video-b"
+        ],
+        "exclude": [
+          "video-a-copy",
+          "video-ride",
+          "video-text"
+        ]
+      }
+    },
+    {
+      "id": "literal-percent-url",
+      "query": "natural fabric dye colour chart",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "A syntactically accepted HTTP URL containing a literal percent sign must not abort ranking or remove useful results; these are distinct synthetic references.",
+      "candidates": [
+        {
+          "id": "percent-direct",
+          "title": "Natural fabric dye colour chart",
+          "url": "https://dyenotes.example/colour-chart",
+          "snippet": "A synthetic natural fabric dye colour chart documenting dyes, fabric samples and their observed colours.",
+          "source": "web",
+          "grade": 3,
+          "judgment": "Directly provides the requested colour chart."
+        },
+        {
+          "id": "percent-literal",
+          "title": "Reading a natural fabric dye colour chart",
+          "url": "https://textilenotes.example/100%natural/colour-chart",
+          "snippet": "A synthetic supporting reference explaining how fibre choice affects the colours shown in a natural fabric dye colour chart.",
+          "source": "web",
+          "grade": 2,
+          "judgment": "Useful supporting guidance at a distinct HTTP URL containing a literal percent sign; it must survive safe URL handling."
+        },
+        {
+          "id": "percent-unrelated",
+          "title": "Annual railway timetable",
+          "url": "https://railnotes.example/timetable",
+          "snippet": "A synthetic railway timetable listing station stops and departure times.",
+          "source": "web",
+          "grade": 0,
+          "judgment": "Unrelated to fabric dyes or colour charts."
+        }
+      ],
+      "expect": {
+        "include": [
+          "percent-direct",
+          "percent-literal"
+        ]
+      }
+    },
+    {
+      "id": "intent-current-version",
+      "query": "current Firefox stable version",
+      "lens": "all",
+      "expectedFreshness": "current",
+      "rationale": "Current software version information is volatile; this case does not assert an actual release number."
+    },
+    {
+      "id": "intent-product-year",
+      "query": "iPhone 2023 latest security updates",
+      "lens": "all",
+      "expectedFreshness": "current",
+      "rationale": "A product/model year must not override an explicit request for the latest updates; no actual update facts are asserted."
+    },
+    {
+      "id": "intent-officeholder",
+      "query": "who is the CEO of Mozilla",
+      "lens": "all",
+      "expectedFreshness": "current",
+      "rationale": "A current officeholder request needs fresh information; no person's identity is asserted."
+    },
+    {
+      "id": "intent-weather",
+      "query": "weather forecast Copenhagen",
+      "lens": "all",
+      "expectedFreshness": "current",
+      "rationale": "A location-specific forecast changes over time; this is not an explanation of weather science."
+    },
+    {
+      "id": "intent-local-today",
+      "query": "Copenhagen metro disruption today",
+      "lens": "all",
+      "expectedFreshness": "news",
+      "rationale": "Today's local disruption information needs timely retrieval; no actual disruption is asserted."
+    },
+    {
+      "id": "intent-electric-current",
+      "query": "electric current density definition",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "The electrical meaning of current is an evergreen explanatory query."
+    },
+    {
+      "id": "intent-breaking-bad",
+      "query": "Breaking Bad filming locations",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Breaking Bad is a title, not an instruction to fetch breaking news."
+    },
+    {
+      "id": "intent-historical-year",
+      "query": "Copenhagen metro opening in 2002",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "An explicit historical year must preserve the historical request."
+    },
+    {
+      "id": "intent-before-cutoff",
+      "query": "latest web design before:2022-11-30",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "An explicit historical upper bound takes precedence over the otherwise current word latest."
+    },
+    {
+      "id": "intent-hacker-news",
+      "query": "Hacker News API documentation",
+      "lens": "all",
+      "expectedFreshness": "none",
+      "rationale": "Hacker News is a service name here; API documentation is not a news-headline query."
+    }
+  ]
+}

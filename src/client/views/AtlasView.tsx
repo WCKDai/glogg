@@ -123,11 +123,13 @@ export function AtlasView({
   onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
 }) {
   const features = useFeatures();
+  const visibleTabs = features.administration ? TABS : TABS.filter((t) => t.id !== 'index');
   // The tab is part of the address (/atlas?tab=boards), so it can be linked and survives a refresh.
   const [tab, setTabState] = useState<Tab>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return TABS.some((x) => x.id === t) ? (t as Tab) : 'picked';
   });
+  const activeTab: Tab = !features.administration && tab === 'index' ? 'picked' : tab;
   const setTab = useCallback((t: Tab) => {
     setTabState(t);
     window.history.replaceState(window.history.state, '', t === 'picked' ? window.location.pathname : `${window.location.pathname}?tab=${t}`);
@@ -151,21 +153,26 @@ export function AtlasView({
   }, []);
 
   useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
+    if (features.administration) void loadStatus();
+  }, [features.administration, loadStatus]);
 
   useEffect(() => {
-    if (!status?.crawling) return;
+    if (!features.administration || !status?.crawling) return;
     const t = setInterval(() => void loadStatus(), 3000);
     return () => clearInterval(t);
-  }, [status?.crawling, loadStatus]);
+  }, [features.administration, status?.crawling, loadStatus]);
 
   const surprise = async (kind?: string) => {
+    if (!features.administration && !kind) {
+      const pool = (picked ?? []).filter((s) => uncensored || !s.is18Plus);
+      if (pool.length > 0) window.open(pool[Math.floor(Math.random() * pool.length)].url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     try {
       const pick = await api<{ url: string; title: string }>(`/api/deep/random?nsfw=${uncensored}${kind ? `&kind=${kind}` : ''}`);
       window.open(pick.url, '_blank', 'noopener,noreferrer');
     } catch {
-      onToast?.('Nothing indexed yet. Start the deep index first.', 'info');
+      onToast?.(features.administration ? 'Nothing indexed yet. Start the deep index first.' : 'No indexed posts available yet.', 'info');
     }
   };
 
@@ -183,27 +190,27 @@ export function AtlasView({
                 · {fmt(counts.blog)} blogs · {fmt(counts.site)} small sites · {fmt(counts.board)} boards · {fmt(counts.forum)} forums
               </>
             )}
-            {status?.posts ? <> · {plural(status.posts, 'post')} in your deep index</> : null}
+            {features.administration && status?.posts ? <> · {plural(status.posts, 'post')} in your deep index</> : null}
           </p>
         </div>
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => void surprise(tab === 'picked' || tab === 'index' ? undefined : tab)}
-          title="Open a random post from the deep index (from this tab's kind)"
+          onClick={() => void surprise(activeTab === 'picked' || activeTab === 'index' ? undefined : activeTab)}
+          title={features.administration || (activeTab !== 'picked' && activeTab !== 'index') ? "Open a random post from the deep index (from this tab's kind)" : 'Open a random hand-picked site'}
         >
           <Dices size={13} /> Surprise me
         </button>
       </header>
 
       <div className="tool-tabs atlas-tabs" role="tablist" aria-label="Atlas sections">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
-            aria-selected={tab === t.id}
-            className={`tool-tab ${tab === t.id ? 'active' : ''}`}
+            aria-selected={activeTab === t.id}
+            className={`tool-tab ${activeTab === t.id ? 'active' : ''}`}
             onClick={() => setTab(t.id)}
             title={t.hint}
           >
@@ -215,7 +222,7 @@ export function AtlasView({
       </div>
 
       {/* First run: thousands of sources and nothing indexed yet. Say what that means, and offer the start here. */}
-      {features.administration && tab !== 'picked' && tab !== 'index' && status?.available && !status.crawling && !status.posts && (
+      {features.administration && activeTab !== 'picked' && activeTab !== 'index' && status?.available && !status.crawling && !status.posts && (
         <div className="notice atlas-first-run" role="note">
           <p>
             None of these are in your deep index yet. Build it to search their posts from glogg: it crawls politely in the background, about 3–4 hours and 1–1.5 GB for everything.
@@ -243,12 +250,12 @@ export function AtlasView({
         </div>
       )}
 
-      {tab === 'picked' ? (
+      {activeTab === 'picked' ? (
         <HandPicked sites={picked ?? []} onRead={onRead} uncensored={uncensored} />
-      ) : tab === 'index' ? (
+      ) : activeTab === 'index' ? (
         <DeepIndexPanel status={status} reload={loadStatus} onToast={onToast} uncensored={uncensored} />
       ) : (
-        <Directory key={tab} kind={tab} uncensored={uncensored} onCounts={setCounts} onRead={onRead} />
+        <Directory key={activeTab} kind={activeTab} uncensored={uncensored} onCounts={setCounts} onRead={onRead} />
       )}
     </div>
   );
@@ -331,6 +338,7 @@ function Directory({
   onCounts: (c: DirPage['counts']) => void;
   onRead: (url: string) => void;
 }) {
+  const features = useFeatures();
   const [q, setQ] = useState('');
   const [order, setOrder] = useState<'posts' | 'random' | 'name'>('posts');
   const [origin, setOrigin] = useState('');
@@ -437,7 +445,7 @@ function Directory({
             </div>
             {it.nsfw ? <span className="tag tag-danger">18+</span> : null}
             <span className="dir-meta">
-              {it.posts > 0 ? plural(it.posts, 'post') : it.status === 'no-feed' ? 'no feed' : it.status === 'error' ? 'failing' : it.fetched_at ? '' : 'not crawled'}
+              {it.posts > 0 ? plural(it.posts, 'post') : !features.administration ? '' : it.status === 'no-feed' ? 'no feed' : it.status === 'error' ? 'failing' : it.fetched_at ? '' : 'not crawled'}
               {it.fetched_at ? ` · ${relativeDate(new Date(it.fetched_at).toISOString())}` : ''}
             </span>
             <button type="button" className="icon-btn ghost" title="Read clean" aria-label={`Read ${it.site}`} onClick={() => onRead(siteUrl(it))}>
