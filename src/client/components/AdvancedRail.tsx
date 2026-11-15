@@ -1,3 +1,4 @@
+import { useFeatures } from '../capabilities.js';
 import React from 'react';
 import { ArrowLeft, Sparkles, Wrench } from 'lucide-react';
 import type { ResearchDepth, SearchLensId } from '../../core/browser.js';
@@ -50,6 +51,7 @@ export function AdvancedRail({
   onOpenTools: () => void;
   onSimple: () => void;
 }) {
+  const features = useFeatures();
   return (
     <aside className="rail" aria-label="Search controls">
       <button type="button" className="rail-mode" onClick={onSimple} title="Back to the simple view (m)">
@@ -119,7 +121,7 @@ export function AdvancedRail({
         <RailToggle label="Before ChatGPT" hint="Pages from before Nov 2022" on={prefs.preLlmOnly} set={(v) => onPrefs({ ...prefs, preLlmOnly: v })} />
       </section>
 
-      <section className="rail-section">
+      {features.research && <section className="rail-section">
         <h2 className="rail-title">Research</h2>
         <RailToggle label="Answer every search" on={researchAuto} set={onResearchAuto} />
         <div className="rail-row">
@@ -144,11 +146,11 @@ export function AdvancedRail({
           <Sparkles size={13} />
           <span className="truncate">{aiLabel || 'No model: quotes only'}</span>
         </button>
-      </section>
+      </section>}
 
-      <button type="button" className="rail-item rail-tools" onClick={onOpenTools}>
+      {features.tools && <button type="button" className="rail-item rail-tools" onClick={onOpenTools}>
         <Wrench size={13} /> All tools
-      </button>
+      </button>}
     </aside>
   );
 }

@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { fetchUpstream, readUpstreamJson } from './upstream.js';
 import {
   analyzeQueryIntent,
   clip,
@@ -16,22 +17,17 @@ const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 async function fetchJsonFast<T>(url: string, timeoutMs = 3400): Promise<T | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
+    const res = await fetchUpstream(url, {
       headers: {
         'User-Agent': USER_AGENT,
         Accept: 'application/json',
       },
-    });
+    }, timeoutMs);
     if (!res.ok) return null;
-    return (await res.json()) as T;
+    return await readUpstreamJson<T>(res);
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -75,7 +71,7 @@ async function fetchWikipediaDirectExtract(
 
       const pages = Object.values(data?.query?.pages ?? {});
       for (const page of pages) {
-        if (!page.title || !page.extract || page.extract.length < 40) continue;
+        if (typeof page.title !== 'string' || typeof page.extract !== 'string' || page.extract.length < 40) continue;
         if (/may refer to:/i.test(page.extract)) continue;
         const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(
           page.title.replace(/\s+/g, '_')
@@ -95,7 +91,7 @@ async function fetchWikipediaDirectExtract(
           });
         }
       }
-    })
+    }).map((work) => work.catch(() => undefined))
   );
 
   if (candidates.length === 0) return null;
@@ -381,9 +377,9 @@ export function prefetchInstantAnswer(rawQuery: string, opts: { stackexchangeKey
   if (hit && Date.now() - hit.at < hit.ttl) return hit.value;
 
   const value = Promise.all([
-    fetchWikipediaDirectExtract(analysis),
-    fetchDuckDuckGoZeroClick(analysis),
-    fetchStackExchangeTopAnswer(analysis, stackExchangeKeyParam(opts.stackexchangeKey)),
+    fetchWikipediaDirectExtract(analysis).catch(() => null),
+    fetchDuckDuckGoZeroClick(analysis).catch(() => null),
+    fetchStackExchangeTopAnswer(analysis, stackExchangeKeyParam(opts.stackexchangeKey)).catch(() => null),
   ]);
   if (LOOKUP_TTL_MS > 0) {
     const entry = { at: Date.now(), ttl: LOOKUP_TTL_MS, value };

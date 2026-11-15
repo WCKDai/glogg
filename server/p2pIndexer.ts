@@ -1,3 +1,4 @@
+import { fetchUpstream, readUpstreamJson, readUpstreamText } from './upstream.js';
 import * as cheerio from 'cheerio';
 import {
   analyzeQueryIntent,
@@ -18,21 +19,15 @@ async function fetchFast(
   timeoutMs = 3800,
   init?: RequestInit
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json, text/html, application/xml;q=0.9, */*;q=0.8',
-        ...(init?.headers || {}),
-      },
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  return await fetchUpstream(url, {
+    ...init,
+
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json, text/html, application/xml;q=0.9, */*;q=0.8',
+      ...(init?.headers || {}),
+    },
+  }, timeoutMs);
 }
 
 /**
@@ -75,7 +70,7 @@ export async function searchBitmagnetGraphQL(
       }),
     });
     if (!res.ok) return [];
-    const body = (await res.json()) as {
+    const body = (await readUpstreamJson(res)) as {
       data?: {
         torrentContent?: {
           search?: {
@@ -152,7 +147,7 @@ export async function searchPublicDhtSwarms(
     const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}`;
     const res = await fetchFast(url, 3800);
     if (!res.ok) return [];
-    const items = (await res.json()) as Array<{
+    const items = (await readUpstreamJson(res)) as Array<{
       id: string;
       name: string;
       info_hash: string;
@@ -262,7 +257,7 @@ export async function searchInternetArchiveTorrents(query: string): Promise<RawS
     )}&fl[]=identifier,title,description,item_size,btih,publicdate,downloads,mediatype&sort[]=downloads+desc&rows=8&output=json`;
     const res = await fetchFast(url, 3800);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       response?: {
         docs?: Array<{
           identifier: string;
@@ -340,7 +335,7 @@ export async function searchUsenetNzbIndex(
     const url = `https://nzbindex.com/api/search?q=${encodeURIComponent(query)}&max=12`;
     const res = await fetchFast(url, 3800);
     if (!res.ok) return [];
-    const payload = (await res.json()) as {
+    const payload = (await readUpstreamJson(res)) as {
       data?: {
         content?: Array<{
           id: string;
@@ -447,7 +442,7 @@ export async function searchTorznabOrNewznab(
 
     const res = await fetchFast(u.toString(), 2800);
     if (!res.ok) return [];
-    const xml = await res.text();
+    const xml = await readUpstreamText(res);
     const $ = cheerio.load(xml, { xmlMode: true });
     const results: RawSearchResult[] = [];
 

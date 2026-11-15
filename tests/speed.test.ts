@@ -86,6 +86,23 @@ describe('first results, early', () => {
     expect(final.results.length).toBeGreaterThan(0);
   });
 
+  it('shows ready results while an independent answer lookup is still pending', async () => {
+    stubUpstreams({ 'api.duckduckgo.com': 900 });
+    const start = Date.now();
+    const batches: { at: number; response: RankedSearchResponse }[] = [];
+    const final = await fs.executeFederatedSearch(QUERY, { lens: 'all' }, {
+      onPartial: (response) => batches.push({ at: Date.now() - start, response }),
+    });
+    expect(batches).toHaveLength(1);
+    expect(batches[0].at).toBeLessThan(400);
+    expect(batches[0].response.results.length).toBeGreaterThan(0);
+    expect(batches[0].response.partial).toBe(true);
+    expect(batches[0].response.instantAnswer).toBeUndefined();
+    expect(Date.now() - start).toBeGreaterThanOrEqual(900);
+    expect(final.partial).toBeUndefined();
+    expect(final.results).toEqual(batches[0].response.results);
+  });
+
   it('a listener that throws doesn\'t break the search', async () => {
     stubUpstreams({ 'hn.algolia.com': 10, 'api.github.com': 300 });
     const final = await fs.executeFederatedSearch(QUERY, { lens: 'all' }, {

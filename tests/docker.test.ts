@@ -15,6 +15,11 @@ const passedOn = (compose: string) => new Set([...compose.matchAll(/^\s+-? ?([A-
 const NOT_PASSED = ['HOST', 'PORT', 'GLOGG_HOME', 'GLOGG_DOWNLOADS_DIR', 'GLOGG_CONTAINER_RUNTIME', 'GLOGG_PORT'];
 
 describe('Docker Compose', () => {
+  it('gives the public service its own project so it cannot replace the private instance', () => {
+    const project = (file: string) => /^name:\s*(\S+)$/m.exec(read(file))?.[1];
+    expect(project('docker-compose.public.yml')).toBeTruthy();
+    expect(project('docker-compose.public.yml')).not.toBe(project('docker-compose.yml'));
+  });
   it('passes every setting .env.example documents on to glogg, but not where it listens or keeps its data', () => {
     const passed = passedOn(read('docker-compose.yml'));
     expect(documented.length).toBeGreaterThan(25);

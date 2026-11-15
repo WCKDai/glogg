@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { diversifyAndRankResults, evaluateInstantComputation, resolveBang } from '../src/core/index.js';
+import { diversifyAndRankResults, evaluateInstantComputation, resolveBang, scoreSearchResult } from '../src/core/index.js';
 import type { RawSearchResult, ScoredSearchResult } from '../src/core/index.js';
 
 const r = (title: string, url: string, snippet: string, extra: Partial<RawSearchResult> = {}): RawSearchResult => ({
@@ -15,6 +15,21 @@ const r = (title: string, url: string, snippet: string, extra: Partial<RawSearch
   snippet,
   source: 'web',
   ...extra,
+});
+
+describe('source quality cannot be claimed by a URL path', () => {
+  it.each(['/paper/sourdough', '/spec/sourdough', '/issues/123', '/commits/sourdough'])('does not award primary-source status for %s on an unknown site', (pathname) => {
+    const result = scoreSearchResult(r('Sourdough notes', `https://unreviewed.example${pathname}`, 'Notes on keeping a sourdough starter.'));
+    const baseline = scoreSearchResult(r('Sourdough notes', 'https://unreviewed.example/article/sourdough', 'Notes on keeping a sourdough starter.'));
+    expect(result.isPrimarySource).toBe(false);
+    expect(result.verdict).not.toBe('primary-source');
+    expect(result.signals.some((signal) => signal.id === 'primary-reference')).toBe(false);
+    expect(result.authenticityScore).toBe(baseline.authenticityScore);
+  });
+
+  it.each(['https://arxiv.org/abs/2301.00001', 'https://www.nasa.gov/science/'])('keeps known primary-source evidence for %s', (url) => {
+    expect(scoreSearchResult(r('Research notes', url, 'Methods, observations and results.')).isPrimarySource).toBe(true);
+  });
 });
 
 describe('ranking golden: "how to undo the last git commit"', () => {

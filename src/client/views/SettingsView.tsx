@@ -1,3 +1,4 @@
+import { useFeatures } from '../capabilities.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, Plus, Upload, X } from 'lucide-react';
 import {
@@ -153,6 +154,7 @@ const FIELDS: { group: string; note?: string; fields: { key: keyof CustomEndpoin
 ];
 
 export function SettingsView(props: Props) {
+  const features = useFeatures();
   const { prefs, setPrefs, domains, setDomains, phrases, setPhrases, customBangs, setCustomBangs, theme, setTheme, adultMode, setAdultMode, focus, onToast } = props;
   const [cfg, setCfg] = useState<CustomEndpointsConfig>({});
   const [dirty, setDirty] = useState(false);
@@ -175,20 +177,21 @@ export function SettingsView(props: Props) {
     api<{ required: boolean; authenticated: boolean }>('/api/auth')
       .then((a) => setSignedIn(a.required && a.authenticated))
       .catch(() => undefined);
-    api<{ savedAt: string }>('/api/profile')
+    if (features.savedProfiles) api<{ savedAt: string }>('/api/profile')
       .then((p) => setSavedHere(p.savedAt))
       .catch(() => undefined);
-  }, []);
+  }, [features.savedProfiles]);
   const signOut = async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     window.location.reload();
   };
 
   useEffect(() => {
+    if (!features.administration) return;
     api<{ config: CustomEndpointsConfig }>('/api/integrations')
       .then((r) => setCfg(r.config))
       .catch(() => undefined);
-  }, []);
+  }, [features.administration]);
 
   // Keys save with a button; leaving with unsaved ones asks first.
   useEffect(() => {
@@ -305,7 +308,7 @@ export function SettingsView(props: Props) {
       <header className="page-head">
         <div>
           <h1>Settings</h1>
-          <p>Changes apply at once and stay in this browser. Keys are kept by glogg on this machine. Save your settings to this glogg to use them elsewhere.</p>
+          <p>Changes apply at once and stay in this browser.{features.administration && " Keys are kept by glogg on this machine."}{features.savedProfiles && " Save your settings to this glogg to use them elsewhere."}</p>
         </div>
         {signedIn && (
           <button type="button" className="btn btn-sm" onClick={() => void signOut()}>
@@ -315,7 +318,7 @@ export function SettingsView(props: Props) {
       </header>
 
       <nav className="settings-index" aria-label="Settings sections">
-        {SECTIONS.map(([id, label]) => (
+        {SECTIONS.filter(([id]) => id !== 'integrations' || features.administration).map(([id, label]) => (
           <a key={id} href={`#settings-${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`settings-${id}`)?.scrollIntoView({ block: 'start' }); }}>
             {label}
           </a>
@@ -539,6 +542,11 @@ export function SettingsView(props: Props) {
         </button>
       </section>
 
+      <section className="section" aria-labelledby="install-title">
+        <h2 className="section-title" id="install-title">Install on iPhone</h2>
+        <p className="setting-hint">In Safari, open Share, choose Add to Home Screen, then Add. Saved links work offline after the first online visit. Search and reading need a connection.</p>
+      </section>
+
       <section className="section" id="settings-history">
         <h2 className="section-title">History</h2>
         <div className="settings-list">
@@ -551,7 +559,7 @@ export function SettingsView(props: Props) {
 
       <AdultMode on={adultMode} set={setAdultMode} />
 
-      <section className="section" id="settings-integrations">
+      {features.administration && <section className="section" id="settings-integrations">
         <div className="section-title-row">
           <h2 className="section-title">Keys and services</h2>
           <button className="btn btn-sm btn-primary" disabled={!dirty} onClick={save}>
@@ -584,11 +592,11 @@ export function SettingsView(props: Props) {
             </div>
           </fieldset>
         ))}
-      </section>
+      </section>}
 
       <section className="section" id="settings-yours">
         <h2 className="section-title">Your settings</h2>
-        <p className="setting-hint">Everything on this page except keys, 18+ mode and history, as one file, or kept by this glogg for your other browsers and devices.</p>
+        <p className="setting-hint">Export browser preferences as a file.{features.savedProfiles && " You can also keep them on this glogg for your other browsers and devices."}</p>
         <div className="row-gap wrap">
           <button type="button" className="btn btn-sm" onClick={exportFile}>
             <Download size={13} /> Export file
@@ -597,14 +605,14 @@ export function SettingsView(props: Props) {
             <Upload size={13} /> Import file
           </button>
           <input ref={fileRef} type="file" accept="application/json,.json" hidden aria-label="Settings file" onChange={(e) => void importFile(e.target.files?.[0])} />
-          <button type="button" className="btn btn-sm" onClick={() => void saveHere()}>
+          {features.savedProfiles && <><button type="button" className="btn btn-sm" onClick={() => void saveHere()}>
             Save to this glogg
           </button>
           <button type="button" className="btn btn-sm" disabled={!savedHere} onClick={() => void loadHere()}>
             Load from this glogg
-          </button>
+          </button></>}
         </div>
-        <p className="setting-hint">{savedHere ? `Last saved here ${new Date(savedHere).toLocaleString()}.` : 'Nothing saved on this glogg yet.'}</p>
+        {features.savedProfiles && <p className="setting-hint">{savedHere ? `Last saved here ${new Date(savedHere).toLocaleString()}.` : 'Nothing saved on this glogg yet.'}</p>}
       </section>
     </div>
   );

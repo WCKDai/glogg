@@ -1,4 +1,8 @@
 import express from 'express';
+import { SEARCH_SOURCES } from '../src/core/sourceCatalog.js';
+import { capabilities, publicServiceGuard, serviceMode, serviceSearchConfig } from './serviceMode.js';
+import { apiCapacity, BusyError, configuredLimit, createWorkLimit } from './workLimits.js';
+import { envNumber } from './env.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +63,8 @@ import { publicFetch, readTextCapped } from './publicFetch.js';
 import { runResearch } from './research.js';
 import { apiGuard, contentSecurityPolicy, securityHeaders } from './security.js';
 import { isIconDomain, siteIcon } from './favicons.js';
+import { mediaImages } from './mediaProxy.js';
+import { commonsAssetUrl } from '../src/core/media.js';
 import { compressJson, hashedAssets } from './compress.js';
 import { loadProfile, saveProfile } from './profile.js';
 import { closeDeepIndex } from './deep/index.js';
@@ -128,6 +134,8 @@ async function checkNodeReachable(url: string, timeoutMs = 1000): Promise<boolea
 }
 
 export async function createGloggServer() {
+  const mode = serviceMode();
+  const readers = createWorkLimit(configuredLimit('GLOGG_MAX_READERS', 16));
   const app = express();
   // Only the exact lower-case "/api/…" routes exist. Express would otherwise also route "/API/…",
   // which the guard's prefix check never sees.
@@ -145,7 +153,6 @@ export async function createGloggServer() {
   }
   app.use(securityHeaders(csp));
   app.use(compressJson);
-  app.use(express.json({ limit: '5mb' }));
   // A password, when set, comes first: without a session nothing else answers, not even the public routes.
   const password = configuredPassword();
   const home = process.env.GLOGG_HOME || path.join(os.homedir(), '.glogg');
@@ -155,12 +162,17 @@ export async function createGloggServer() {
     revokedFile: password ? path.join(home, 'revoked-sessions.json') : undefined,
   });
   app.use(auth.middleware);
+  if (mode === 'public') app.use(publicServiceGuard);
   app.use(apiGuard);
+  app.use(apiCapacity());
+  app.use(express.json({ limit: mode === 'public' ? '64kb' : '5mb' }));
   auth.routes(app);
-  await loadPlugins();
+  if (mode === 'private') await loadPlugins();
+  app.get('/api/capabilities', (_req, res) => res.json(capabilities(mode)));
+  app.get('/api/sources', (_req, res) => res.json({ sources: SEARCH_SOURCES }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'glogg-engine', version: GLOGG_VERSION, connectors: 20 });
+    res.json({ status: 'ok', service: 'glogg-engine', version: GLOGG_VERSION, connectors: SEARCH_SOURCES.length });
   });
 
   app.get('/api/containers', async (_req, res) => {
@@ -361,22 +373,36 @@ export async function createGloggServer() {
       res.status(400).json({ error: checked.error });
       return;
     }
-    const config = mergeEndpoints(checked.config);
+    if (mode === 'public' && (query.length > 1024 || LIST_FIELDS.some((key) => {
+      const list = checked.config[key];
+      return list && (list.length > 100 || list.some((value) => value.length > 256));
+    }))) {
+      res.status(400).json({ error: 'Public searches allow queries up to 1024 characters and preference lists of up to 100 entries, each at most 256 characters.' });
+      return;
+    }
+    const config = mode === 'public' ? serviceSearchConfig(checked.config) : mergeEndpoints(checked.config);
     // Asked for a stream (the web app does): the first batch as soon as the main sources have enough, then the rest.
     if (String(req.headers.accept || '').includes('application/x-ndjson')) {
-      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-transform');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders();
       const send = (event: unknown) => {
         if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(event)}\n`);
       };
       try {
-        const final = await executeFederatedSearch(query, config, {
+        // Admission is synchronous and precedes stream headers, so overload remains HTTP 503.
+        const work = executeFederatedSearch(query, config, {
           onPartial: (response) => send({ type: 'partial', response: shape(response) }),
         });
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+        const final = await work;
         send({ type: 'final', response: shape(final) });
       } catch (err) {
+        if (err instanceof BusyError && !res.headersSent) {
+          res.setHeader('Retry-After', '1');
+          res.status(503).json({ error: err.message });
+          return;
+        }
         send({ type: 'error', error: err instanceof Error ? err.message : 'Search failed' });
       }
       res.end();
@@ -387,7 +413,8 @@ export async function createGloggServer() {
       res.json(shape(response));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
-      res.status(500).json({ error: message });
+      if (err instanceof BusyError) res.setHeader('Retry-After', '1');
+      res.status(err instanceof BusyError ? 503 : 500).json({ error: message });
     }
   });
 
@@ -400,11 +427,13 @@ export async function createGloggServer() {
         res.status(400).json({ error: 'Query parameter q is required' });
         return;
       }
-      const response = await executeFederatedSearch(q, publicSearchConfig({ uncensoredMode: uncensored, lens }));
+      if (mode === 'public' && q.length > 1024) { res.status(400).json({ error: 'Query must be at most 1024 characters' }); return; }
+      const response = await executeFederatedSearch(q, mode === 'public' ? serviceSearchConfig({ uncensoredMode: uncensored, lens }) : publicSearchConfig({ uncensoredMode: uncensored, lens }));
       res.json(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
-      res.status(500).json({ error: message });
+      if (err instanceof BusyError) res.setHeader('Retry-After', '1');
+      res.status(err instanceof BusyError ? 503 : 500).json({ error: message });
     }
   });
 
@@ -473,7 +502,7 @@ export async function createGloggServer() {
       res.json({ available: false, total: 0, items: [], counts: {}, errors: [(await deepStatus()).reason] });
       return;
     }
-    const { errors, loading } = await ensureSeeded();
+    const { errors, loading } = mode === 'public' ? { errors: [], loading: false } : await ensureSeeded();
     const q = (k: string) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : undefined);
     const order = q('order');
     const kind = deepKind(q('kind'));
@@ -574,13 +603,36 @@ export async function createGloggServer() {
       res.status(400).end();
       return;
     }
-    const icon = await siteIcon(domain);
+    let icon;
+    try { icon = await siteIcon(domain); }
+    catch (error) {
+      if (!(error instanceof BusyError)) throw error;
+      res.setHeader('Retry-After', '1');
+      res.status(503).end();
+      return;
+    }
     res.setHeader('Cache-Control', 'private, max-age=604800');
     if (!icon.body) {
       res.status(404).end();
       return;
     }
     res.type(icon.type).send(icon.body);
+  });
+
+  // Raster media stays same-origin; videos play directly from the approved host after user action.
+  app.get('/api/media/image', async (req, res) => {
+    const url = commonsAssetUrl(req.query.url, 'image');
+    if (!url) { res.status(400).end(); return; }
+    try {
+      const image = await mediaImages.get(url);
+      if (!image) { res.setHeader('Cache-Control', 'private, max-age=30'); res.status(404).end(); return; }
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+      res.type(image.type).send(image.body);
+    } catch (error) {
+      if (!(error instanceof BusyError)) throw error;
+      res.setHeader('Retry-After', '1'); res.setHeader('Cache-Control', 'no-store'); res.status(503).end();
+    }
   });
 
   app.get('/opensearch.xml', (req, res) => {
@@ -645,7 +697,10 @@ export async function createGloggServer() {
   });
 
   app.post('/api/inspect', async (req, res) => {
+    let release: (() => void) | undefined;
     try {
+      // DNS lookup is not abortable: keep this permit until all reader work settles.
+      release = readers.acquire();
       const { url, rawHtml } = (req.body ?? {}) as { url?: string; rawHtml?: string };
       if (!url || typeof url !== 'string') {
         res.status(400).json({ error: 'Target URL is required' });
@@ -668,6 +723,8 @@ export async function createGloggServer() {
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 7500);
+      const cancel = () => { if (!res.writableEnded) controller.abort(); };
+      res.once('close', cancel);
       try {
         // Public addresses only, and at most 5 MB of the page.
         const upstream = await publicFetch(parsedUrl.toString(), {
@@ -692,10 +749,14 @@ export async function createGloggServer() {
         res.json(report);
       } finally {
         clearTimeout(timer);
+        res.off('close', cancel);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch and clean URL';
-      res.status(502).json({ error: message });
+      if (err instanceof BusyError) res.setHeader('Retry-After', '1');
+      res.status(err instanceof BusyError ? 503 : 502).json({ error: message });
+    } finally {
+      release?.();
     }
   });
 
@@ -710,7 +771,7 @@ export async function createGloggServer() {
     app.use('/assets', hashedAssets(path.join(distPath, 'assets')));
     app.use(express.static(distPath));
     app.get('/{*splat}', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile('index.html', { root: distPath });
     });
   }
 
@@ -747,13 +808,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           console.warn(`glogg answers anyone who can reach ${host}:${port}, with no password. Set GLOGG_PASSWORD, or HOST=127.0.0.1 to keep it on this machine.`);
         }
         // Pick up a deep-index crawl you started before the last restart.
-        resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
+        if (serviceMode() === 'private') resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
       });
       server.on('error', (err: NodeJS.ErrnoException) => {
         console.error(listenErrorMessage(err, host, port));
         process.exit(1);
       });
-      const shutdown = createShutdown(server, { onClose: () => closeDeepIndex() });
+      const shutdown = createShutdown(server, { timeoutMs: envNumber('GLOGG_SHUTDOWN_MS', 15_000, { min: 1000 }), onClose: () => closeDeepIndex() });
       for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void shutdown(signal));
     })
     .catch((e) => {

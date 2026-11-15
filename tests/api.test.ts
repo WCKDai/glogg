@@ -133,6 +133,8 @@ interface RouteCase {
 /** Every route the server registers, with a harmless request for each. */
 const ROUTES: RouteCase[] = [
   { method: 'GET', route: '/api/health', public: true },
+  { method: 'GET', route: '/api/capabilities', public: true },
+  { method: 'GET', route: '/api/sources', public: true },
   { method: 'GET', route: '/api/auth' },
   { method: 'POST', route: '/api/auth/login', body: { password: 'not it' } },
   { method: 'POST', route: '/api/auth/logout' },
@@ -162,6 +164,7 @@ const ROUTES: RouteCase[] = [
   { method: 'POST', route: '/api/plugins/:id/container', path: '/api/plugins/utils/container', body: { action: 'up' } },
   { method: 'GET', route: '/opensearch.xml', public: true },
   { method: 'GET', route: '/api/favicon/:domain', path: '/api/favicon/example.com' },
+  { method: 'GET', route: '/api/media/image' },
   { method: 'GET', route: '/api/profile' },
   { method: 'PUT', route: '/api/profile', body: { settings: { 'glogg.pinned': ['route.example'] } } },
   { method: 'GET', route: '/api/opensearch/suggest', path: '/api/opensearch/suggest?q=wiki', public: true },
@@ -221,7 +224,7 @@ describe('GET /api/health', () => {
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toMatch(/^application\/json/);
     expect(r.headers['access-control-allow-origin']).toBe('*');
-    expect(data(r)).toEqual({ status: 'ok', service: 'glogg-engine', version: PKG.version, connectors: 20 });
+    expect(data(r)).toEqual({ status: 'ok', service: 'glogg-engine', version: PKG.version, connectors: 26 });
   });
 });
 

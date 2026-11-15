@@ -4,8 +4,8 @@
   "description": "Search the whole web, minus the junk.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f0f8ff",
-  "theme_color": "#287be8",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -16,6 +16,22 @@
       "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png"
+    }
+  ],
+  "id": "/",
+  "scope": "/",
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+  "shortcuts": [
+    {
+      "name": "Saved",
+      "url": "/saved"
+    },
+    {
+      "name": "Search sources",
+      "url": "/sources"
     }
   ]
 }

@@ -66,17 +66,17 @@ export function ReaderSheet({
         <header className="sheet-bar">
           <Favicon domain={domain} />
           <span className="sheet-domain">{domain}</span>
+          {onStep && (
+            <div className="sheet-steps">
+              <button type="button" className="icon-btn ghost" onClick={() => onStep(-1)} aria-label="Previous result (k)">
+                <ChevronUp size={16} />
+              </button>
+              <button type="button" className="icon-btn ghost" onClick={() => onStep(1)} aria-label="Next result (j)">
+                <ChevronDown size={16} />
+              </button>
+            </div>
+          )}
           <div className="sheet-bar-actions">
-            {onStep && (
-              <>
-                <button type="button" className="icon-btn ghost" onClick={() => onStep(-1)} aria-label="Previous result (k)">
-                  <ChevronUp size={16} />
-                </button>
-                <button type="button" className="icon-btn ghost" onClick={() => onStep(1)} aria-label="Next result (j)">
-                  <ChevronDown size={16} />
-                </button>
-              </>
-            )}
             <SendMenu url={url} onSend={(t) => onSend(url, report?.title || domain, t)} label="Save" />
             <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noreferrer">
               Original <ExternalLink size={12} />

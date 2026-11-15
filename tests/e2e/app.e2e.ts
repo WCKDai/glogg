@@ -221,7 +221,7 @@ describe.skipIf(!ready)('in a real browser', () => {
     await browser.waitFor(`document.documentElement.classList.contains('dark')`, 'the dark class');
     await browser.reload();
     await browser.waitFor(`document.documentElement.classList.contains('dark')`, 'dark after reload');
-    expect(await browser.eval(`[...document.querySelectorAll('meta[name="theme-color"]')].every((m) => m.content === '#0f0f10')`)).toBe(true);
+    expect(await browser.eval(`[...document.querySelectorAll('meta[name="theme-color"]')].every((m) => m.content === '#111111')`)).toBe(true);
     await browser.click('button[aria-label="Toggle theme"]');
     await browser.waitFor(`!document.documentElement.classList.contains('dark')`, 'light again');
   });
@@ -291,6 +291,89 @@ describe.skipIf(!ready)('in a real browser', () => {
       expect(browser.errors, `${page}: page errors`).toEqual([]);
     }
   });
+
+  it('keeps view controls, settings rows and overlays inside their available space', async () => {
+    const capture = async (name: string) => {
+      await browser.settle();
+      await browser.eval('Promise.all(document.getAnimations().filter(a => a.effect.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))');
+      if (process.env.GLOGG_SPACING_SCREENSHOTS) await browser.screenshot(path.join(process.env.GLOGG_SPACING_SCREENSHOTS, `${name}.png`));
+    };
+    const activate = async (selector: string) => {
+      await browser.eval(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+      await browser.press('Enter');
+    };
+    try {
+      for (const width of [1440, 768, 390, 320]) {
+        await browser.viewport(width, 844);
+        await browser.send('Emulation.setTouchEmulationEnabled', { enabled: width < 720, maxTouchPoints: 1 });
+        for (const page of ['/', '/saved', '/sources', '/settings', '/tools', '/atlas', '/downloads', '/services']) {
+          await browser.goto(`${glogg.url}${page}`);
+          await browser.waitFor('document.querySelector("main .page, main .home")');
+          await capture(`${width}-${page.slice(1) || 'home'}`);
+          expect.soft(await browser.eval('document.documentElement.scrollWidth'), `${width}px ${page} page overflow`).toBeLessThanOrEqual(width);
+          expect.soft(await browser.eval('innerWidth'), `${width}px ${page} viewport expansion`).toBe(width);
+          if (page === '/' && width < 720) {
+            expect.soft(await browser.eval('[...document.querySelectorAll(".home-mode button")].every(b => b.getBoundingClientRect().height >= 44)'), `${width}px view switches need separate touch targets`).toBe(true);
+          }
+          if (page === '/sources' && width < 720) {
+            expect.soft(await browser.eval('document.querySelector(".collection-search").getBoundingClientRect().width >= document.querySelector(".collection-toolbar").getBoundingClientRect().width - 1'), `${width}px collection search uses the available width`).toBe(true);
+          }
+          if (page === '/settings') {
+            const clipped = await browser.eval<string[]>(`[...document.querySelectorAll('.setting')].flatMap(row => {
+              const r = row.getBoundingClientRect(), css = getComputedStyle(row);
+              return [...row.children].filter(child => { const c = child.getBoundingClientRect(); return c.left < r.left + parseFloat(css.paddingLeft) - 1 || c.right > r.right - parseFloat(css.paddingRight) + 1; }).map(() => row.querySelector('.setting-label')?.textContent);
+            })`);
+            expect.soft(clipped, `${width}px settings controls clip their row padding`).toEqual([]);
+            const gaps = await browser.eval<number[]>(`[...document.querySelectorAll('.settings-list + .subhead')].map(h => h.getBoundingClientRect().top - h.previousElementSibling.getBoundingClientRect().bottom)`);
+            for (const gap of gaps) expect.soft(gap, `${width}px settings subsection overlaps its preceding list`).toBeGreaterThanOrEqual(8);
+          }
+        }
+        await browser.goto(`${glogg.url}/?q=${encodeURIComponent(QUERY)}`);
+        await browser.waitFor(`document.querySelector('a.result-title[href*="github.com/ferris"]')`);
+        expect.soft(await browser.eval('document.documentElement.scrollWidth'), `${width}px populated results overflow`).toBeLessThanOrEqual(width);
+        await browser.click('article.result button[aria-haspopup="menu"]');
+        await browser.waitFor('document.querySelector("article.result [role=menu]")');
+        await capture(`${width}-result-menu`);
+        const menu = await browser.eval<{left:number;right:number;bottom:number}>(`(() => {const r=document.querySelector('article.result [role=menu]').getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom};})()`);
+        expect.soft(menu.left, `${width}px result menu clips left`).toBeGreaterThanOrEqual(8);
+        expect.soft(menu.right, `${width}px result menu clips right`).toBeLessThanOrEqual(width - 8);
+        if (width < 720) expect.soft(menu.bottom, `${width}px result menu clears navigation`).toBeLessThanOrEqual(await browser.eval<number>('document.querySelector(".appnav").getBoundingClientRect().top') - 8);
+        await browser.press('Escape');
+        await activate('article.result:has(a.result-title[href^="https://tiny.example/"]) button[title^="Read clean"]');
+        await browser.waitFor('document.querySelector(".reader-content")');
+        await capture(`${width}-reader`);
+        expect.soft(await browser.eval('document.querySelector(".sheet").scrollWidth <= document.querySelector(".sheet").clientWidth'), `${width}px reader overflow`).toBe(true);
+        const crowded = await browser.eval<string[]>(`[...document.querySelectorAll('.sheet-bar button, .sheet-bar a')].filter(el => {
+          const r = el.getBoundingClientRect(), bar = el.closest('.sheet-bar').getBoundingClientRect();
+          return r.left < bar.left || r.right > bar.right || r.top < bar.top || r.bottom > bar.bottom;
+        }).map(el => el.getAttribute('aria-label') || el.textContent)`);
+        expect.soft(crowded, `${width}px reader actions fit their toolbar`).toEqual([]);
+        expect.soft(await browser.eval(`(() => { const el = document.querySelector('.sheet-domain'); return el.scrollWidth <= el.clientWidth || getComputedStyle(el).overflowX === 'hidden'; })()`), `${width}px reader domain is contained`).toBe(true);
+        await browser.press('Escape');
+        if (width < 720) {
+          await activate('article.result .save-result');
+          await browser.waitFor('document.querySelector(".toast")');
+          await capture(`${width}-saved-toast`);
+          expect.soft(await browser.eval('document.querySelector(".toast").getBoundingClientRect().bottom <= document.querySelector(".appnav").getBoundingClientRect().top - 8'), `${width}px toast clears navigation`).toBe(true);
+        }
+        await browser.click('[aria-label="Command palette"]');
+        await browser.waitFor('document.querySelector(".palette input")');
+        await capture(`${width}-palette`);
+        await browser.press('Escape');
+      }
+      await browser.viewport(844, 390);
+      await home();
+      await browser.eval('document.activeElement.blur()');
+      await browser.press('?', 8);
+      await browser.waitFor('document.querySelector(".shortcuts")');
+      await capture('landscape-shortcuts');
+      expect.soft(await browser.eval('document.querySelector(".shortcuts").getBoundingClientRect().bottom'), 'shortcuts must scroll within a short viewport').toBeLessThanOrEqual(390 - 8);
+      await browser.press('Escape');
+    } finally {
+      await browser.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+      await browser.send('Emulation.clearDeviceMetricsOverride');
+    }
+  }, 60_000);
 
   it('fetches nothing from anywhere but this glogg, site icons included', async () => {
     thirdParty.length = 0;

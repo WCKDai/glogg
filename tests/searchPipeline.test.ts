@@ -178,6 +178,42 @@ describe('source health', () => {
 describe('source cache', () => {
   beforeEach(() => fs.clearSearchCache());
 
+  it('expires time-sensitive entries after a minute and reports their actual fetch age', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const run = vi.fn(async () => results(1));
+      const onRead = vi.fn();
+      const start = Date.now();
+      await fs.cachedSource('fresh', run, { ttlMs: 60_000, onRead });
+      expect(onRead).toHaveBeenLastCalledWith({ fetchedAt: new Date(start).toISOString(), cacheAgeMs: 0 });
+      vi.setSystemTime(start + 30_000);
+      await fs.cachedSource('fresh', run, { ttlMs: 60_000, onRead });
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(onRead).toHaveBeenLastCalledWith({ fetchedAt: new Date(start).toISOString(), cacheAgeMs: 30_000 });
+      vi.setSystemTime(start + 60_001);
+      await fs.cachedSource('fresh', run, { ttlMs: 60_000, onRead });
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(onRead).toHaveBeenLastCalledWith({ fetchedAt: new Date(start + 60_001).toISOString(), cacheAgeMs: 0 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('coalesces fresh requests and dates the fetch when it completes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const start = Date.now();
+      let resolve!: (rows: RawSearchResult[]) => void;
+      const run = vi.fn(() => new Promise<RawSearchResult[]>((done) => { resolve = done; }));
+      const firstRead = vi.fn(), secondRead = vi.fn();
+      const first = fs.cachedSource('pending-fresh', run, { ttlMs: 60_000, onRead: firstRead });
+      vi.setSystemTime(start + 2000);
+      const second = fs.cachedSource('pending-fresh', run, { ttlMs: 60_000, onRead: secondRead });
+      resolve(results(2));
+      expect(await first).toBe(await second);
+      expect(run).toHaveBeenCalledTimes(1);
+      for (const onRead of [firstRead, secondRead]) expect(onRead).toHaveBeenLastCalledWith({ fetchedAt: new Date(start + 2000).toISOString(), cacheAgeMs: 0 });
+    } finally { vi.useRealTimers(); }
+  });
+
   it('serves a repeat call from memory', async () => {
     const run = vi.fn(async () => results(3));
     expect(await fs.cachedSource('k', run)).toHaveLength(3);
@@ -360,6 +396,64 @@ describe('sources that turn glogg away, or are not set up', () => {
 
   const timing = async (q: string, key: string, config: object = {}) =>
     (await fs.executeFederatedSearch(q, { lens: 'all', ...config })).metrics.sourceTimings?.[key];
+
+  it('requests recent provider results for news, preserves timestamps and exposes real cache age', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const now = Date.parse('2026-11-15T12:00:00Z');
+      vi.setSystemTime(now);
+      replies['api.gdeltproject.org'] = () => Response.json({ articles: [{ url: 'https://launch.example/mission', title: 'Space launch mission succeeds', seendate: '20261115T114523Z', domain: 'launch.example' }] });
+      replies['api.search.brave.com'] = () => Response.json({ web: { results: [] } });
+      const config = { endpoints: { searxngUrl: 'https://searx.example', braveApiKey: 'freshness-fixture' } };
+      const first = await fs.executeFederatedSearch('latest space launch news today', config);
+      expect(askedOf('api.gdeltproject.org')[0].searchParams.get('timespan')).toBe('24h');
+      expect(askedOf('api.gdeltproject.org')[0].searchParams.get('sort')).toBe('DateDesc');
+      expect(askedOf('api.gdeltproject.org')[0].searchParams.get('query')).toBe('space launch');
+      expect(askedOf('searx.example')[0].searchParams.get('time_range')).toBe('day');
+      expect(askedOf('searx.example')[0].searchParams.get('categories')).toBe('news');
+      expect(askedOf('api.search.brave.com')[0].searchParams.get('freshness')).toBe('pd');
+      expect(askedOf('hn.algolia.com')[0].pathname).toBe('/api/v1/search_by_date');
+      expect(askedOf('hn.algolia.com')[0].searchParams.get('numericFilters')).toBe(`created_at_i>${Math.floor((now - 86_400_000) / 1000)}`);
+      expect(first.results.find((r) => r.source === 'gdelt-news')).toMatchObject({ publishedAt: '2026-11-15T11:45:23Z', dateKind: 'indexed' });
+      expect(first.instantAnswer).toBeUndefined();
+      expect(askedOf('api.duckduckgo.com')).toEqual([]);
+      expect(first.metrics.freshness).toEqual({ intent: 'news', checkedAt: new Date(now).toISOString(), maxCacheAgeMs: 0 });
+      const before = asked.length;
+      vi.setSystemTime(now + 30_000);
+      const cached = await fs.executeFederatedSearch('latest space launch news today', config);
+      expect(asked).toHaveLength(before);
+      expect(cached.metrics.sourceTimings?.gdelt).toMatchObject({ fetchedAt: new Date(now).toISOString(), cacheAgeMs: 30_000 });
+      expect(cached.metrics.freshness?.maxCacheAgeMs).toBe(30_000);
+      vi.setSystemTime(now + 60_001);
+      const refreshed = await fs.executeFederatedSearch('latest space launch news today', config);
+      expect(askedOf('api.gdeltproject.org')).toHaveLength(2);
+      expect(refreshed.metrics.sourceTimings?.gdelt).toMatchObject({ fetchedAt: new Date(now + 60_001).toISOString(), cacheAgeMs: 0 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('separates News-scope cache entries from normal searches and keeps month-wide current-information requests', async () => {
+    replies['api.search.brave.com'] = () => Response.json({ web: { results: [] } });
+    const config = { endpoints: { braveApiKey: 'freshness-fixture', searxngUrl: 'https://searx.example' } };
+    await fs.executeFederatedSearch('space launch', config);
+    const news = await fs.executeFederatedSearch('space launch', { ...config, lens: 'raw-news' });
+    expect(askedOf('api.search.brave.com').map((u) => u.searchParams.get('freshness'))).toEqual([null, 'pd']);
+    expect(news.metrics.freshness?.intent).toBe('news');
+    await fs.executeFederatedSearch('latest Firefox version', config);
+    expect(askedOf('api.search.brave.com').at(-1)?.searchParams.get('freshness')).toBe('pm');
+    expect(askedOf('searx.example').at(-1)?.searchParams.get('time_range')).toBe('month');
+    expect(askedOf('searx.example').at(-1)?.searchParams.has('categories')).toBe(false);
+  });
+
+  it('does not invent publication dates for Wikipedia or curated entries', async () => {
+    replies['en.wikipedia.org'] = () => Response.json({ query: { search: [{ pageid: 1, title: 'Rust borrow checker', snippet: 'Rust borrow checker lifetimes' }] } });
+    const result = await fs.executeFederatedSearch('rust borrow checker');
+    expect(result.results.find((r) => r.source === 'wikipedia')).toMatchObject({ source: 'wikipedia' });
+    expect(result.results.find((r) => r.source === 'wikipedia')?.publishedAt).toBeUndefined();
+    const curated = fs.searchCuratedIndieIndex('linux');
+    expect(curated.length).toBeGreaterThan(0);
+    expect(curated.every((r) => r.publishedAt === undefined)).toBe(true);
+    expect(result.metrics.freshness).toBeUndefined();
+  });
 
   it('says DuckDuckGo asked for a bot check, rather than that nothing matched, and leaves it be for a minute', async () => {
     replies['html.duckduckgo.com'] = () =>

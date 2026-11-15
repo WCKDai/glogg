@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight,
+  Bookmark,
+  Layers,
   ChevronDown,
   Command,
   Compass,
@@ -8,6 +10,7 @@ import {
   History,
   Magnet,
   Moon,
+  MoreHorizontal,
   Search,
   Server,
   Settings,
@@ -32,15 +35,21 @@ import type {
   ScoredSearchResult,
   SearchLensId,
 } from '../core/browser.js';
+import { FeaturesContext, SAFE_FEATURES, useCapabilities } from './capabilities.js';
+import { useLibrary, safeSavedUrl } from './library.js';
+import { SavedView } from './views/SavedView.js';
+import { SourcesView } from './views/SourcesView.js';
+import { PwaStatus } from './components/PwaStatus.js';
 import { SearchBox } from './components/SearchBox.js';
 import { SignIn } from './components/SignIn.js';
 import { Shortcuts } from './components/Shortcuts.js';
 import { AnswerCard, ReleaseList, ResultItem } from './components/Results.js';
 import { ReaderSheet } from './components/ReaderSheet.js';
+import { MediaResults, MediaViewer } from './components/Media.js';
 import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
 import { AdvancedRail } from './components/AdvancedRail.js';
 import { Favicon } from './components/Favicon.js';
-import { SourcesButton, StatusBar } from './components/StatusBar.js';
+import { FreshnessStatus, SourcesButton, StatusBar } from './components/StatusBar.js';
 import { ResearchPanel } from './components/ResearchPanel.js';
 import { ToolCard } from './components/ToolKit.js';
 import type { InlineToolRun, ToolActionHandlers } from './components/ToolKit.js';
@@ -72,6 +81,7 @@ import {
   withDomainRule,
   targetLabel,
   useLocalStorage,
+  useClickOutside,
   useToasts,
 } from './lib.js';
 import type { DomainRule, Mode, PluginsResponse, ResearchState, ThemePref, View } from './lib.js';
@@ -87,6 +97,8 @@ const NO_PLUGINS: PluginsResponse = { plugins: [], userDir: '' };
 /** Every section has its own address, so Back, refresh, bookmarks and "open in new tab" work. */
 const VIEW_PATHS: Record<View, string> = {
   search: '/',
+  saved: '/saved',
+  sources: '/sources',
   tools: '/tools',
   atlas: '/atlas',
   downloads: '/downloads',
@@ -96,6 +108,8 @@ const VIEW_PATHS: Record<View, string> = {
 
 const VIEW_TITLES: Record<View, string> = {
   search: 'glogg',
+  saved: 'Saved library — glogg',
+  sources: 'Sources — glogg',
   tools: 'Tools — glogg',
   atlas: 'Atlas — glogg',
   downloads: 'Downloads — glogg',
@@ -152,6 +166,13 @@ interface SearchOpts {
 }
 
 export function App() {
+  const { capabilities, failed: capabilitiesFailed, retry: retryCapabilities, ready: capabilitiesReady } = useCapabilities();
+  const features = capabilities?.features ?? SAFE_FEATURES;
+  const featureRef = useRef(features);
+  featureRef.current = features;
+  const library = useLibrary();
+  const [mobileMore, setMobileMore] = useState(false);
+  const mobileMenuRef = useClickOutside<HTMLDivElement>(useCallback(() => setMobileMore(false), []), mobileMore);
   // ── Persistent preferences ────────────────────────────────────────────
   const [themePref, setThemePref] = useLocalStorage<ThemePref>('glogg.theme', 'system');
   const [storedPrefs, setPrefs] = useLocalStorage<SearchPrefs>('glogg.prefs', DEFAULT_PREFS);
@@ -182,6 +203,13 @@ export function App() {
   // ── Session state ─────────────────────────────────────────────────────
   const initial = useMemo(readUrlState, []);
   const [view, setView] = useState<View>(initial.view);
+  useEffect(() => setMobileMore(false), [view]);
+  useEffect(() => {
+    if (!mobileMore) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') { setMobileMore(false); mobileMenuRef.current?.querySelector<HTMLButtonElement>('.mobile-more')?.focus(); } };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [mobileMore, mobileMenuRef]);
   const [input, setInput] = useState(initial.q);
   const [submitted, setSubmitted] = useState('');
   const [scope, setScope] = useState<SearchLensId>(initial.scope ?? prefs.defaultScope);
@@ -195,6 +223,7 @@ export function App() {
   const [refining, setRefining] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [readerUrl, setReaderUrl] = useState<string | null>(null);
+  const [mediaItem, setMediaItem] = useState<ScoredSearchResult | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // A password-protected glogg asks for a sign-in on load, and again whenever a session runs out.
@@ -224,6 +253,7 @@ export function App() {
   const researchAbortRef = useRef<AbortController | null>(null);
   const toolAbortRef = useRef<AbortController | null>(null);
   const researchSeq = useRef(0);
+  const searchIntent = useRef(0);
   const pluginsReq = useRef<Promise<PluginsResponse> | null>(null);
 
   const tools = useMemo(() => indexTools(plugins?.plugins || []), [plugins]);
@@ -258,7 +288,7 @@ export function App() {
     document.documentElement.dataset.accent = prefs.accent;
     document.documentElement.classList.toggle('light', !isDark);
     // The browser's own chrome matches the page, whichever theme you picked.
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', isDark ? '#0f0f10' : '#f6f6f4'));
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', isDark ? '#111111' : '#ffffff'));
   }, [isDark, prefs.accent]);
 
   useEffect(() => {
@@ -269,6 +299,7 @@ export function App() {
 
   // ── Plugins ───────────────────────────────────────────────────────────
   const loadPluginList = useCallback(() => {
+    if (!featureRef.current.tools) return Promise.resolve(NO_PLUGINS);
     const req = api<PluginsResponse>('/api/plugins').catch(() => NO_PLUGINS);
     pluginsReq.current = req;
     void req.then(setPlugins);
@@ -276,11 +307,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void loadPluginList();
-  }, [loadPluginList]);
+    if (features.tools) void loadPluginList();
+  }, [loadPluginList, features.tools]);
 
   // ── Downloads ─────────────────────────────────────────────────────────
   const refreshDownloadBadge = useCallback(() => {
+    if (!featureRef.current.downloads) return;
     api<DownloadManagerReport>('/api/downloads')
       .then((r) => {
         setActiveDownloads(r.jobs.filter((j) => j.status === 'queued' || j.status === 'downloading').length);
@@ -290,10 +322,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!features.downloads) return;
     refreshDownloadBadge();
     const t = setInterval(refreshDownloadBadge, 12_000);
     return () => clearInterval(t);
-  }, [refreshDownloadBadge]);
+  }, [refreshDownloadBadge, features.downloads]);
 
   const reloadPlugins = useCallback(async () => {
     const req = api<PluginsResponse>('/api/plugins/reload', { method: 'POST' });
@@ -304,6 +337,7 @@ export function App() {
 
   const send = useCallback(
     async (url: string, title: string, target: DownloadTargetId, sizeFormatted?: string) => {
+      if (!featureRef.current.downloads) return;
       const label = targetLabel(target, live.current.targets);
       try {
         const { job } = await sendToDownloads({ url, title, target, sizeFormatted });
@@ -327,9 +361,13 @@ export function App() {
 
   /** Go to a section, with its own address and title. */
   const navigate = useCallback((v: View) => {
+    setMediaItem(null);
+    setMobileMore(false);
+    searchIntent.current++;
     setView(v);
     pushUrl(VIEW_PATHS[v]);
     document.title = VIEW_TITLES[v];
+    window.scrollTo({ top: 0 });
   }, []);
 
   const openTools = useCallback(
@@ -354,6 +392,7 @@ export function App() {
 
   // ── Research ──────────────────────────────────────────────────────────
   const startResearch = useCallback(async (query: string, res: RankedSearchResponse, history: ResearchState[] = []) => {
+    if (!featureRef.current.research) return;
     researchAbortRef.current?.abort();
     const ctrl = new AbortController();
     researchAbortRef.current = ctrl;
@@ -385,10 +424,13 @@ export function App() {
   }, []);
 
   const stopWork = useCallback(() => {
+    searchIntent.current++;
     abortRef.current?.abort();
     researchAbortRef.current?.abort();
     toolAbortRef.current?.abort();
   }, []);
+
+  useEffect(() => stopWork, [stopWork]);
 
   // ── Search ────────────────────────────────────────────────────────────
   const openUrl = useCallback((url: string) => {
@@ -439,7 +481,16 @@ export function App() {
       if (!q) return;
       const s = live.current;
 
+      const intent = ++searchIntent.current;
       const trigger = parseToolTrigger(q);
+      const allowed = trigger || s.mode === 'advanced' ? await capabilitiesReady.current : { features: featureRef.current };
+      if (intent !== searchIntent.current) return;
+      // Search remains available when capabilities cannot be verified. Privileged actions do not.
+      if (allowed) featureRef.current = allowed.features;
+      if (trigger && !allowed?.features.tools) {
+        toast('Tools are unavailable on this instance. Search the web with a regular query.', 'info');
+        return;
+      }
       if (trigger) {
         void runInlineTool(q, trigger, opts.push !== false);
         return;
@@ -457,7 +508,8 @@ export function App() {
       const nextScope = opts.scope ?? s.scope;
       const nextUncensored = opts.uncensored ?? s.uncensored;
       const p = opts.prefs ?? s.prefs;
-      const researchNow = s.mode === 'advanced' && s.researchAuto && !opts.keepResearch;
+      const researchNow = Boolean(allowed?.features.research) && nextScope !== 'images' && nextScope !== 'videos' && s.mode === 'advanced' && s.researchAuto && !opts.keepResearch;
+      setMediaItem(null);
       setView('search');
       setInput(q);
       setSubmitted(q);
@@ -554,10 +606,12 @@ export function App() {
         }
       }
     },
-    [openUrl, runInlineTool, startResearch, setHistory]
+    [openUrl, runInlineTool, startResearch, setHistory, capabilitiesReady, toast]
   );
 
   const goHome = useCallback(() => {
+    setMediaItem(null);
+    setMobileMore(false);
     stopWork();
     setView('search');
     setSubmitted('');
@@ -574,6 +628,7 @@ export function App() {
   }, [stopWork]);
 
   const prefill = useCallback((text: string) => {
+    searchIntent.current++;
     setView('search');
     setInput(text);
     setTimeout(() => searchRef.current?.focus(), 0);
@@ -584,8 +639,10 @@ export function App() {
     if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
     else if (initial.view !== 'search') document.title = VIEW_TITLES[initial.view];
     const onPop = () => {
+      setMediaItem(null);
       const { q, scope: sc, view: v } = readUrlState();
       if (v !== 'search') {
+        searchIntent.current++;
         setView(v);
         document.title = VIEW_TITLES[v];
       } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
@@ -606,6 +663,7 @@ export function App() {
 
   // ── Derived results ───────────────────────────────────────────────────
   const isReleaseScope = RELEASE_SCOPES.includes(scope);
+  const isMediaScope = scope === 'images' || scope === 'videos';
   const blockedSet = useMemo(() => new Set(blocked), [blocked]);
 
   // Hidden results you asked to see anyway join the end of the list.
@@ -634,6 +692,7 @@ export function App() {
 
   const navList = isReleaseScope ? releases : visible;
   const activeItem = navList[active];
+  const mediaIndex = visible.findIndex(item => item.id === mediaItem?.id);
 
   // Moving through results with the keyboard is spoken; hovering isn't.
   const movedByKey = useRef(false);
@@ -753,12 +812,13 @@ export function App() {
   // ── Keyboard ──────────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (mediaItem) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
         return;
       }
-      if (paletteOpen || shortcutsOpen || readerUrl || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (paletteOpen || shortcutsOpen || readerUrl || mediaItem || e.metaKey || e.ctrlKey || e.altKey) return;
       if (isTypingTarget(e.target)) return;
       // Character keys only when you want them (WCAG 2.1.4); arrows and Enter always work.
       if (e.key.length === 1 && !live.current.prefs.singleKeys) return;
@@ -792,18 +852,21 @@ export function App() {
         if (e.key === 'Enter' && e.target instanceof HTMLElement && e.target.closest('button, a')) return;
         if (activeItem) openUrl(activeItem.p2p?.magnetUri && isReleaseScope ? activeItem.p2p.magnetUri : activeItem.url);
       } else if (e.key === 'r') {
-        if (activeItem && !activeItem.url.startsWith('magnet:')) setReaderUrl(activeItem.url);
+        if (activeItem?.media) setMediaItem(activeItem);
+        else if (activeItem && !activeItem.url.startsWith('magnet:')) setReaderUrl(activeItem.url);
       } else if (e.key === 'd') {
-        if (activeItem) sendItem(activeItem, 'auto');
+        if (activeItem && featureRef.current.downloads) sendItem(activeItem, 'auto');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, shortcutsOpen, readerUrl, view, navList, activeItem, isReleaseScope, openUrl, sendItem, switchMode, toolRun]);
+  }, [paletteOpen, shortcutsOpen, readerUrl, mediaItem, view, navList, activeItem, isReleaseScope, openUrl, sendItem, switchMode, toolRun]);
 
   // ── Command palette ───────────────────────────────────────────────────
   const commands = useMemo<PaletteCommand[]>(() => {
     const c: PaletteCommand[] = [
+      { id: 'v-saved', label: 'Saved library', group: 'Go to', keywords: 'bookmarks reading list', run: () => navigate('saved') },
+      { id: 'v-sources', label: 'Search sources', group: 'Go to', keywords: 'connectors engines', run: () => navigate('sources') },
       { id: 'v-home', label: 'New search', group: 'Go to', hint: 'home', run: goHome },
       { id: 'v-tools', label: 'Tools', group: 'Go to', keywords: 'plugins debrid osint whois dns cloud usenet test', run: () => openTools() },
       { id: 'v-dl', label: 'Downloads', group: 'Go to', keywords: 'aria2 offcloud nextcloud queue', run: () => navigate('downloads') },
@@ -812,7 +875,7 @@ export function App() {
       { id: 'v-set', label: 'Settings', group: 'Go to', keywords: 'keys api integrations bangs domains', run: () => openSettings() },
       {
         id: 'm-mode',
-        label: mode === 'advanced' ? 'Simple view' : 'Advanced view: research answers, filters, signals',
+        label: mode === 'advanced' ? 'Simple view' : features.research ? 'Advanced view: research answers, filters, signals' : 'Advanced view: filters and ranking signals',
         group: 'View',
         hint: 'm',
         keywords: 'mode deep research perplexity ai answer',
@@ -885,8 +948,26 @@ export function App() {
     data?.compiledQuery.escapeUrls.slice(0, 8).forEach((e) =>
       c.push({ id: `e-${e.id}`, label: `Search on ${e.name}`, group: 'Elsewhere', hint: e.description, run: () => openUrl(e.url) })
     );
-    return c;
-  }, [goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, ruleDomain, openUrl]);
+    return c.filter((command) => {
+      if (['v-tools', 'm-ai'].includes(command.id) || command.id.startsWith('tool-')) return features.tools;
+      if (['v-dl', 'a-send'].includes(command.id)) return features.downloads;
+      if (command.id === 'v-svc') return features.administration;
+      if (command.id === 'm-depth') return features.research;
+      return true;
+    });
+  }, [features, goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, ruleDomain, openUrl]);
+
+  const toggleSaved = (item: { url: string; title: string; snippet: string; source: string }) => {
+    if (!safeSavedUrl(item.url)) return;
+    try {
+      let removed = false;
+      library.change((items) => {
+        removed = items.some((saved) => saved.url === item.url);
+        return removed ? items.filter((saved) => saved.url !== item.url) : [{ url: item.url, title: item.title, snippet: item.snippet, source: item.source, savedAt: new Date().toISOString() }, ...items];
+      });
+      toast(removed ? 'Removed from saved library' : 'Saved in this browser', 'ok');
+    } catch { toast('Could not save your library. Check browser storage and export a backup.', 'error'); }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────
   const isHome = view === 'search' && !submitted;
@@ -938,19 +1019,21 @@ export function App() {
           {navList.length} result{navList.length === 1 ? '' : 's'} · {(data.metrics.durationMs / 1000).toFixed(1)}s
         </span>
         <SourcesButton data={data} />
-        {!advanced && !isReleaseScope && (
+        {features.research && !advanced && !isReleaseScope && !isMediaScope && (
           <button type="button" className="link-btn dig" onClick={digDeeper} title="Advanced view: read the sources and write a cited answer">
             <Sparkles size={12} /> Dig deeper
           </button>
         )}
       </div>
 
-      {!isReleaseScope && !sourceFilter && data.instantAnswer && !(advanced && research) && (
+      <FreshnessStatus data={data} onRefresh={() => void runSearch(submitted, { push: false })} />
+
+      {!isReleaseScope && !isMediaScope && !sourceFilter && data.instantAnswer && !(advanced && research) && (
         <AnswerCard answer={data.instantAnswer} onRead={setReaderUrl} />
       )}
 
       {isReleaseScope ? (
-        <ReleaseList items={releases} onSend={sendItem} />
+        <ReleaseList items={releases} onSend={sendItem} onSave={toggleSaved} savedUrls={library.items.map((item) => item.url)} />
       ) : visible.length === 0 ? (
         allSourcesFailed(data) ? (
           <div className="search-problem" role="alert">
@@ -964,6 +1047,8 @@ export function App() {
             No results for “{submitted}”{data.filteredSlop.length > 0 ? `; ${plural(data.metrics.filteredSlopCount || data.filteredSlop.length, 'result')} hidden below` : ''}. Try fewer words, another scope, or one of the engines below.
           </p>
         )
+      ) : isMediaScope ? (
+        <MediaResults items={visible} active={active} onHover={setActive} onOpen={setMediaItem} onSave={toggleSaved} savedUrls={library.items.map(item => item.url)} />
       ) : (
         <div className={`results${prefs.density === 'compact' ? ' compact' : ''}`} role="list" aria-label={`${plural(visible.length, 'result')}`}>
           {visible.map((item, i) => (
@@ -981,6 +1066,8 @@ export function App() {
               )}
               <ResultItem
                 item={item}
+                saved={library.items.some((saved) => saved.url === item.url)}
+                onSave={() => toggleSaved(item)}
                 index={i}
                 active={i === active}
                 detailed={advanced}
@@ -1042,43 +1129,33 @@ export function App() {
   ) : null;
 
   return (
+    <FeaturesContext.Provider value={features}>
     <DownloadTargetsContext.Provider value={targets}>
     <SiteIconsContext.Provider value={prefs.siteIcons}>
       <div className="shell">
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <nav className="appnav" aria-label="Sections">
+        <header className="masthead">
           <button type="button" className="appnav-logo" onClick={goHome} aria-label="glogg home" title="glogg">
-            <img src="/logo.png" alt="" width={28} height={28} />
+            <img src="/logo.png" alt="" width={28} height={28} /><span className="brand-wordmark">glogg</span>
           </button>
-          <NavButton label="Search" aria="Search home" href="/" icon={<Search size={18} />} active={view === 'search'} onClick={goHome} />
-          <NavButton label="Tools" href={VIEW_PATHS.tools} icon={<Wrench size={18} />} active={view === 'tools'} onClick={() => openTools()} />
-          <NavButton label="Atlas" href={VIEW_PATHS.atlas} icon={<Compass size={18} />} active={view === 'atlas'} onClick={() => navigate('atlas')} />
-          <NavButton
-            label="Downloads"
-            href={VIEW_PATHS.downloads}
-            icon={<Download size={18} />}
-            active={view === 'downloads'}
-            onClick={() => navigate('downloads')}
-            badge={activeDownloads}
-          />
-          <NavButton label="Services" href={VIEW_PATHS.services} icon={<Server size={18} />} active={view === 'services'} onClick={() => navigate('services')} />
-          <div className="appnav-fill" />
-          {uncensored && (
-            <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">
-              18+
-            </button>
-          )}
-          <NavButton label="Settings" href={VIEW_PATHS.settings} icon={<Settings size={18} />} active={view === 'settings'} onClick={() => openSettings()} />
-        </nav>
-
-        <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
-          <div className="topbar-search">{!isHome && <SearchBox ref={searchRef} {...searchBoxProps} busy={loading || Boolean(toolRun?.loading)} />}</div>
-          {/* Visible on every screen, phones included (they have no status bar). */}
-          {view === 'search' && (loading || refining) && (
-            <div className="search-progress" role="progressbar" aria-label={loading ? 'Searching' : 'Waiting for slower sources'} aria-valuetext={loading ? 'Searching' : 'More results coming'} />
-          )}
+          <nav className="appnav" aria-label="Sections">
+            <NavButton label="Search" aria="Search home" href="/" icon={<Search size={18} />} active={view === 'search'} onClick={goHome} />
+            <NavButton label="Saved" href={VIEW_PATHS.saved} icon={<Bookmark size={18} />} active={view === 'saved'} onClick={() => navigate('saved')} badge={library.items.length} />
+            <NavButton label="Sources" href={VIEW_PATHS.sources} icon={<Layers size={18} />} active={view === 'sources'} onClick={() => navigate('sources')} />
+            <NavButton label="Atlas" href={VIEW_PATHS.atlas} icon={<Compass size={18} />} active={view === 'atlas'} onClick={() => navigate('atlas')} />
+            <div className="nav-secondary-wrap" ref={mobileMenuRef}>
+              <button className={`appnav-btn mobile-more ${mobileMore ? 'active' : ''}`} onClick={() => setMobileMore((open) => !open)} aria-expanded={mobileMore} aria-controls="secondary-navigation"><MoreHorizontal size={18} /><span className="appnav-label">More</span></button>
+              <div className={`nav-secondary ${mobileMore ? 'open' : ''}`} id="secondary-navigation">
+                {features.tools && <NavButton label="Tools" href={VIEW_PATHS.tools} icon={<Wrench size={18} />} active={view === 'tools'} onClick={() => openTools()} />}
+                {features.downloads && <NavButton label="Downloads" href={VIEW_PATHS.downloads} icon={<Download size={18} />} active={view === 'downloads'} onClick={() => navigate('downloads')} badge={activeDownloads} />}
+                {features.administration && <NavButton label="Services" href={VIEW_PATHS.services} icon={<Server size={18} />} active={view === 'services'} onClick={() => navigate('services')} />}
+                <NavButton label="Settings" href={VIEW_PATHS.settings} icon={<Settings size={18} />} active={view === 'settings'} onClick={() => openSettings()} />
+                {uncensored && <button type="button" className="adult-pill" onClick={() => setAdultMode(false)} title="18+ mode is on. Click to turn it off." aria-label="Turn 18+ off">18+</button>}
+              </div>
+            </div>
+          </nav>
           <div className="topbar-tools">
             <button type="button" className="kbd-btn" onClick={() => setPaletteOpen(true)} aria-label="Command palette" title="Command palette">
               <Command size={12} />
@@ -1090,17 +1167,24 @@ export function App() {
           </div>
         </header>
 
+        {!isHome && <div className={`topbar ${scrolled ? 'scrolled' : ''}`}>
+          <div className="topbar-search"><SearchBox ref={searchRef} {...searchBoxProps} busy={loading || Boolean(toolRun?.loading)} /></div>
+          {view === 'search' && (loading || refining) && (
+            <div className="search-progress" role="progressbar" aria-label={loading ? 'Searching' : 'Waiting for slower sources'} aria-valuetext={loading ? 'Searching' : 'More results coming'} />
+          )}
+        </div>}
+
         <main className="main" id="main" tabIndex={-1}>
+          <PwaStatus />
           <div className="sr-only" aria-live="polite">
             {announcement}
           </div>
+          {capabilitiesFailed && <div className="capability-notice" role="status">Could not verify instance features. Search and local preferences are available.<button className="link-btn" data-capability-retry onClick={() => void retryCapabilities()}>Try again</button></div>}
+          {((view === 'tools' && !features.tools) || (view === 'downloads' && !features.downloads) || (view === 'services' && !features.administration)) && <div className="page"><div className="collection-empty"><Server size={32} /><h1>{capabilities ? 'Available on a private instance' : 'Checking instance features'}</h1><p>{capabilities ? 'This public glogg offers search, the reader, Atlas, sources and your local saved library.' : 'Search and your browser library remain available.'}</p><button className="btn btn-primary" onClick={goHome}>Explore the web</button></div></div>}
           {isHome && (
             <section className="home">
               <div className="home-head">
-                <h1 className="home-tagline">
-                  <span className="home-name">glogg</span>
-                  {advanced ? 'Ask anything. Cited answers from the real web.' : 'The whole web, minus the junk.'}
-                </h1>
+                <h1>Search the web</h1>
                 <div className="segmented home-mode" role="radiogroup" aria-label="View">
                   {(['simple', 'advanced'] as const).map((m) => (
                     <button
@@ -1110,7 +1194,7 @@ export function App() {
                       aria-checked={mode === m}
                       className={mode === m ? 'active' : ''}
                       onClick={() => switchMode(m)}
-                      title={m === 'advanced' ? 'Cited answers, filters and ranking signals' : 'Just answers and sites'}
+                      title={m === 'advanced' ? (features.research ? 'Cited answers, filters and ranking signals' : 'Filters and ranking signals') : 'Just answers and sites'}
                     >
                       {m === 'simple' ? 'Simple' : 'Advanced'}
                     </button>
@@ -1138,7 +1222,7 @@ export function App() {
               <div className="home-panels">
                 <section className="home-panel" aria-label="Recent searches">
                   <div className="home-panel-head">
-                    <span>Recent</span>
+                    <span>Recent searches</span>
                     {history.length > 0 && (
                       <button type="button" onClick={() => setHistory([])}>
                         Clear
@@ -1146,7 +1230,7 @@ export function App() {
                     )}
                   </div>
                   {history.length === 0 ? (
-                    <p className="home-empty">Your searches and tool runs show up here.</p>
+                    <p className="home-empty">No recent searches. History stays in this browser.</p>
                   ) : (
                     history.slice(0, 6).map((h) => (
                       <button key={h} type="button" className="home-item" onClick={() => void runSearch(h)} title={h}>
@@ -1156,7 +1240,7 @@ export function App() {
                     ))
                   )}
                 </section>
-                <section className="home-panel" aria-label="Tools">
+                {features.tools ? <section className="home-panel" aria-label="Tools">
                   <div className="home-panel-head">
                     <span>Tools</span>
                     <button type="button" onClick={() => openTools()}>
@@ -1164,7 +1248,7 @@ export function App() {
                     </button>
                   </div>
                   {quickTools.length === 0 ? (
-                    <p className="home-empty">Loading tools…</p>
+                    <p className="home-empty">{plugins ? 'No quick tools installed.' : 'Loading tools…'}</p>
                   ) : (
                     quickTools.map((t) => (
                       <button key={t.key} type="button" className="home-item" onClick={() => prefill(`>${t.tool.trigger} `)} title={t.tool.description}>
@@ -1174,23 +1258,16 @@ export function App() {
                       </button>
                     ))
                   )}
-                </section>
+                </section> : <section className="home-panel" aria-label="Your library"><div className="home-panel-head"><span>Saved</span><button onClick={() => navigate('saved')}>View all</button></div>{library.items.length ? library.items.slice(0, 3).map((item) => <button key={item.url} className="home-item" onClick={() => item.url.startsWith('magnet:') ? navigate('saved') : setReaderUrl(item.url)}><Bookmark size={13} /><span className="truncate">{item.title}</span></button>) : <p className="home-empty">Save results to read later.</p>}</section>}
               </div>
               {/* Each hint does what it says, for a tap as well as the key. */}
               <div className="home-hint">
                 <button type="button" onClick={() => prefill('!')}>
                   <kbd>!</kbd> other engines
                 </button>
-                <button type="button" onClick={() => prefill('>')}>
+                {features.tools && <button type="button" onClick={() => prefill('>')}>
                   <kbd>&gt;</kbd> tools
-                </button>
-                <button type="button" onClick={() => setPaletteOpen(true)}>
-                  <kbd>⌘</kbd>
-                  <kbd>K</kbd> commands
-                </button>
-                <button type="button" onClick={() => switchMode(advanced ? 'simple' : 'advanced')}>
-                  <kbd>m</kbd> {advanced ? 'simple' : 'advanced'} view
-                </button>
+                </button>}
                 <button type="button" onClick={() => setShortcutsOpen(true)}>
                   <kbd>?</kbd> all shortcuts
                 </button>
@@ -1198,7 +1275,7 @@ export function App() {
             </section>
           )}
 
-          {view === 'search' && submitted && toolRun && (
+          {view === 'search' && submitted && toolRun && features.tools && (
             <div className="results-wrap">
               <ToolCard
                 run={toolRun}
@@ -1259,7 +1336,7 @@ export function App() {
                 onSimple={() => switchMode('simple')}
               />
               <div className="adv-main">
-                {research ? (
+                {features.research && (research ? (
                   <ResearchPanel thread={thread} current={research} aiReady={aiReady} onFollowUp={followUp} onRetry={retryResearch} onSetupAi={setupAi} />
                 ) : (
                   data &&
@@ -1269,13 +1346,13 @@ export function App() {
                       <Sparkles size={14} /> Research “{submitted}”
                     </button>
                   )
-                )}
+                ))}
                 {resultsBody}
               </div>
             </div>
           )}
 
-          {view === 'tools' && (
+          {view === 'tools' && features.tools && (
             <ToolsView
               plugins={plugins?.plugins ?? null}
               userDir={plugins?.userDir ?? ''}
@@ -1290,9 +1367,11 @@ export function App() {
               onOpenSettings={() => openSettings()}
             />
           )}
-          {view === 'downloads' && <DownloadsView onToast={toast} onOpenSettings={() => openSettings()} />}
+          {view === 'downloads' && features.downloads && <DownloadsView onToast={toast} onOpenSettings={() => openSettings()} />}
           {view === 'atlas' && <AtlasView onRead={setReaderUrl} uncensored={uncensored} onToast={toast} />}
-          {view === 'services' && <ServicesView onToast={toast} />}
+          {view === 'services' && features.administration && <ServicesView onToast={toast} />}
+          {view === 'saved' && <SavedView items={library.items} onRemove={toggleSaved} onRead={setReaderUrl} onSearch={goHome} onToast={toast} />}
+          {view === 'sources' && <SourcesView prefs={prefs} onPrefs={setPrefs} />}
           {view === 'settings' && (
             <SettingsView
               prefs={prefs}
@@ -1341,6 +1420,10 @@ export function App() {
           />
         )}
 
+        {mediaItem && <MediaViewer item={mediaItem} onClose={() => setMediaItem(null)}
+          onPrevious={visible[mediaIndex - 1]?.media ? () => setMediaItem(visible[mediaIndex - 1]) : undefined}
+          onNext={visible[mediaIndex + 1]?.media ? () => setMediaItem(visible[mediaIndex + 1]) : undefined} />}
+
         {paletteOpen && (
           <CommandPalette
             commands={commands}
@@ -1360,6 +1443,7 @@ export function App() {
       </div>
     </SiteIconsContext.Provider>
     </DownloadTargetsContext.Provider>
+    </FeaturesContext.Provider>
   );
 }
 

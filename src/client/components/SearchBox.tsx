@@ -1,5 +1,6 @@
+import { useFeatures } from '../capabilities.js';
 import React, { forwardRef, useMemo, useState } from 'react';
-import { ArrowRight, CornerDownLeft, Search, Wrench, X } from 'lucide-react';
+import { ArrowRight, CornerDownLeft, Wrench, X } from 'lucide-react';
 import { BangDefinition, parseToolTrigger, resolveBang, suggestBangs } from '../../core/browser.js';
 import { suggestTools, useLater } from '../lib.js';
 import type { ToolRef } from '../lib.js';
@@ -21,6 +22,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
   { value, onChange, onSubmit, customBangs, busy, size = 'bar', autoFocus, uncensored, tools = [] },
   ref
 ) {
+  const features = useFeatures();
   const [focused, setFocused] = useState(false);
   const later = useLater();
   const [hi, setHi] = useState(0);
@@ -91,7 +93,6 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
         onSubmit(value);
       }}
     >
-      <Search size={size === 'hero' ? 18 : 16} className="searchbox-icon" aria-hidden />
       <input
         ref={ref}
         className="searchbox-input"
@@ -103,7 +104,7 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
         onFocus={() => setFocused(true)}
         onBlur={() => later(() => setFocused(false), 120)}
         onKeyDown={onKeyDown}
-        placeholder="Search anything, !bang or >tool"
+        placeholder={features.tools ? "Search, !bang or >tool" : "Search or use !bang"}
         autoFocus={autoFocus}
         autoComplete="off"
         spellCheck={false}
@@ -125,6 +126,9 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
           <X size={15} />
         </button>
       ) : null}
+      <button type="submit" className="searchbox-submit" aria-label="Submit search" title="Search">
+        Search
+      </button>
 
       {toolSuggestions.length > 0 && (
         <ul className="bang-menu" role="listbox" aria-label="Tools">

@@ -11,3 +11,5 @@ export * from './plugins.js';
 export * from './research.js';
 export * from './text.js';
 export * from './searchSources.js';
+export * from './freshness.js';
+export * from './media.js';

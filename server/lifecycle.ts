@@ -74,7 +74,11 @@ export function createShutdown(server: Server, opts: ShutdownOptions = {}): (sig
     force.unref?.();
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections?.();
+    // Requests active at close() can become idle afterward; reap those sockets too.
+    const reapIdle = setInterval(() => server.closeIdleConnections?.(), 50);
+    reapIdle.unref?.();
     await closed;
+    clearInterval(reapIdle);
     try {
       await opts.onClose?.();
     } catch (e) {

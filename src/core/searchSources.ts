@@ -9,6 +9,7 @@ export interface SearchSourceInfo {
 }
 
 export const SEARCH_SOURCES: SearchSourceInfo[] = [
+  { key: 'wikimedia', name: 'Wikimedia Commons', about: 'Images and videos with creator credits and licence metadata' },
   { key: 'ddg', name: 'DuckDuckGo', about: 'Web results' },
   { key: 'brave', name: 'Brave', about: 'Web results' },
   { key: 'searxng', name: 'SearXNG', about: 'Your own meta-search, when one is set up' },

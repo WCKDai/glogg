@@ -103,6 +103,8 @@ function installApi() {
     calls.push({ method, path: url.pathname, search: url.search, body });
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
     switch (`${method} ${url.pathname}`) {
+      case 'GET /api/capabilities':
+        return json({ mode: 'private', features: { tools: true, research: true, downloads: true, administration: true, savedProfiles: true } });
       case 'GET /api/plugins':
         return json({ plugins: PLUGINS, userDir: '/home/me/.glogg/plugins' });
       case 'GET /api/downloads':
@@ -235,7 +237,7 @@ describe('home', () => {
   });
 
   it('names every section in the nav, with words, and marks where you are', async () => {
-    expect($$('.appnav-btn').map((b) => b.textContent?.trim())).toEqual(['Search', 'Tools', 'Atlas', 'Downloads', 'Services', 'Settings']);
+    expect($$('.appnav-btn').map((b) => b.textContent?.trim())).toEqual(['Search', 'Saved', 'Sources', 'Atlas', 'More', 'Tools', 'Downloads', 'Services', 'Settings']);
     expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Search');
     await click($('a[aria-label="Atlas"]'));
     expect($('.appnav-btn[aria-current="page"]')!.textContent).toBe('Atlas');

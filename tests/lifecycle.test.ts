@@ -110,6 +110,23 @@ describe('createShutdown', () => {
     expect(exit).toHaveBeenCalledWith(1);
     await pending;
   });
+
+  it('lets an admitted request finish during the configured drain', async () => {
+    let started!: () => void;
+    const admitted = new Promise<void>((resolve) => { started = resolve; });
+    const port = await listen((_req, res) => {
+      started();
+      setTimeout(() => res.end('finished search'), 40);
+    });
+    const response = fetch(`http://127.0.0.1:${port}/`).then((res) => res.text());
+    await admitted;
+    const exit = vi.fn();
+    const shutdown = createShutdown(server!, { timeoutMs: 500, log: () => {}, exit });
+    const stopped = shutdown('SIGTERM');
+    await expect(response).resolves.toBe('finished search');
+    await stopped;
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
 });
 
 describe('installProcessGuards', () => {

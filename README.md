@@ -18,7 +18,15 @@ its own index of the small web, imageboards and forums, and the tools you reach 
 
 </div>
 
-![glogg's results for "rust borrow checker": an answer from Wikipedia with numbered sources, then results from GitHub, Lemmy and personal blogs](./docs/screenshots/results.png)
+![glogg's search workspace: compact navigation, a direct search field, scopes and a personal saved library](./docs/screenshots/workspace.png)
+
+## Search workspace and public service
+
+The workspace includes a browser-local **Saved library** with search and JSON export, a browsable **Sources** catalogue with per-source switches, and responsive navigation with light and dark themes. Docs & Papers adds Crossref and Europe PMC; Archives adds Open Library book discovery. These connectors use metadata, caching and conservative request limits.
+
+The interface uses white and neutral gray surfaces, conventional blue links, Verdana text and a Trebuchet MS wordmark beside the original mug icon. These system fonts need no third-party requests or font downloads. On iPhone, [add glogg to the Home Screen](docs/usage.md#install-on-iphone). Its interface and saved link metadata can open offline; searches and articles require a connection.
+
+For a public search service, use the separate **opt-in public mode** and [hosting guide](docs/public-service.md). It keeps server administration and private integrations unavailable to visitors. The guide includes a dedicated Compose configuration, proxy example, overload controls and repeatable offline capacity experiments. The 50,000 daily-user target remains subject to on-host load testing and provider quotas; it is not a verified production capacity claim.
 
 ## What it does
 
@@ -40,8 +48,8 @@ its own index of the small web, imageboards and forums, and the tools you reach 
 
 <table>
   <tr>
-    <td><img src="./docs/screenshots/home-dark.png" alt="The start screen in dark mode: search box, scopes, recent searches and tools" /></td>
-    <td><img src="./docs/screenshots/atlas.png" alt="The Atlas: a dense list of hand-picked sites with filters" /></td>
+    <td><img src="./docs/screenshots/library.png" alt="The Saved library: bookmarked results with search, sorting, reader access and JSON export" /></td>
+    <td width="28%"><img src="./docs/screenshots/mobile-workspace.png" alt="The mobile search workspace in dark mode" /></td>
   </tr>
 </table>
 

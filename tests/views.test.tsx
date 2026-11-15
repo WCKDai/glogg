@@ -536,7 +536,7 @@ describe('result rows', () => {
 
   it('tags 18+ results, primary sources, and finds from imageboards and old forums', async () => {
     await row(result(1, { isNsfw: true, verdict: 'primary-source', source: 'chanboards' }));
-    expect($$('.result-meta .tag').map((t) => t.textContent)).toEqual(['18+', 'primary', 'Imageboards']);
+    expect($$('.result-meta .tag').map((t) => t.textContent)).toEqual(['18+', 'reference', 'Imageboards']);
     await row(result(2, { source: 'wild-west' }));
     expect(textIn(roots[1].host.querySelector('.result-meta')!)).toContain('Forums');
   });
@@ -550,7 +550,7 @@ describe('result rows', () => {
       'match 82',
       'signal 64',
       'slop 45',
-      'primary source',
+      'reference source',
       'independent',
       'pre-LLM',
       '.org',
@@ -1094,6 +1094,7 @@ async function resultsPage(search: RankedSearchResponse | ((call: Call, n: numbe
   let n = 0;
   serve({
     'GET /api/auth': { required: false, authenticated: false },
+    'GET /api/capabilities': { mode: 'private', features: { tools: true, research: true, downloads: true, administration: true, savedProfiles: true } },
     'GET /api/plugins': { plugins: [], userDir: '' },
     'GET /api/downloads': downloads(),
     'POST /api/search': (c: Call) => (typeof search === 'function' ? search(c, ++n) : search),
@@ -1347,6 +1348,15 @@ describe('search box', () => {
 
   const triggers = () => $$('[role="option"] .mono').map((m) => m.textContent);
   const highlighted = () => $('[role="option"][aria-selected="true"] .mono')?.textContent;
+
+  it('submits a query once from the visible search button', async () => {
+    const { input, onSubmit } = await box();
+    await type(input, 'independent web');
+    const button = byRole('button', 'Submit search');
+    expect(button).toBeTruthy();
+    await click(button);
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith('independent web');
+  });
 
   it('suggests bangs after "!": the exact trigger first, then triggers that start with it', async () => {
     const { input } = await box();
