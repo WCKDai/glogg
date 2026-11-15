@@ -22,8 +22,11 @@ export function findChrome(): string | undefined {
   return CANDIDATES.find((p) => fs.existsSync(p));
 }
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; interception?: boolean };
 type Listener = (params: Record<string, unknown>) => void;
+
+const isInterceptionReply = (method: string): boolean =>
+  method === 'Fetch.continueRequest' || method === 'Fetch.failRequest' || method === 'Fetch.fulfillRequest';
 
 export class Browser {
   readonly errors: string[] = [];
@@ -41,8 +44,10 @@ export class Browser {
       if (msg.id !== undefined) {
         const p = this.pending.get(msg.id);
         this.pending.delete(msg.id);
-        if (msg.error) p?.reject(new Error(msg.error.message));
-        else p?.resolve(msg.result);
+        if (msg.error) {
+          if (p?.interception && msg.error.message === 'Invalid InterceptionId.') p.resolve({});
+          else p?.reject(new Error(msg.error.message));
+        } else p?.resolve(msg.result);
       } else if (msg.method) {
         for (const fn of this.listeners.get(msg.method) ?? []) fn(msg.params ?? {});
       }
@@ -110,9 +115,13 @@ export class Browser {
   }
 
   send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const interception = isInterceptionReply(method);
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      return interception ? Promise.resolve({} as T) : Promise.reject(new Error(`Chrome WebSocket closed before ${method}.`));
+    }
     const id = ++this.seq;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, interception });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -225,6 +234,7 @@ export class Browser {
   }
 
   async close(): Promise<void> {
+    this.listeners.clear();
     try {
       this.ws.close();
     } catch {

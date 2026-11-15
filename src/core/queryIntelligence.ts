@@ -287,7 +287,7 @@ function analyzeQuery(rawQuery: string): QueryAnalysis {
     .replace(/[?!.]+$/g, '')
     .trim();
 
-  const lower = cleaned.toLowerCase();
+  const lower = cleaned.toLowerCase().normalize('NFC');
 
   // Detect question patterns like "what is the <attr> of <entity>"
   let questionAttribute: string | undefined;
@@ -322,10 +322,10 @@ function analyzeQuery(rawQuery: string): QueryAnalysis {
 
   // Extract raw tokens
   const rawTokens = lower
-    .replace(/[^a-z0-9+#._-]/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}+#._-]/gu, ' ')
     .split(/\s+/)
     .map((t) => t.replace(/^[._-]+|[._-]+$/g, ''))
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2 || /[^\x00-\x7f]/.test(t));
 
   let coreKeywords = rawTokens.filter((t) => !SEARCH_STOPWORDS.has(t));
   if (coreKeywords.length === 0) {
@@ -587,11 +587,49 @@ const SYNONYM_GROUPS: string[][] = [
   ['speed', 'faster', 'performance', 'optimize', 'optimise'],
 ];
 
-function synonymMatch(word: string, text: string): boolean {
+const DEVERBAL_AL = /^(?:renew|remov|approv|arriv|surviv|reviv|retriev|propos|dispos|refus|withdraw|dismiss|rehears|rent|referr|deferr)al$/;
+const NEGATED_SPAN =
+  /\b(?:without|with\s+no|no|lacks?|lacking)\s+(?:(?!\b(?:when|while|if|after|before|by|for|in|on|at|to|from|with|because|which|that|who|where|but|yet|though|although)\b)[\p{L}\p{M}\p{N}'-]+(?:\s+(?:or|and|nor)\s+|\s+|$)){1,5}/gu;
+
+/** Whole words for spaced scripts; literal sequences for Japanese/Chinese text without spaces. */
+function wordMatcher(text: string): (word: string) => boolean {
+  const words = new Set(text.match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
+  const stems = new Set([...words].map(stemToken));
+  return (word) => {
+    if (words.has(word) || stems.has(stemToken(word))) return true;
+    // Keep common inflections the shared stemmer leaves intact, without accepting arbitrary prefixes.
+    if (/^[a-z]+$/.test(word)) {
+      if (
+        words.has(`${word}s`) || words.has(`${word}es`) ||
+        words.has(`${word}ing`) || words.has(`${word}ed`) ||
+        (DEVERBAL_AL.test(`${word}al`) && words.has(`${word}al`)) ||
+        (word.endsWith('e') && word.length >= 4 && (
+          words.has(`${word}d`) ||
+          words.has(`${word.slice(0, -1)}ing`) ||
+          (DEVERBAL_AL.test(`${word.slice(0, -1)}al`) && words.has(`${word.slice(0, -1)}al`))
+        )) ||
+        (word.endsWith('ing') && word.length >= 6 && words.has(`${word.slice(0, -3)}e`)) ||
+        (word.endsWith('ed') && word.length >= 5 && (words.has(`${word.slice(0, -2)}e`) || words.has(word.slice(0, -1)))) ||
+        (DEVERBAL_AL.test(word) && (words.has(word.slice(0, -2)) || words.has(`${word.slice(0, -2)}e`) || stems.has(word.slice(0, -2)))) ||
+        (/[aeiou][bcdfgklmnprstvwz]$/.test(word) && (words.has(`${word}${word.at(-1)}ing`) || words.has(`${word}${word.at(-1)}ed`))) ||
+        (word.length === 4 && word.endsWith('s') && !word.endsWith('ss') && words.has(word.slice(0, -1)))
+      ) return true;
+    }
+    if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(word)) return text.includes(word);
+    // Preserve compounds and symbols such as node.js, C++, HL-L2350DW and "roll back".
+    if (/[^\p{L}\p{M}\p{N}]/u.test(word)) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(^|[^\\p{L}\\p{M}\\p{N}])${escaped}($|[^\\p{L}\\p{M}\\p{N}])`, 'u').test(text);
+    }
+    return false;
+  };
+}
+
+function synonymMatch(word: string, matches: (word: string) => boolean): boolean {
   const stem = stemToken(word);
   const group = SYNONYM_GROUPS.find((g) => g.some((m) => m === word || stemToken(m) === stem));
   if (!group) return false;
-  return group.some((m) => new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(text));
+  return group.some(matches);
 }
 
 export function computeQueryRelevance(
@@ -627,17 +665,25 @@ export function computeQueryRelevance(
     };
   }
 
-  const titleLower = title.toLowerCase();
-  const snippetLower = snippet.toLowerCase();
-  const urlLower = decodeURIComponent(url).toLowerCase();
-  const tagsLower = (tags ?? []).join(' ').toLowerCase();
-  const fullText = `${titleLower} ${snippetLower} ${urlLower} ${tagsLower}`;
+  const titleLower = title.toLowerCase().normalize('NFC');
+  const snippetLower = snippet.toLowerCase().normalize('NFC');
+  const stripNegated = !/\b(?:no|without|not|lacks?|lacking)\b/i.test(rawQuery);
+  const positiveTitle = stripNegated ? titleLower.replace(NEGATED_SPAN, ' ') : titleLower;
+  const positiveSnippet = stripNegated ? snippetLower.replace(NEGATED_SPAN, ' ') : snippetLower;
+  // Providers sometimes return a literal percent sign. One URL must not abort the whole ranking.
+  let decodedUrl = url;
+  try { decodedUrl = decodeURIComponent(url); } catch { /* Match the original text instead. */ }
+  const urlLower = decodedUrl.toLowerCase().normalize('NFC');
+  const tagsLower = (tags ?? []).join(' ').toLowerCase().normalize('NFC');
+  const fullText = `${positiveTitle} ${positiveSnippet} ${urlLower} ${tagsLower}`;
 
   // Expand well-known technical synonyms so "copy on write" also recognizes "Copy-on-write (COW)"
   const expandedText =
     fullText +
     (fullText.includes('copy-on-write') || fullText.includes('copy on write') ? ' cow copy write' : '') +
     (fullText.includes('kazakhstan') ? ' kazakh astana' : '');
+  const titleMatches = wordMatcher(positiveTitle);
+  const fullMatches = wordMatcher(expandedText);
 
   let matchedCoreCount = 0;
   let titleMatchedCount = 0;
@@ -646,11 +692,9 @@ export function computeQueryRelevance(
   let weightTitle = 0;
 
   for (const kw of coreKeywords) {
-    const stem = stemToken(kw);
     const weight = MODIFIER_WORDS.has(kw) ? MODIFIER_WEIGHT : 1;
-    const wordBoundaryRx = new RegExp(`\\b${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
-    const inTitle = titleLower.includes(kw) || wordBoundaryRx.test(titleLower) || synonymMatch(kw, titleLower);
-    const inFull = expandedText.includes(kw) || wordBoundaryRx.test(expandedText) || synonymMatch(kw, expandedText);
+    const inTitle = titleMatches(kw) || synonymMatch(kw, titleMatches);
+    const inFull = fullMatches(kw) || synonymMatch(kw, fullMatches);
 
     weightTotal += weight;
     if (inTitle) {
@@ -670,10 +714,7 @@ export function computeQueryRelevance(
   // The main subject must appear: the primary anchor, or another top anchor when
   // most of the question is covered (so "undoing things in Git" still counts for
   // "undo the last git commit", but "capital of France" doesn't for "capital of Kazakhstan").
-  const anchorHit = (a: string) => {
-    const stem = stemToken(a);
-    return expandedText.includes(a) || (stem.length >= 4 && expandedText.includes(stem)) || synonymMatch(a, expandedText);
-  };
+  const anchorHit = (a: string) => fullMatches(a) || synonymMatch(a, fullMatches);
   const anchors = analysis.anchorTokens.filter((a) => !MODIFIER_WORDS.has(a));
   const matchedAnchor =
     anchors.length === 0 || anchorHit(anchors[0]) || (coverageRatio > 0.5 && anchors.slice(1, 3).some(anchorHit));
@@ -695,12 +736,14 @@ export function computeQueryRelevance(
   // 1. Core Keyword Coverage (up to 40 pts)
   score += Math.round(coverageRatio * 40);
 
-  // 2. Title Keyword Coverage & Title Focus Ratio (up to 32 pts)
+  // 2. Title Keyword Coverage & Title Focus Ratio (up to 36 pts)
   score += Math.round(titleCoverageRatio * 22);
-  const titleWords = titleLower
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
+  const contentWords = (text: string) =>
+    text
+      .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter((w) => (w.length >= 2 || /[^\x00-\x7f]/.test(w)) && !SEARCH_STOPWORDS.has(w));
+  const titleWords = contentWords(positiveTitle);
   const titleFocusRatio = titleWords.length > 0 ? titleMatchedCount / titleWords.length : 0;
   if (titleFocusRatio >= 0.45 && titleMatchedCount >= 1) {
     score += 14;
@@ -709,28 +752,47 @@ export function computeQueryRelevance(
     score -= 18;
   }
 
-  // 3. Contiguous / Exact Phrase Match Bonus (up to 26 pts)
+  // 3. Contiguous / Exact Phrase & Primary Heading Match Bonus (up to 26 pts)
   const entityLower = analysis.entitySubject.toLowerCase();
   const attrAndEntityPhrase = analysis.questionAttribute
     ? `${analysis.questionAttribute.toLowerCase()} of ${entityLower}`
     : '';
   const kwPhrase = coreKeywords.join(' ');
   const kwHyphenPhrase = coreKeywords.join('-');
+  const leadClause = positiveTitle.split(/[:—–|]/)[0];
+  const leadWords = contentWords(leadClause);
+  const leadMatches = wordMatcher(leadClause);
+  const leadMatchedCount = coreKeywords.filter((kw) => leadMatches(kw) || synonymMatch(kw, leadMatches)).length;
+  const titlePhraseIndex = kwPhrase.length >= 5
+    ? (positiveTitle.includes(kwPhrase) ? positiveTitle.indexOf(kwPhrase) : positiveTitle.indexOf(kwHyphenPhrase))
+    : -1;
+  const auxiliaryTitlePhrase =
+    titlePhraseIndex > 0 &&
+    /\b(?:for|about)\s+(?:(?:a|an|the|your|my|our)\s+)?$/.test(positiveTitle.slice(0, titlePhraseIndex)) &&
+    leadMatchedCount < leadWords.length;
 
-  if (
-    (attrAndEntityPhrase && titleLower.includes(attrAndEntityPhrase)) ||
-    (kwPhrase.length >= 5 && (titleLower.includes(kwPhrase) || titleLower.includes(kwHyphenPhrase)))
-  ) {
+  let urlLeaf = '';
+  try { urlLeaf = new URL(url).pathname.split('/').filter(Boolean).pop()?.toLowerCase() ?? ''; } catch { /* ignore */ }
+
+  if (attrAndEntityPhrase && positiveTitle.includes(attrAndEntityPhrase)) {
     score += 26;
-  } else if (entityLower.length >= 3 && titleLower.includes(entityLower)) {
+  } else if (titlePhraseIndex >= 0) {
+    score += auxiliaryTitlePhrase ? 14 : 26;
+  } else if (totalCoreCount >= 2 && leadWords.length === totalCoreCount && leadMatchedCount === totalCoreCount) {
+    score += 20;
+  } else if (entityLower.length >= 3 && positiveTitle.includes(entityLower)) {
     score += 16;
   } else if (
-    (attrAndEntityPhrase && snippetLower.includes(attrAndEntityPhrase)) ||
-    (kwPhrase.length >= 5 && (snippetLower.includes(kwPhrase) || snippetLower.includes(kwHyphenPhrase)))
+    (attrAndEntityPhrase && positiveSnippet.includes(attrAndEntityPhrase)) ||
+    (kwPhrase.length >= 5 && (positiveSnippet.includes(kwPhrase) || positiveSnippet.includes(kwHyphenPhrase)))
   ) {
     score += 18;
-  } else if (entityLower.length >= 3 && snippetLower.includes(entityLower)) {
+  } else if (entityLower.length >= 3 && positiveSnippet.includes(entityLower)) {
     score += 10;
+  }
+
+  if (kwHyphenPhrase.length >= 5 && urlLeaf === kwHyphenPhrase) {
+    score += 6;
   }
 
   // 4. Question-Attribute Direct Answer Bonus (e.g. "is the capital city of Kazakhstan")

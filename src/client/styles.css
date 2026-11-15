@@ -752,10 +752,16 @@ html.dark .btn-primary:hover {
 
 .scopes {
   display: flex;
+  align-items: center;
+  flex-shrink: 0;
   gap: 2px;
+  max-width: calc(100% + 16px);
+  min-width: 0;
   margin: 0 -8px;
   padding: 0 8px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   border-bottom: 1px solid var(--line);
   scrollbar-width: none;
   /* Fade the edge so it's clear the tabs scroll */
@@ -768,16 +774,25 @@ html.dark .btn-primary:hover {
 
 .scope {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   height: 32px;
   padding: 0 8px;
   color: var(--accent-ink);
   font-size: 12px;
   font-weight: 400;
+  line-height: 1.2;
   text-decoration: underline;
   text-underline-offset: 2px;
   white-space: nowrap;
   transition: color var(--t-fast);
+}
+
+.scope:focus-visible,
+.tool-tab:focus-visible {
+  outline-offset: -2px;
 }
 
 .scope:hover {
@@ -795,7 +810,7 @@ html.dark .btn-primary:hover {
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: -1px;
+  bottom: 0;
   height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--stein);
@@ -2916,10 +2931,15 @@ a.out-list-title:hover { color: var(--accent-ink); }
 .plugin-badges { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .tool-tabs {
   display: flex;
+  align-items: center;
   gap: 2px;
+  max-width: 100%;
+  min-width: 0;
   margin-bottom: 16px;
   padding: 3px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   border-radius: var(--radius);
   background: var(--surface-3);
   border: 1px solid var(--line);
@@ -2927,7 +2947,7 @@ a.out-list-title:hover { color: var(--accent-ink); }
   /* Fade the edge so it's clear the tabs scroll */
   mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
 }
-.tool-tab { height: 28px; padding: 0 11px; border-radius: 7px; font-size: 12.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+.tool-tab { display: inline-flex; align-items: center; flex-shrink: 0; height: 28px; padding: 0 11px; border-radius: 7px; font-size: 12.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
 .tool-tab:hover { color: var(--ink); }
 .tool-tab.active { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .tool-pane { display: flex; flex-direction: column; gap: 14px; }
@@ -3364,6 +3384,7 @@ p {
 
   .result-actions .btn, .result-actions .icon-btn, .topbar-tools .icon-btn,
   .scope, .sheet-bar .icon-btn { min-width: 44px; min-height: 44px; }
+  .scope { height: 44px; }
   .searchbox-hero { min-height: 52px; }
   .searchbox-submit, .searchbox-hero .searchbox-submit { min-height: 44px; }
 
