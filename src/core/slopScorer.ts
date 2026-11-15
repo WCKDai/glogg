@@ -25,7 +25,7 @@ const PRE_LLM_CUTOFF_TIMESTAMP = /* @__PURE__ */ Date.parse('2022-11-30T00:00:00
 const SPONSORED_PATTERNS: { pattern: RegExp; label: string; weight: number }[] = [
   {
     pattern:
-      /\b(?:sponsored\s+(?:post|content|by|affiliate)|paid\s+partnership|partner\s+content|presented\s+by|promoted\s+story|advertorial)\b/i,
+      /(?:\(|\[)\s*sponsored\s*(?:\)|\])|\b(?:sponsored\s+(?:post|content|by|affiliate)|paid\s+partnership|partner\s+content|presented\s+by|promoted\s+story|advertorial)\b/i,
     label: 'Sponsored / Native Ad Content',
     weight: 60,
   },

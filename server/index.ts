@@ -5,6 +5,7 @@ import { getTelemetrySnapshot } from './telemetry.js';
 import { apiCapacity, BusyError, configuredLimit, createWorkLimit } from './workLimits.js';
 import { envNumber } from './env.js';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,9 +17,11 @@ import {
   CURATED_INDIE_INDEX,
   CustomEndpointsConfig,
   DownloadTargetId,
+  evaluateInstantComputation,
   RankedSearchResponse,
   ResearchRequest,
   SearchFilterConfig,
+  suggestBangs,
 } from '../src/core/index.js';
 import { resolveAiConfig } from './ai.js';
 import { configuredPassword, createAuth, sessionSecret, trustProxySetting } from './auth.js';
@@ -47,8 +50,10 @@ import {
   importUserOpml,
   pauseCrawl,
   randomDeep,
+  refreshUserSource,
   removeUserSource,
   resumeDeepCrawl,
+  searchDeep,
   startCrawl,
 } from './deep/index.js';
 import type { DeepKind } from './deep/parse.js';
@@ -139,7 +144,7 @@ async function checkNodeReachable(url: string, timeoutMs = 1000): Promise<boolea
   }
 }
 
-export async function createGloggServer() {
+export async function createGloggServer(httpServer?: http.Server) {
   const mode = serviceMode();
   const readers = createWorkLimit(configuredLimit('GLOGG_MAX_READERS', 16));
   const app = express();
@@ -548,6 +553,20 @@ export async function createGloggServer() {
     }
   });
 
+  app.post('/api/deep/sources/:id/refresh', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'Valid source id is required' });
+      return;
+    }
+    try {
+      res.json(await refreshUserSource(id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not refresh source';
+      res.status(message === 'Source not found.' ? 404 : 400).json({ error: message });
+    }
+  });
+
   app.delete('/api/deep/sources/:id', async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -707,24 +726,62 @@ export async function createGloggServer() {
 </OpenSearchDescription>`);
   });
 
-  app.get('/api/opensearch/suggest', (req, res) => {
-    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+  app.get('/api/opensearch/suggest', async (req, res) => {
+    const rawQ = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const q = rawQ.toLowerCase();
     if (!q) {
       res.json([q, [], [], []]);
       return;
     }
-    const matches = CURATED_INDIE_INDEX.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.domain.toLowerCase().includes(q) ||
-        item.tags.some((t) => t.toLowerCase().includes(q))
-    ).slice(0, 8);
+    const host = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(req.headers.host || '') ? req.headers.host! : 'localhost:4173';
+    const baseUrl = `${req.protocol === 'https' ? 'https' : 'http'}://${host}`;
+    const items: { title: string; description: string; url: string }[] = [];
+
+    const calc = evaluateInstantComputation(rawQ);
+    if (calc) {
+      items.push({
+        title: `= ${calc.directAnswer}`,
+        description: `${calc.title}${calc.subtitle ? ` — ${calc.subtitle}` : ''}`,
+        url: `${baseUrl}/?q=${encodeURIComponent(rawQ)}`,
+      });
+    }
+
+    for (const bang of suggestBangs(rawQ, [], 6)) {
+      if (items.length >= 8) break;
+      const prefix = rawQ.replace(/(?:^|\s)![a-z0-9._-]*$/i, '').trim();
+      const completed = prefix ? `${prefix} !${bang.trigger}` : `!${bang.trigger} `;
+      items.push({
+        title: completed,
+        description: `Jump to ${bang.name} (!${bang.trigger})`,
+        url: `${baseUrl}/?q=${encodeURIComponent(completed.trim())}`,
+      });
+    }
+
+    for (const m of CURATED_INDIE_INDEX) {
+      if (items.length >= 8) break;
+      if (
+        m.title.toLowerCase().includes(q) ||
+        m.domain.toLowerCase().includes(q) ||
+        m.tags.some((t) => t.toLowerCase().includes(q))
+      ) {
+        items.push({ title: m.title, description: m.description, url: m.url });
+      }
+    }
+
+    // Browser omnibox requests (no cross-site Origin) on a private instance also complete from the local Deep Index.
+    if (items.length === 0 && mode === 'private' && !req.headers.origin && req.headers['sec-fetch-site'] !== 'cross-site') {
+      const deepHits = await searchDeep(rawQ, { limit: 6 });
+      for (const hit of deepHits) {
+        if (items.length >= 8) break;
+        items.push({ title: hit.title, description: hit.snippet.slice(0, 140), url: hit.url });
+      }
+    }
 
     res.json([
       q,
-      matches.map((m) => m.title),
-      matches.map((m) => m.description),
-      matches.map((m) => m.url),
+      items.map((m) => m.title),
+      items.map((m) => m.description),
+      items.map((m) => m.url),
     ]);
   });
 
@@ -819,7 +876,7 @@ export async function createGloggServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: httpServer ? { server: httpServer } : false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -849,11 +906,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 4173);
   // This machine only, unless HOST says otherwise (the Docker image listens on all interfaces).
   const host = process.env.HOST || '127.0.0.1';
-  createGloggServer()
+  const server = http.createServer();
+  createGloggServer(server)
     .then((app) => {
-      const server = app.listen(port, host, (err?: Error) => {
-        // Express 5 hands a listen error to this callback too; the 'error' handler below reports it.
-        if (err) return;
+      server.on('request', app);
+      server.on('error', (err: NodeJS.ErrnoException) => {
+        console.error(listenErrorMessage(err, host, port));
+        process.exit(1);
+      });
+      server.listen(port, host, () => {
         const shown = ['0.0.0.0', '::', '127.0.0.1', '::1'].includes(host) ? 'localhost' : host;
         console.log(`glogg engine listening on http://${shown}:${port}`);
         const password = configuredPassword();
@@ -865,10 +926,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         }
         // Pick up a deep-index crawl you started before the last restart.
         if (serviceMode() === 'private') resumeDeepCrawl().catch((e) => console.error('deep index:', e instanceof Error ? e.message : e));
-      });
-      server.on('error', (err: NodeJS.ErrnoException) => {
-        console.error(listenErrorMessage(err, host, port));
-        process.exit(1);
       });
       const shutdown = createShutdown(server, { timeoutMs: envNumber('GLOGG_SHUTDOWN_MS', 15_000, { min: 1000 }), onClose: () => closeDeepIndex() });
       for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void shutdown(signal));

@@ -156,6 +156,7 @@ const ROUTES: RouteCase[] = [
   { method: 'POST', route: '/api/deep/crawl', body: { action: 'pause' } },
   { method: 'GET', route: '/api/deep/sites' },
   { method: 'POST', route: '/api/deep/sources', body: { url: 'https://example.com/feed.xml' } },
+  { method: 'POST', route: '/api/deep/sources/:id/refresh', path: '/api/deep/sources/999999/refresh' },
   { method: 'DELETE', route: '/api/deep/sources/:id', path: '/api/deep/sources/999999' },
   { method: 'GET', route: '/api/deep/opml' },
   { method: 'POST', route: '/api/deep/opml', body: { xml: '<opml version="2.0"><body/></opml>' } },
@@ -228,7 +229,7 @@ describe('GET /api/health', () => {
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toMatch(/^application\/json/);
     expect(r.headers['access-control-allow-origin']).toBe('*');
-    expect(data(r)).toEqual({ status: 'ok', service: 'glogg-engine', version: PKG.version, connectors: 26 });
+    expect(data(r)).toEqual({ status: 'ok', service: 'glogg-engine', version: PKG.version, connectors: 28 });
   });
 });
 

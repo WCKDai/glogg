@@ -1002,6 +1002,93 @@ async function searchBraveApi(query: string, apiKey: string, uncensoredMode = fa
 }
 
 /**
+ * 12d. Mojeek Search API (independent UK crawler index, optional key in Settings → Keys).
+ */
+async function searchMojeekApi(query: string, apiKey: string, uncensoredMode = false): Promise<RawSearchResult[]> {
+  try {
+    const url = `https://api.mojeek.com/search?q=${encodeURIComponent(query)}&api_key=${encodeURIComponent(apiKey)}&fmt=json&t=16&safe=${uncensoredMode ? 0 : 1}`;
+    const res = await fetchWithTimeout(
+      url,
+      3800,
+      { Accept: 'application/json' },
+      {
+        403: "Mojeek didn't accept the API key: check it in Settings → Keys.",
+        429: "Over the Mojeek API key's rate limit or quota.",
+        key: apiKey,
+      }
+    );
+    if (res.status === 401) throw new SourceUnavailable('refused', "Mojeek didn't accept the API key: check it in Settings → Keys.");
+    if (!res.ok) return [];
+    const data = (await readUpstreamJson(res)) as {
+      response?: { status?: string; results?: Array<{ url?: string; title?: string; desc?: string }> };
+    };
+    if (data?.response?.status && data.response.status !== 'OK' && /key|auth|credit|quota/i.test(data.response.status)) {
+      throw new SourceUnavailable('refused', `Mojeek API answered: ${data.response.status}`);
+    }
+    const found = Array.isArray(data?.response?.results) ? data.response.results : [];
+    const out: RawSearchResult[] = [];
+    for (const [idx, r] of found.entries()) {
+      if (typeof r?.url !== 'string' || !/^https?:\/\//i.test(r.url)) continue;
+      const title = htmlToText(r.title || '') || r.url;
+      out.push({
+        id: `mojeek-${idx}-${r.url}`,
+        title,
+        url: r.url,
+        snippet: htmlToText(r.desc || '') || title,
+        source: 'mojeek',
+      });
+    }
+    return out;
+  } catch (e) {
+    return unlessRefused(e);
+  }
+}
+
+/**
+ * 12e. Kagi Search API v0 (optional key in Settings → Keys).
+ */
+async function searchKagiApi(query: string, apiKey: string): Promise<RawSearchResult[]> {
+  try {
+    const url = `https://kagi.com/api/v0/search?q=${encodeURIComponent(query)}&limit=16`;
+    const res = await fetchWithTimeout(
+      url,
+      3800,
+      { Accept: 'application/json', Authorization: `Bot ${apiKey}` },
+      {
+        403: "Kagi didn't accept the API key or Search API access isn't enabled on the account.",
+        429: "Over the Kagi API key's rate limit or balance.",
+        key: apiKey,
+      }
+    );
+    if (res.status === 401 || res.status === 402) {
+      throw new SourceUnavailable('refused', "Kagi didn't accept the API key or account balance is empty: check Settings → Keys.");
+    }
+    if (!res.ok) return [];
+    const data = (await readUpstreamJson(res)) as {
+      data?: Array<{ t?: number; url?: string; title?: string; snippet?: string; published?: string }>;
+    };
+    const found = Array.isArray(data?.data) ? data.data : [];
+    const out: RawSearchResult[] = [];
+    for (const [idx, r] of found.entries()) {
+      if (r?.t !== undefined && r.t !== 0) continue;
+      if (typeof r?.url !== 'string' || !/^https?:\/\//i.test(r.url)) continue;
+      const title = htmlToText(r.title || '') || r.url;
+      out.push({
+        id: `kagi-${idx}-${r.url}`,
+        title,
+        url: r.url,
+        snippet: htmlToText(r.snippet || '') || title,
+        source: 'kagi',
+        publishedAt: typeof r.published === 'string' && !Number.isNaN(Date.parse(r.published)) ? r.published : undefined,
+      });
+    }
+    return out;
+  } catch (e) {
+    return unlessRefused(e);
+  }
+}
+
+/**
  * 13. GDELT Project Global Unfiltered Real-World News Wire API (v2 DOC API)
  */
 async function searchGdeltRawNews(rawQuery: string, kwQuery: string, freshness?: SearchFreshnessIntent): Promise<RawSearchResult[]> {
@@ -1359,11 +1446,11 @@ const CORE_BY_LENS: Partial<Record<SearchLensId, string[]>> = {
   forums: ['forums', 'hn', 'se', 'lemmy', 'deep'],
   primary: ['openalex', 'arxiv', 'github', 'wiki'],
   'deep-archives': ['archive', 'openalex'],
-  'raw-news': ['gdelt', 'searxng', 'ddg'],
+  'raw-news': ['gdelt', 'searxng', 'ddg', 'mojeek', 'kagi'],
   images: ['wikimedia'],
   videos: ['wikimedia'],
 };
-const DEFAULT_CORE = ['searxng', 'ddg', 'brave', 'se', 'wiki', 'hn', 'github', 'deep'];
+const DEFAULT_CORE = ['searxng', 'ddg', 'brave', 'mojeek', 'kagi', 'se', 'wiki', 'hn', 'github', 'deep'];
 /** Which parts of the deep index each scope searches (scopes not listed skip it). */
 const DEEP_KINDS_BY_LENS: Partial<Record<SearchLensId, DeepKind[] | 'all'>> = {
   all: 'all',
@@ -1453,7 +1540,7 @@ async function runFederatedSearch(
   const analysis = analyzeQueryIntent(query);
   const kwQuery = analysis.keywordQuery || query;
   const wantsWildWest = !mediaKind && (lens === 'wild-west' || lens === 'forums' || uncensoredMode);
-  const core = new Set(freshness ? ['gdelt', 'searxng', 'brave', 'hn', 'ddg'] : CORE_BY_LENS[lens] ?? DEFAULT_CORE);
+  const core = new Set(freshness ? ['gdelt', 'searxng', 'brave', 'mojeek', 'kagi', 'hn', 'ddg'] : CORE_BY_LENS[lens] ?? DEFAULT_CORE);
 
   const sourcesQueried: SourceConnectorId[] = mediaKind ? ['wikimedia'] : [
     'marginalia',
@@ -1507,6 +1594,18 @@ async function runFederatedSearch(
     { key: 'p2p', run: () => executeP2PAndUsenetSearch(query, partialConfig?.endpoints, uncensoredMode) },
     { key: 'mwmbl', run: () => searchMwmbl(query, kwQuery) },
   ];
+  if (!mediaKind) {
+    const mojeekKey = partialConfig?.endpoints?.mojeekApiKey;
+    if (mojeekKey) {
+      sourcesQueried.push('mojeek');
+      tasks.push({ key: 'mojeek', run: () => searchMojeekApi(raw, mojeekKey, uncensoredMode) });
+    }
+    const kagiKey = partialConfig?.endpoints?.kagiApiKey;
+    if (kagiKey) {
+      sourcesQueried.push('kagi');
+      tasks.push({ key: 'kagi', run: () => searchKagiApi(raw, kagiKey) });
+    }
+  }
   const deepKinds = DEEP_KINDS_BY_LENS[lens];
   if (deepKinds) {
     tasks.push({
@@ -1536,7 +1635,7 @@ async function runFederatedSearch(
   const rankFreshness = freshness ? { intent: freshness, now: startTime } : undefined;
   const scoreCache = new WeakMap<RawSearchResult, ScoredSearchResult>();
   const endpointsSig = createHash('sha1').update(JSON.stringify(partialConfig?.endpoints || {})).digest('hex').slice(0, 12);
-  const cacheKey = (key: string) => `${key}|${mediaKind ?? freshness ?? 'evergreen'}|${key === 'searxng' ? timeRange : 'any'}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${(['ddg', 'brave', 'searxng'].includes(key) ? raw : query).toLowerCase()}`;
+  const cacheKey = (key: string) => `${key}|${mediaKind ?? freshness ?? 'evergreen'}|${key === 'searxng' ? timeRange : 'any'}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${(['ddg', 'brave', 'mojeek', 'kagi', 'searxng'].includes(key) ? raw : query).toLowerCase()}`;
   const disabled = new Set(partialConfig?.disabledSources ?? []);
   const runnable = tasks.filter((t) => {
     if (disabled.has(t.key)) {
@@ -1557,6 +1656,8 @@ async function runFederatedSearch(
       ...pick('se'),
       ...pick('ddg'),
       ...pick('brave'),
+      ...pick('mojeek'),
+      ...pick('kagi'),
       ...pick('searxng'),
       ...pick('hn'),
       ...pick('github'),

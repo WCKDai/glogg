@@ -1,19 +1,19 @@
 /**
- * The core modules the browser uses: everything in ./index.js except the page
- * cleaner. That one pulls in cheerio (about 26 KB gzipped) and only runs on the
- * server, so client code imports from here.
+ * The core modules the browser uses: client-needed constants, parsers, bangs,
+ * and shared types. Server-only scoring, ranking, query compilation, and page
+ * cleaning stay out of the browser bundle.
  */
 export * from './types.js';
 export * from './curatedLists.js';
-export * from './p2pUtils.js';
-export * from './slopScorer.js';
-export * from './ranker.js';
-export * from './queryCompiler.js';
-export * from './queryIntelligence.js';
+export type * from './p2pUtils.js';
+export type * from './slopScorer.js';
+export type * from './ranker.js';
+export type * from './queryCompiler.js';
+export type * from './queryIntelligence.js';
 export * from './bangs.js';
 export * from './plugins.js';
-export * from './research.js';
+export type * from './research.js';
 export * from './text.js';
 export * from './searchSources.js';
-export * from './freshness.js';
+export type * from './freshness.js';
 export * from './media.js';

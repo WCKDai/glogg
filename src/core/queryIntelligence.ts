@@ -744,7 +744,213 @@ export function evaluateInstantComputation(rawQuery: string): InstantAnswerPaylo
     }
   }
 
-  // 9. Scientific & Pure Mathematical Expression: "256 * 1024", "2^32", "sqrt(144) + log2(65536)", "1 << 16"
+  // 9. Unix File Permissions (chmod): "chmod 755", "chmod 0644", "chmod 4755", "chmod rwxr-xr-x"
+  const chmodOctal = q.match(/^chmod\s+([0-7])?([0-7]{3})$/i);
+  const chmodSym = q.match(/^chmod\s+([r-][w-][x-][r-][w-][x-][r-][w-][x-])$/i);
+  if (chmodOctal || chmodSym) {
+    const RWX = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
+    const DESC = ['none', 'execute', 'write', 'write + execute', 'read', 'read + execute', 'read + write', 'read + write + execute'];
+    const special = chmodOctal?.[1] ? Number(chmodOctal[1]) : 0;
+    const digits = chmodOctal
+      ? chmodOctal[2].split('').map(Number)
+      : [0, 3, 6].map((i) => {
+          const tri = chmodSym![1].slice(i, i + 3).toLowerCase();
+          return (tri[0] === 'r' ? 4 : 0) + (tri[1] === 'w' ? 2 : 0) + (tri[2] === 'x' ? 1 : 0);
+        });
+    const oct = digits.join('');
+    const triads = digits.map((d) => RWX[d].split(''));
+    if (special & 4) triads[0][2] = triads[0][2] === 'x' ? 's' : 'S';
+    if (special & 2) triads[1][2] = triads[1][2] === 'x' ? 's' : 'S';
+    if (special & 1) triads[2][2] = triads[2][2] === 'x' ? 't' : 'T';
+    const sym = triads.map((t) => t.join('')).join('');
+    const specialFlags = [
+      special & 4 ? 'setuid (4)' : '',
+      special & 2 ? 'setgid (2)' : '',
+      special & 1 ? 'sticky (1)' : '',
+    ].filter(Boolean);
+    return {
+      kind: 'computation',
+      title: `${special}${oct} · ${sym}`,
+      subtitle: 'Unix File Permissions (chmod)',
+      directAnswer: `Owner: ${DESC[digits[0]]} (${digits[0]}) · Group: ${DESC[digits[1]]} (${digits[1]}) · Others: ${DESC[digits[2]]} (${digits[2]})`,
+      codeBlock: `chmod ${special ? `${special}${oct}` : oct} <path>`,
+      ...(specialFlags.length ? { keyFacts: [{ label: 'Special bits', value: specialFlags.join(', ') }] } : {}),
+      confidence: 'verified',
+      citations: [],
+    };
+  }
+
+  // 10. Display Resolution & Aspect Ratio: "1920x1080", "3840x2160", "aspect ratio 2560x1600"
+  const resMatch = q.match(/^(?:aspect(?:\s+ratio)?\s+|resolution\s+)?(\d{2,5})\s*[x×]\s*(\d{2,5})$/i);
+  if (resMatch) {
+    const w = Number(resMatch[1]);
+    const h = Number(resMatch[2]);
+    if (w > 0 && h > 0) {
+      const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+      const g = gcd(w, h);
+      const rw = w / g;
+      const rh = h / g;
+      const pixels = w * h;
+      const mp = (pixels / 1_000_000).toFixed(2);
+      const STANDARDS: Record<string, string> = {
+        '1280x720': '720p HD',
+        '1920x1080': '1080p Full HD',
+        '1920x1200': 'WUXGA',
+        '2560x1440': '1440p QHD',
+        '2560x1600': 'WQXGA',
+        '3440x1440': 'UWQHD Ultrawide',
+        '3840x2160': '4K UHD',
+        '5120x2880': '5K UHD+',
+        '7680x4320': '8K UHD',
+      };
+      const std = STANDARDS[`${w}x${h}`];
+      return {
+        kind: 'computation',
+        title: `${rw}:${rh}${std ? ` (${std})` : ''}`,
+        subtitle: `Resolution & Aspect Ratio (${w}×${h})`,
+        directAnswer: `${w} × ${h} = ${rw}:${rh} aspect ratio (${(w / h).toFixed(3)}:1) · ${mp} MP (${pixels.toLocaleString('en-US')} px)`,
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 11. Well-Known TCP/UDP Network Ports: "port 5432", "tcp port 443"
+  const portMatch = q.match(/^(?:tcp\s+|udp\s+)?port\s+(\d{1,5})$/i);
+  if (portMatch) {
+    const port = Number(portMatch[1]);
+    const PORTS: Record<number, [string, string, string]> = {
+      20: ['FTP Data', 'TCP', 'File Transfer Protocol data channel (RFC 959).'],
+      21: ['FTP Control', 'TCP', 'File Transfer Protocol command/control channel (RFC 959).'],
+      22: ['SSH / SFTP / SCP', 'TCP', 'Secure Shell encrypted remote login and file transfer (RFC 4251).'],
+      25: ['SMTP', 'TCP', 'Simple Mail Transfer Protocol relay between mail servers (RFC 5321).'],
+      53: ['DNS', 'UDP/TCP', 'Domain Name System queries and zone transfers (RFC 1035).'],
+      80: ['HTTP', 'TCP', 'Cleartext Hypertext Transfer Protocol web traffic (RFC 9110).'],
+      123: ['NTP', 'UDP', 'Network Time Protocol clock synchronization (RFC 5905).'],
+      143: ['IMAP', 'TCP', 'Internet Message Access Protocol mail retrieval (RFC 9051).'],
+      443: ['HTTPS', 'TCP/UDP', 'HTTP over TLS 1.2/1.3 and HTTP/3 QUIC encrypted web traffic (RFC 9110 / RFC 9114).'],
+      465: ['SMTPS', 'TCP', 'Implicit-TLS mail submission (RFC 8314).'],
+      587: ['SMTP Submission', 'TCP', 'Authenticated mail client submission with STARTTLS (RFC 6409).'],
+      993: ['IMAPS', 'TCP', 'IMAP over implicit TLS (RFC 8314).'],
+      1433: ['Microsoft SQL Server', 'TCP', 'Tabular Data Stream (TDS) database listener.'],
+      2375: ['Docker Daemon', 'TCP', 'Unencrypted Docker Engine API socket (use 2376 for TLS).'],
+      3000: ['Dev HTTP Server', 'TCP', 'Common local development port (Node.js, Rails, Grafana).'],
+      3306: ['MySQL / MariaDB', 'TCP', 'MySQL wire protocol database listener.'],
+      4173: ['Vite Preview / glogg', 'TCP', 'Default local HTTP port for Vite preview and glogg.'],
+      5173: ['Vite Dev Server', 'TCP', 'Default local development port for Vite.'],
+      5432: ['PostgreSQL', 'TCP', 'PostgreSQL frontend/backend wire protocol listener.'],
+      5672: ['AMQP (RabbitMQ)', 'TCP', 'Advanced Message Queuing Protocol broker port.'],
+      6379: ['Redis / Valkey', 'TCP', 'RESP wire protocol in-memory data store listener.'],
+      8080: ['HTTP Alternate', 'TCP', 'Common proxy, app-server, and SearXNG HTTP listener.'],
+      8443: ['HTTPS Alternate', 'TCP', 'Alternate TLS-encrypted HTTPS application port.'],
+      9000: ['S3 / MinIO / PHP-FPM', 'TCP', 'Common object storage and FastCGI process manager port.'],
+      9090: ['Prometheus', 'TCP', 'Prometheus metrics server and web UI.'],
+      9200: ['Elasticsearch / OpenSearch', 'TCP', 'REST HTTP search and analytics API port.'],
+      27017: ['MongoDB', 'TCP', 'MongoDB wire protocol database listener.'],
+      51820: ['WireGuard', 'UDP', 'Default WireGuard encrypted VPN tunnel port.'],
+    };
+    const info = PORTS[port];
+    if (info) {
+      return {
+        kind: 'computation',
+        title: `Port ${port} — ${info[0]} (${info[1]})`,
+        subtitle: 'Network Port Reference',
+        directAnswer: info[2],
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 12. Offline Base64 / URL Encode & Decode + Local JWT Header/Payload Inspector (zero network leakage)
+  const b64Enc = q.match(/^base64\s+encode\s+([\s\S]+)$/i);
+  if (b64Enc) {
+    const out = Buffer.from(b64Enc[1], 'utf8').toString('base64');
+    return {
+      kind: 'computation',
+      title: out,
+      subtitle: 'Base64 Encode (offline)',
+      directAnswer: out,
+      confidence: 'verified',
+      citations: [],
+    };
+  }
+  const b64Dec = q.match(/^base64\s+decode\s+([A-Za-z0-9+/_=-]+)$/i);
+  if (b64Dec) {
+    try {
+      const normalized = b64Dec[1].replace(/-/g, '+').replace(/_/g, '/');
+      const buf = Buffer.from(normalized, 'base64');
+      const text = buf.toString('utf8');
+      if (buf.length > 0 && !text.includes('\ufffd')) {
+        return {
+          kind: 'computation',
+          title: text,
+          subtitle: 'Base64 Decode (offline)',
+          directAnswer: text,
+          confidence: 'verified',
+          citations: [],
+        };
+      }
+    } catch {
+      // ignore invalid base64
+    }
+  }
+  const urlEnc = q.match(/^url\s+encode\s+([\s\S]+)$/i);
+  if (urlEnc) {
+    const out = encodeURIComponent(urlEnc[1]);
+    return {
+      kind: 'computation',
+      title: out,
+      subtitle: 'URL Percent-Encode (offline)',
+      directAnswer: out,
+      confidence: 'verified',
+      citations: [],
+    };
+  }
+  const urlDec = q.match(/^url\s+decode\s+([\s\S]+)$/i);
+  if (urlDec) {
+    try {
+      const out = decodeURIComponent(urlDec[1].replace(/\+/g, '%20'));
+      return {
+        kind: 'computation',
+        title: out,
+        subtitle: 'URL Percent-Decode (offline)',
+        directAnswer: out,
+        confidence: 'verified',
+        citations: [],
+      };
+    } catch {
+      // ignore malformed URI sequence
+    }
+  }
+  const jwtMatch = q.match(/^(?:jwt\s+)?(eyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,})\.[A-Za-z0-9_-]*$/);
+  if (jwtMatch) {
+    try {
+      const [hRaw, pRaw] = jwtMatch[1].split('.');
+      const header = JSON.parse(Buffer.from(hRaw, 'base64url').toString('utf8')) as Record<string, unknown>;
+      const payload = JSON.parse(Buffer.from(pRaw, 'base64url').toString('utf8')) as Record<string, unknown>;
+      const facts: { label: string; value: string }[] = [];
+      if (typeof header.alg === 'string') facts.push({ label: 'Algorithm', value: header.alg });
+      if (typeof payload.sub === 'string') facts.push({ label: 'Subject (sub)', value: payload.sub });
+      if (typeof payload.iss === 'string') facts.push({ label: 'Issuer (iss)', value: payload.iss });
+      if (typeof payload.iat === 'number') facts.push({ label: 'Issued (iat)', value: new Date(payload.iat * 1000).toISOString() });
+      if (typeof payload.exp === 'number') facts.push({ label: 'Expires (exp)', value: new Date(payload.exp * 1000).toISOString() });
+      return {
+        kind: 'computation',
+        title: `JWT (${typeof header.alg === 'string' ? header.alg : 'token'})`,
+        subtitle: 'Decoded locally — signature not verified, never sent over network',
+        directAnswer: JSON.stringify(payload),
+        codeBlock: JSON.stringify({ header, payload }, null, 2),
+        keyFacts: facts,
+        confidence: 'verified',
+        citations: [],
+      };
+    } catch {
+      // ignore malformed JWT
+    }
+  }
+
+  // 13. Scientific & Pure Mathematical Expression: "256 * 1024", "2^32", "sqrt(144) + log2(65536)", "1 << 16"
   if (
     /^[0-9a-zA-Z+\-*/^().%<>&|\s]+$/.test(q) &&
     (/[+\-*/^%<>|&]/.test(q) || /^(?:sqrt|cbrt|abs|sin|cos|tan|asin|acos|atan|log|log10|ln|log2|exp|floor|ceil|round)\s*\(/i.test(q)) &&

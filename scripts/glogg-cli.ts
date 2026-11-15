@@ -19,6 +19,7 @@ import {
   ensureSeeded,
   exportUserOpml,
   importUserOpml,
+  refreshUserSource,
 } from '../server/deep/index.js';
 import { integrationDefaultsFromEnv } from '../server/downloadManager.js';
 import { executeFederatedSearch } from '../server/federatedSearch.js';
@@ -45,7 +46,7 @@ ${BOLD}USAGE${RESET}
   glogg <command> [options]
 
 ${BOLD}COMMANDS${RESET}
-  ${BLUE}search${RESET} <query>            Federated search across 26 real-web, Fediverse, P2P DHT & Usenet indexes
+  ${BLUE}search${RESET} <query>            Federated search across 28 real-web, Fediverse, P2P DHT & Usenet indexes
     --lens <id>             Lens: all | small-web | fediverse | p2p-magnet | usenet-nzb | deep-archives | raw-news | primary | forums | pre-llm
     --time <range>          Time window: any | day | week | month | year
     --uncensored            Enable 18+ Uncensored & Raw mode (adult DHT/NZB, SafeSearch=0, FOIA/OSINT)
@@ -59,6 +60,7 @@ ${BOLD}COMMANDS${RESET}
     status                  Show indexed posts, sources & crawl state (default)
     seed                    Refresh open small-web, forum & board directories
     add <url>               Add & immediately index a feed, forum or board catalog
+    refresh <id>            Re-crawl a single indexed source immediately by numeric ID
     opml-export             Print OPML 2.0 subscriptions to stdout
     opml-import <file>      Import feeds from an OPML 2.0 file
 
@@ -290,6 +292,17 @@ export async function runCli(argv: string[]): Promise<number> {
       const src = await addUserSource(target, undefined, { nsfw: hasFlag('--uncensored'), indexNow: true });
       if (hasFlag('--json')) console.log(JSON.stringify(src, null, 2));
       else console.log(`${GREEN}Indexed ${src.url}${RESET} (${src.kind} · ${src.posts} posts)`);
+      return 0;
+    }
+    if (sub === 'refresh') {
+      const id = Number(positional[1]);
+      if (!Number.isInteger(id) || id <= 0) {
+        console.error('Error: Please provide a positive numeric source ID.');
+        return 1;
+      }
+      const out = await refreshUserSource(id);
+      if (hasFlag('--json')) console.log(JSON.stringify(out, null, 2));
+      else console.log(`${GREEN}Refreshed #${out.source.id} ${out.source.url}${RESET} (${out.visit} · ${out.source.kind} · ${out.source.posts} posts)`);
       return 0;
     }
     if (sub === 'opml-export') {

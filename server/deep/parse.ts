@@ -184,16 +184,37 @@ export function parseChanCatalog(data: unknown, threadUrl: (no: number) => strin
   return out;
 }
 
-/** `<link rel="alternate" type="application/rss+xml|atom+xml">` on a page. */
+/** `<link rel="alternate" type="application/rss+xml|atom+xml">` on a page, plus obvious same-host feed links. */
 export function discoverFeeds(html: string, pageUrl: string): string[] {
   const $ = cheerio.load(html);
   const urls = new Set<string>();
   $('link[rel~="alternate"]').each((_, el) => {
     const type = ($(el).attr('type') || '').toLowerCase();
-    if (!/(rss|atom)\+xml|application\/feed\+json/.test(type)) return;
+    if (!/(rss|atom)\+xml|application\/(?:feed\+)?json/.test(type)) return;
     const url = absolute($(el).attr('href'), pageUrl);
     if (url && !/comments/i.test(url)) urls.add(url);
   });
+  if (urls.size === 0) {
+    let pageHost = '';
+    try {
+      pageHost = new URL(pageUrl).hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      // ignore
+    }
+    $('a[href]').each((_, el) => {
+      const url = absolute($(el).attr('href'), pageUrl);
+      if (!url || /comments/i.test(url)) return;
+      try {
+        const parsed = new URL(url);
+        if (pageHost && parsed.hostname.toLowerCase().replace(/^www\./, '') !== pageHost) return;
+        if (/\/(?:atom\.xml|rss\.xml|feed\.xml|index\.xml|feed\.json|feeds?\/?(?:all\.(?:atom|rss)\.xml)?|rss\/?)$/i.test(parsed.pathname)) {
+          urls.add(url);
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }
   return [...urls];
 }
 

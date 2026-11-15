@@ -27,13 +27,17 @@ A tour of glogg on your own machine, from the first search to downloads, tools a
 
 Open <http://localhost:4173> and type a query. Glogg asks the enabled sources for the selected scope, shows ready results, then fills in as slower sources answer without reshuffling what you're reading. Speed and coverage depend on the sources that answer.
 
+![Search results with an instant reference answer card, ranked primary and small-web results, and live source timings](./screenshots/results.png)
+
 From the top:
 
-1. **The answer.** Calculations, unit conversions, definitions, accepted Stack Exchange answers and encyclopedia facts, with their sources.
+1. **The answer.** Calculations, unit conversions, Unix `chmod` permissions (`chmod 755`), TCP/UDP port lookups (`port 5432`), display aspect ratios (`1920x1080`), offline Base64/URL/JWT decoders, definitions, accepted Stack Exchange answers and encyclopedia facts, with their sources. Simple calculations also preview right inside the search box (`= rwxr-xr-x (0755)`) with one-click copy before you even submit.
 2. **Results.** Real sites, one or two per domain, with sponsored, affiliate and SEO-farm pages hidden. Official docs, accepted answers and first-hand posts rank first.
 3. **The status bar.** How many sources answered and how fast. Click it to see each source, including ones that came back empty and why (a captcha, a rate limit, not set up).
 
-Many sources can be tried without a key. Others require a configured service or credentials; quotas and upstream availability still apply. The source breakdown reports missing configuration and refusals.
+![Dark mode search workspace showing the live instant calculation pill inside the search box](./screenshots/home-dark.png)
+
+Many sources can be tried without a key. Others require a configured service or credentials (for example **Brave Search**, **Mojeek Search**, and **Kagi Search** in **Settings → Keys**); quotas and upstream availability still apply. The source breakdown reports missing configuration and refusals.
 
 ## Simple and Advanced views
 
@@ -89,7 +93,7 @@ For self-hosting, `npm run build` includes the offline worker. Serve `/sw.js` an
 
 ## Choosing sources
 
-Open **Sources** to browse the connector catalogue, search by name, filter by category, and switch individual sources on or off. Preferences persist in this browser and apply to subsequent searches. A source can still be unavailable because of its scope, required setup, provider quota or the server operator's public-service policy; the search status breakdown explains refusals and missing configuration.
+Open **Sources** to browse the 28-connector catalogue, search by name, filter by category, and switch individual sources on or off. Keyed independent web engines (**Brave Search API**, **Mojeek Search API**, and **Kagi Search API**) activate automatically as soon as you save their API key in **Settings → Keys** (or `BRAVE_API_KEY`, `MOJEEK_API_KEY`, `KAGI_API_KEY`). Preferences persist in this browser and apply to subsequent searches. A source can still be unavailable because of its scope, required setup, provider quota or the server operator's public-service policy; the search status breakdown explains refusals and missing configuration.
 
 Crossref and Europe PMC run in **Docs & Papers**; Open Library runs in **Archives**. The public service disables private indexers and disables Open Library unless its operator explicitly enables it. Public mode also hides server tools, downloads, research and administration. See the [public hosting guide](public-service.md) for the service boundary.
 
@@ -102,7 +106,8 @@ Crossref and Europe PMC run in **Docs & Papers**; Open Library runs in **Archive
 | `site:sqlite.org wal` | Only that site, every page of it |
 | `-site:pinterest.com` | Never that site |
 | `filetype:pdf`, `inurl:docs`, `before:2022` | Passed to web engines that understand them |
-| `!w turing` | A **bang**: jump straight to another engine (`!w` Wikipedia, `!gh` GitHub, `!yt`, `!mdn`, `!4p` and 50+ more; add your own in Settings → Bangs) |
+| `chmod 755`, `port 5432`, `1920x1080`, `jwt eyJ…`, `base64 encode …` | Zero-network instant developer & workbench computations |
+| `!w turing` | A **bang**: jump straight to another engine (`!w` Wikipedia, `!gh` GitHub, `!rfc`, `!cve`, `!man`, `!crates`, `!docsrs`, `!pypi`, `!go`, `!aur`, `!mdn`, `!4p` and 60+ more; add your own in Settings → Bangs) |
 | `>dns example.com` | Run a **tool** directly ([list below](#tools)) |
 
 Sources that don't understand operators get the plain words; web engines get the query as you typed it.

@@ -7,26 +7,42 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-const BUDGET_KB: Record<string, number> = { '.js': 125, '.css': 16 };
-const dir = path.resolve(process.argv[2] || 'dist/assets');
+export const BUDGET_KB: Record<string, number> = { '.js': 125, '.css': 16 };
 
-if (!fs.existsSync(dir)) {
-  console.error(`No build found at ${dir}. Run npm run build:client first.`);
-  process.exit(1);
+export function checkBundle(targetDir = 'dist/assets', budgets: Record<string, number> = BUDGET_KB): {
+  ok: boolean;
+  lines: string[];
+  totalsKb: Record<string, number>;
+} {
+  const dir = path.resolve(targetDir);
+  if (!fs.existsSync(dir)) {
+    return { ok: false, lines: [`No build found at ${dir}. Run npm run build:client first.`], totalsKb: {} };
+  }
+
+  const totals: Record<string, number> = {};
+  for (const file of fs.readdirSync(dir)) {
+    const ext = path.extname(file);
+    if (!(ext in budgets)) continue;
+    totals[ext] = (totals[ext] || 0) + zlib.gzipSync(fs.readFileSync(path.join(dir, file))).length;
+  }
+
+  let failed = false;
+  const lines: string[] = [];
+  const totalsKb: Record<string, number> = {};
+  for (const [ext, budget] of Object.entries(budgets)) {
+    const kb = (totals[ext] || 0) / 1024;
+    totalsKb[ext] = kb;
+    const ok = kb <= budget;
+    failed ||= !ok;
+    lines.push(`${ok ? 'ok  ' : 'FAIL'} ${ext.padEnd(5)} ${kb.toFixed(1).padStart(6)} KB gzipped (budget ${budget} KB)`);
+  }
+  return { ok: !failed, lines, totalsKb };
 }
 
-const totals: Record<string, number> = {};
-for (const file of fs.readdirSync(dir)) {
-  const ext = path.extname(file);
-  if (!(ext in BUDGET_KB)) continue;
-  totals[ext] = (totals[ext] || 0) + zlib.gzipSync(fs.readFileSync(path.join(dir, file))).length;
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const res = checkBundle(process.argv[2] || 'dist/assets');
+  for (const line of res.lines) {
+    (res.ok ? console.log : console.error)(line);
+  }
+  process.exit(res.ok ? 0 : 1);
 }
-
-let failed = false;
-for (const [ext, budget] of Object.entries(BUDGET_KB)) {
-  const kb = (totals[ext] || 0) / 1024;
-  const ok = kb <= budget;
-  failed ||= !ok;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${ext.padEnd(5)} ${kb.toFixed(1).padStart(6)} KB gzipped (budget ${budget} KB)`);
-}
-process.exit(failed ? 1 : 0);

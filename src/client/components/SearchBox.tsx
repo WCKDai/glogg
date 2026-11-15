@@ -4,6 +4,7 @@ import { ArrowRight, CornerDownLeft, Wrench, X } from 'lucide-react';
 import { BangDefinition, parseToolTrigger, resolveBang, suggestBangs } from '../../core/browser.js';
 import { suggestTools, useLater } from '../lib.js';
 import type { ToolRef } from '../lib.js';
+import { quickCalc } from './CommandPalette.js';
 
 interface Props {
   value: string;
@@ -36,6 +37,10 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
     const t = parseToolTrigger(value);
     return t ? tools.find((x) => x.tool.trigger === t.trigger) : undefined;
   }, [value, tools]);
+  const liveCalc = useMemo(
+    () => (pendingTool || pendingBang ? null : quickCalc(value.trim())),
+    [value, pendingTool, pendingBang]
+  );
   const menuLength = toolSuggestions.length || suggestions.length;
 
   const applySuggestion = (b: BangDefinition) => {
@@ -111,6 +116,18 @@ export const SearchBox = forwardRef<HTMLInputElement, Props>(function SearchBox(
         aria-label="Search"
       />
       {uncensored && <span className="tag tag-danger">18+</span>}
+      {liveCalc && (
+        <button
+          type="button"
+          className="searchbox-bang mono"
+          title={`Copy ${liveCalc.directAnswer}`}
+          aria-label={`Copy instant result ${liveCalc.directAnswer}`}
+          onClick={() => void navigator.clipboard?.writeText(liveCalc.directAnswer)}
+        >
+          {liveCalc.swatchColor && <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: liveCalc.swatchColor }} />}
+          = {liveCalc.directAnswer}
+        </button>
+      )}
       {pendingTool ? (
         <span className="searchbox-bang" title={pendingTool.tool.description}>
           <Wrench size={12} /> {pendingTool.tool.name}

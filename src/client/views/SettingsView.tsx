@@ -122,6 +122,16 @@ const FIELDS: { group: string; note?: string; fields: { key: keyof CustomEndpoin
     fields: [{ key: 'braveApiKey', label: 'API key', secret: true }],
   },
   {
+    group: 'Mojeek Search',
+    note: "Independent UK crawler index (mojeek.com/services/api). Queried only when a key is saved.",
+    fields: [{ key: 'mojeekApiKey', label: 'API key', secret: true }],
+  },
+  {
+    group: 'Kagi Search',
+    note: 'Curated ad-free web index (kagi.com/settings?p=api). Queried only when a key is saved.',
+    fields: [{ key: 'kagiApiKey', label: 'API key', secret: true }],
+  },
+  {
     group: 'Nextcloud',
     note: 'Save NZBs, torrents and pages to your cloud via WebDAV. Use an app password.',
     fields: [

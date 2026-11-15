@@ -12,6 +12,8 @@ export const SEARCH_SOURCES: SearchSourceInfo[] = [
   { key: 'wikimedia', name: 'Wikimedia Commons', about: 'Images and videos with creator credits and licence metadata' },
   { key: 'ddg', name: 'DuckDuckGo', about: 'Web results' },
   { key: 'brave', name: 'Brave', about: 'Web results' },
+  { key: 'mojeek', name: 'Mojeek', about: 'Independent crawler API, when a key is set' },
+  { key: 'kagi', name: 'Kagi', about: 'Kagi Search API, when a key is set' },
   { key: 'searxng', name: 'SearXNG', about: 'Your own meta-search, when one is set up' },
   { key: 'se', name: 'Stack Exchange', about: 'Questions and accepted answers' },
   { key: 'wiki', name: 'Wikipedia', about: 'Encyclopedia articles' },

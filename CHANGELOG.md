@@ -4,6 +4,24 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-15
+
+### Independent web APIs, smarter feed discovery & OpenSearch omnibox
+- **Mojeek & Kagi Search API connectors (`#25`, `server/federatedSearch.ts`, `src/core/sourceCatalog.ts`):** added optional keyed independent web search connectors for **Mojeek Search API** (`MOJEEK_API_KEY` / `mojeekApiKey`) and **Kagi Search API** (`KAGI_API_KEY` / `kagiApiKey`), bringing the catalogue to **28 connectors**. Keys stay server-confined (`0600`), never leak on public `GET /api/search` calls, and surface clear `401`/`403`/`429` refusal diagnostics in `metrics.sourceTimings`.
+- **Resilient Deep Index feed discovery & on-demand refresh (`server/deep/parse.ts`, `server/deep/index.ts`, `AtlasView.tsx`):** `discoverFeeds` now detects `application/json` feeds alongside `application/feed+json` and falls back to same-host `<a href>` feed links (`/atom.xml`, `/rss.xml`, `/feed.xml`, `/index.xml`, `/feed.json`, `/feed/`, `/rss/`) when `<link rel="alternate">` is absent; `addUserSource` probes common feed paths when a bare homepage omits feed markup; and `POST /api/deep/sources/:id/refresh` (`glogg deep refresh <id>` + the new **Refresh** button in Atlas) re-crawls a single source immediately.
+- **Upgraded OpenSearch omnibox autocomplete (`GET /api/opensearch/suggest`):** browser address-bar suggestions now combine zero-network instant computations (`= …`), `!bang` completions, curated Real-Web Atlas matches, and (for non-cross-site browser omnibox requests on private instances) local SQLite FTS5 Deep Index matches.
+
+### Developer instant answers, bangs & SearchBox live preview
+- **Developer & systems instant computations (`src/core/queryIntelligence.ts`):** `evaluateInstantComputation` now resolves Unix `chmod` permissions (`chmod 755`, `chmod 0644`, `chmod rwxr-x---`) with octal/symbolic breakdown, display resolutions & simplified aspect ratios (`1920x1080`, `3840x2160`), 26 well-known TCP/UDP network ports (`port 5432`, `port 6379`, `port 443`), offline Base64/URL encode-decode (`base64 encode …`, `url decode …`), and zero-network local JWT header/payload inspection (`jwt eyJ…`) with `exp`/`iat` decoding.
+- **Live SearchBox calculation pill & new `!bangs` (`SearchBox.tsx`, `CommandPalette.tsx`, `src/core/bangs.ts`):** typing quick math, percentages, base conversions, `#hex` colors, `chmod`, or `WxH` resolutions previews the answer (and color swatch) right inside the search box with one-click copy; added `!rfc`, `!cve`, `!man`, `!crates`, `!docsrs`, `!pypi`, `!go`, and `!aur` built-in bangs.
+- **Bundle diet (`vite.config.ts`, `src/core/browser.ts`):** added build-time `slimLucidePlugin` and type-only server re-exports in `browser.ts`, keeping the production client at **`124.6 KB` gzipped JS** (`<= 125 KB` budget) and **`15.1 KB` gzipped CSS** (`<= 16 KB` budget) despite all new UI capabilities.
+
+### Multi-arch GHCR images, Firefox MV3 extension, concurrent dev HMR & raised coverage
+- **Multi-arch GHCR container publishing (`#22`, `.github/workflows/release.yml`, `docker-compose.yml`):** tagged releases now build and push `ghcr.io/wckdai/glogg:<version>` and `:latest` for `linux/amd64` and `linux/arm64` with OCI provenance and SBOM attestations; `docker-compose.yml` and `docker-compose.coolify.yml` reference the prebuilt image alongside `build: .`.
+- **Firefox + Chromium Manifest V3 extension ZIP (`#24`, `extension/manifest.json`, `scripts/build-extension.ts`):** added `browser_specific_settings.gecko` (`extension@glogg.app`, `strict_min_version: "115.0"`, `data_collection_permissions: ["none"]`), automatic `package.json` version stamping, and deterministic dependency-free PKZIP packaging (`dist-extension/glogg-extension-v0.6.0.zip`), uploaded automatically to GitHub Releases.
+- **Concurrent dev server Vite HMR fix (`#21`, `server/index.ts`):** attached Vite's HMR WebSocket server directly to glogg's `http.Server` listener instead of Vite's standalone port `24678`, so multiple `npm run dev` instances run side by side without `Port 24678 is already in use` errors.
+- **Raised V8 AST coverage floors (`#23`), refreshed docs screenshots (`#28`) & updated CI Actions (`#29`, `#30`):** added comprehensive unit tests across built-in plugins and build/extension scripts, raising enforced V8 coverage thresholds in `vite.config.ts` above pre-Vitest-5 baselines (`lines >= 87%`, `statements >= 85%`, `branches >= 82%`, `functions >= 82%`), recaptured all stale `docs/screenshots/*.png` views against `0.6.0`, and pinned `actions/checkout` `v7.0.1` + `actions/setup-node` `v7.1.0`.
+
 ## [0.5.0] — 2026-11-15
 
 ### Deep index, OPML & query operators

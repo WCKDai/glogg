@@ -11,8 +11,8 @@ name: glogg
 
 services:
   glogg:
+    image: ghcr.io/wckdai/glogg:${GLOGG_IMAGE_TAG:-0.6.0}
     build: .
-    image: glogg:local
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -40,6 +40,8 @@ services:
       MARGINALIA_API_KEY: ${MARGINALIA_API_KEY:-}
       STACKEXCHANGE_KEY: ${STACKEXCHANGE_KEY:-}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      MOJEEK_API_KEY: ${MOJEEK_API_KEY:-}
+      KAGI_API_KEY: ${KAGI_API_KEY:-}
       GLOGG_HAPPY_EYEBALLS: ${GLOGG_HAPPY_EYEBALLS:-}
       GLOGG_CORE_GRACE_MS: ${GLOGG_CORE_GRACE_MS:-}
       GLOGG_MIN_WAIT_MS: ${GLOGG_MIN_WAIT_MS:-}

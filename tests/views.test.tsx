@@ -1460,7 +1460,7 @@ describe('search box', () => {
     expect(third.getAttribute('aria-selected')).toBe('true');
     await mouse('mousedown', third);
     await flush(1);
-    expect(input.value).toBe('!ddg ');
+    expect(input.value).toBe('!go ');
   });
 
   it('picks a tool suggestion with the mouse', async () => {
@@ -2632,7 +2632,18 @@ describe('settings', () => {
       'GET /api/integrations': { config: { offcloudApiKey: '••••1234', searxngUrl: 'http://localhost:8080' } },
       'PUT /api/integrations': (c: Call) => ({ config: { ...c.body.config, offcloudApiKey: '••••1234' } }),
     });
-    expect($$('legend').map((l) => l.textContent)).toEqual(['Offcloud', 'NZB.life', 'Marginalia', 'Stack Exchange', 'Brave Search', 'Nextcloud', 'aria2', 'Search backends']);
+    expect($$('legend').map((l) => l.textContent)).toEqual([
+      'Offcloud',
+      'NZB.life',
+      'Marginalia',
+      'Stack Exchange',
+      'Brave Search',
+      'Mojeek Search',
+      'Kagi Search',
+      'Nextcloud',
+      'aria2',
+      'Search backends',
+    ]);
     const key = byLabel('API key', fieldset('Offcloud'));
     expect([key.type, key.value]).toEqual(['password', '••••1234']);
     expect(byLabel('API key', fieldset('Brave Search')).type).toBe('password');
