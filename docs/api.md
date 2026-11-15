@@ -9,6 +9,7 @@ With `GLOGG_PASSWORD` set, every route except `/api/health` and the three `/api/
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/api/health` | `GET` | Liveness: `{status: "ok", …}` |
+| `/api/telemetry` | `GET` | Bounded operational counters and latency quantiles (`{startedAt, searches, http, cache, latencyMs, sources}`) with no visitor query text, URLs or client addresses. Private by default; in public mode requires `Authorization: Bearer <GLOGG_TELEMETRY_TOKEN>`. |
 | `/api/capabilities` | `GET` | `{mode, features}`: whether tools, research, downloads, administration and server profiles are available. Private by default; public mode disables these capabilities. |
 | `/api/sources` | `GET` | `{sources}`: search task IDs, names, descriptions, categories and homepages. IDs match `config.disabledSources`. This is a catalogue, not a live availability probe. |
 | `/api/auth` | `GET` | `{required, authenticated}`: whether this glogg has a password, and whether this request has a session |

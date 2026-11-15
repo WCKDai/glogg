@@ -26,7 +26,7 @@ describe('public service authority', () => {
 
   it('denies privileged routes, all write methods, and route variants before parsing', async () => {
     const { port } = await publicServer();
-    const routes = ['/api/profile', '/api/integrations', '/api/downloads', '/api/downloads/1', '/api/plugins', '/api/plugins/reload', '/api/plugins/ai/settings', '/api/plugins/ai/tools/chat', '/api/plugins/ai/container', '/api/containers', '/api/containers/action', '/api/nodes', '/api/research', '/api/deep/crawl', '/api/deep/sources', '/api/ipfs/test', '/api/unknown'];
+    const routes = ['/api/telemetry', '/api/profile', '/api/integrations', '/api/downloads', '/api/downloads/1', '/api/plugins', '/api/plugins/reload', '/api/plugins/ai/settings', '/api/plugins/ai/tools/chat', '/api/plugins/ai/container', '/api/containers', '/api/containers/action', '/api/nodes', '/api/research', '/api/deep/crawl', '/api/deep/sources', '/api/ipfs/test', '/api/unknown'];
     for (const path of routes) for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']) {
       const r = await rawRequest(port, { method, path, headers: { 'Content-Type': 'application/json', 'Content-Length': '8' }, body: '{invalid' });
       expect(r.status, `${method} ${path}`).toBe(403);

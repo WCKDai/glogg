@@ -39,7 +39,15 @@ import {
   searchObscureForumsAndWildWest,
 } from './wildWestIndexer.js';
 import { envNumber } from './env.js';
-import { configuredLimit, createWorkLimit, runWithCapacity } from './workLimits.js';
+import {
+  recordCacheEntries,
+  recordCacheLookup,
+  recordSearchAdmitted,
+  recordSearchBusy,
+  recordSearchCompleted,
+  recordSearchError,
+} from './telemetry.js';
+import { BusyError, configuredLimit, createWorkLimit, runWithCapacity } from './workLimits.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -377,9 +385,22 @@ async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode 
         publishedDate?: string;
         magnetlink?: string;
       }>;
+      unresponsive_engines?: unknown;
     };
 
-    return (data.results ?? []).slice(0, 16).map((r, idx) => ({
+    const rows = data.results ?? [];
+    if (rows.length === 0 && Array.isArray(data.unresponsive_engines)) {
+      const reasons = data.unresponsive_engines
+        .filter((pair): pair is [string, string] => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string')
+        .slice(0, 3)
+        .map(([eng, why]) => `${htmlToText(eng).slice(0, 32)}: ${htmlToText(why).slice(0, 64)}`)
+        .filter(Boolean);
+      if (reasons.length > 0) {
+        throw new SourceUnavailable('refused', `Upstream engines refused SearXNG (${reasons.join('; ')}).`);
+      }
+    }
+
+    return rows.slice(0, 16).map((r, idx) => ({
       id: `searxng-${idx}-${r.url}`,
       title: r.title,
       url: r.magnetlink || r.url,
@@ -1252,11 +1273,12 @@ export function recordSourceOutcome(key: string, ms: number, count: number, fail
 const CACHE_TTL_MS = envNumber('GLOGG_CACHE_TTL_MS', 10 * 60_000);
 const CACHE_EMPTY_TTL_MS = Math.min(CACHE_TTL_MS, 60_000);
 const CACHE_MAX = 600;
-const sourceCache = new Map<string, { at: number; ttl: number; value: Promise<RawSearchResult[]> }>();
+const sourceCache = new Map<string, { at: number; ttl: number; settled: boolean; value: Promise<RawSearchResult[]> }>();
 type CacheRead = { fetchedAt: string; cacheAgeMs: number };
 
 export function clearSearchCache(): void {
   sourceCache.clear();
+  recordCacheEntries(0);
 }
 
 /** Cached and de-duplicated: a repeat call joins the in-flight request. Errors are not cached. */
@@ -1266,26 +1288,35 @@ export function cachedSource(key: string, run: () => Promise<RawSearchResult[]>,
     opts.onRead?.({ fetchedAt: new Date(entry.at).toISOString(), cacheAgeMs: Math.max(0, Date.now() - entry.at) });
     return value;
   });
-  if (ttl <= 0) return run().then((value) => {
-    opts.onRead?.({ fetchedAt: new Date().toISOString(), cacheAgeMs: 0 });
-    return value;
-  });
+  if (ttl <= 0) {
+    recordCacheLookup('miss', sourceCache.size);
+    return run().then((value) => {
+      opts.onRead?.({ fetchedAt: new Date().toISOString(), cacheAgeMs: 0 });
+      return value;
+    });
+  }
   const hit = sourceCache.get(key);
   if (hit && Date.now() - hit.at < Math.min(hit.ttl, ttl)) {
     sourceCache.delete(key);
     sourceCache.set(key, hit);
+    recordCacheLookup(hit.settled ? 'hit' : 'coalesced', sourceCache.size);
     return read(hit);
   }
-  const entry = { at: Date.now(), ttl, value: run() };
+  const entry = { at: Date.now(), ttl, settled: false, value: run() };
   sourceCache.set(key, entry);
   if (sourceCache.size > CACHE_MAX) sourceCache.delete(sourceCache.keys().next().value!);
+  recordCacheLookup('miss', sourceCache.size);
   entry.value.then(
     (v) => {
+      entry.settled = true;
       entry.at = Date.now();
       entry.ttl = v.length ? ttl : Math.min(ttl, CACHE_EMPTY_TTL_MS);
     },
     () => {
-      if (sourceCache.get(key) === entry) sourceCache.delete(key);
+      if (sourceCache.get(key) === entry) {
+        sourceCache.delete(key);
+        recordCacheEntries(sourceCache.size);
+      }
     }
   );
   return read(entry);
@@ -1348,7 +1379,18 @@ export function executeFederatedSearch(
   partialConfig?: Partial<SearchFilterConfig>,
   opts: SearchRunOptions = {}
 ): Promise<RankedSearchResponse> {
-  return runWithCapacity(searchCapacity, (track) => runFederatedSearch(rawQuery, partialConfig, opts, track));
+  try {
+    return runWithCapacity(searchCapacity, (track) => {
+      recordSearchAdmitted();
+      return runFederatedSearch(rawQuery, partialConfig, opts, track).catch((err) => {
+        recordSearchError();
+        throw err;
+      });
+    });
+  } catch (err) {
+    if (err instanceof BusyError) recordSearchBusy();
+    throw err;
+  }
 }
 
 async function runFederatedSearch(
@@ -1542,9 +1584,11 @@ async function runFederatedSearch(
     };
   };
   let partialSent = false;
+  let firstPartialMs: number | undefined;
   const sendPartial = (allRaw: RawSearchResult[], ranked: RankOutput) => {
     if (partialSent || !opts.onPartial) return;
     partialSent = true;
+    firstPartialMs = Date.now() - startTime;
     try {
       opts.onPartial(respond(allRaw, ranked, undefined, true));
     } catch {
@@ -1585,5 +1629,12 @@ async function runFederatedSearch(
   ])
     .catch(() => undefined)
     .finally(() => { clearTimeout(answerTimer); clearTimeout(partialTimer); });
-  return respond(allRaw, ranked, instantAnswer, false);
+  const finalResponse = respond(allRaw, ranked, instantAnswer, false);
+  recordSearchCompleted({
+    durationMs: finalResponse.metrics.durationMs,
+    firstPartialMs,
+    surfacedCount: finalResponse.results.length + finalResponse.p2pResults.length,
+    timings: finalResponse.metrics.sourceTimings,
+  });
+  return finalResponse;
 }

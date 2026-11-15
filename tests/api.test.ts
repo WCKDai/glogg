@@ -133,6 +133,7 @@ interface RouteCase {
 /** Every route the server registers, with a harmless request for each. */
 const ROUTES: RouteCase[] = [
   { method: 'GET', route: '/api/health', public: true },
+  { method: 'GET', route: '/api/telemetry' },
   { method: 'GET', route: '/api/capabilities', public: true },
   { method: 'GET', route: '/api/sources', public: true },
   { method: 'GET', route: '/api/auth' },

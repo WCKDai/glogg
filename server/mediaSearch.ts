@@ -1,4 +1,5 @@
 import { commonsAssetUrl, type MediaKind, type SearchMedia } from '../src/core/media.js';
+import { spellingTwin } from '../src/core/queryIntelligence.js';
 import type { RawSearchResult } from '../src/core/types.js';
 import { htmlToText, wellFormed } from '../src/core/text.js';
 import { fetchUpstream, readUpstreamJson } from './upstream.js';
@@ -11,7 +12,47 @@ const positive = (value: unknown): number | undefined => typeof value === 'numbe
 const state = { active: false, next: 0 };
 // Conservative metadata flag for the existing adult preference, not a comprehensive SafeSearch guarantee.
 const EXPLICIT = /\b(?:nsfw|nudes?|nudity|naked|porn(?:ography|ographic)?|sexual (?:intercourse|acts?)|genitals?|genitalia|penis|penises|vulvas?|masturbat(?:ion|ing)|fetish|gore|graphic violence)\b/i;
+const HOUSEKEEPING_CATEGORY =
+  /^(?:self-published\b|cc[- ]|creative commons\b|gfdl\b|pd[- ]|public domain\b|licen[cs](?:e|ing)\b|media\b|files?\b|images? (?:from|in|of \d{4}|taken|uploaded|without|with|lacking|by)\b|photographs? (?:from|in|of \d{4}|taken|uploaded|by)\b|videos? (?:from|in|of \d{4}|taken|uploaded|by)\b|uploaded\b|pages?\b|taken (?:with|on)\b|personality rights\b|wikimedia\b|wikipedia\b|commons\b|wikidata\b|flickr\b|panoramio\b|inaturalist\b|open beelden\b|youtube\b|user[- :]|all free media\b|quality images\b|valued images\b|featured (?:pictures|media|videos) (?:on|by)\b|call to like\b|ogv videos\b|webm videos\b|video display resolution\b)/i;
+const CATEGORY_FRAMING = /^(?:featured (?:pictures|media|videos) of|videos of|images of|photographs of|pictures of)\s+/i;
+
 export function resetCommonsMedia(): void { state.active = false; state.next = 0; }
+
+export function extractCommonsCategories(raw: string): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const part of raw.split('|')) {
+    const cleaned = htmlToText(part).replace(/\s+/g, ' ').trim();
+    if (!cleaned || HOUSEKEEPING_CATEGORY.test(cleaned)) continue;
+    const topic = cleaned.replace(CATEGORY_FRAMING, '').trim().slice(0, 100);
+    const key = topic.toLowerCase();
+    if (topic.length < 2 || seen.has(key)) continue;
+    seen.add(key);
+    kept.push(topic);
+    if (kept.length >= 12) break;
+  }
+  return kept;
+}
+
+function commonsSearchQuery(query: string, kind: MediaKind): string {
+  const trimmed = query.slice(0, 1024).trim();
+  let expansions = 0;
+  // Do not rewrite quoted phrases or boolean expressions already written by the caller.
+  const expanded = /["()]|\bOR\b/.test(trimmed)
+    ? trimmed
+    : trimmed
+        .split(/\s+/)
+        .map((token) => {
+          if (expansions >= 4 || !/^[a-zA-Z]+$/.test(token)) return token;
+          const twin = spellingTwin(token);
+          if (!twin) return token;
+          expansions += 1;
+          return `(${token} OR ${twin})`;
+        })
+        .join(' ');
+  return `${expanded} filetype:${kind === 'image' ? 'bitmap' : 'video'}`;
+}
 
 function parsePage(value: unknown, kind: MediaKind): (RawSearchResult & { media: SearchMedia }) | null {
   const page = object(value);
@@ -20,6 +61,7 @@ function parsePage(value: unknown, kind: MediaKind): (RawSearchResult & { media:
   if (!filename || !Number.isSafeInteger(page.pageid) || Number(page.pageid) <= 0 || 'badfile' in info) return null;
   const meta = object(info.extmetadata);
   const field = (key: string, max?: number) => text(object(meta[key]).value, max);
+  const rawCategories = typeof object(meta.Categories).value === 'string' ? String(object(meta.Categories).value).slice(0, 4000) : '';
   const original = commonsAssetUrl(info.url, kind);
   const previewUrl = commonsAssetUrl(info.thumburl, 'image') ?? (kind === 'image' ? original : null);
   if (!original || !previewUrl) return null;
@@ -42,11 +84,13 @@ function parsePage(value: unknown, kind: MediaKind): (RawSearchResult & { media:
   const attribution = field('Attribution') || field('Artist');
   const license = field('LicenseShortName');
   const description = field('ImageDescription', 800);
+  const tags = extractCommonsCategories(rawCategories);
   return {
     id: `commons-${page.pageid}`, source: 'wikimedia', title,
     url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(wellFormed(filename))}`,
     snippet: description || [attribution, license].filter(Boolean).join(' · '),
     author: attribution || undefined,
+    ...(tags.length ? { tags } : {}),
     isNsfw: EXPLICIT.test(`${title} ${description} ${field('Categories', 4000)}`),
     media: { kind, url, previewUrl, mimeType, width: positive(info.width), height: positive(info.height), durationSeconds: kind === 'video' ? positive(info.duration) : undefined, attribution: attribution || undefined, license: license || undefined, licenseUrl },
   };
@@ -59,7 +103,7 @@ export async function searchCommonsMedia(query: string, kind: MediaKind): Promis
   state.active = true; state.next = Date.now() + 1000;
   const url = new URL('https://commons.wikimedia.org/w/api.php');
   const prefix = kind === 'image' ? 'ii' : 'vi';
-  const params = { action: 'query', format: 'json', generator: 'search', gsrsearch: `${query.slice(0, 1024)} filetype:${kind === 'image' ? 'bitmap' : 'video'}`, gsrnamespace: '6', gsrlimit: '8', prop: kind === 'image' ? 'imageinfo' : 'videoinfo',
+  const params = { action: 'query', format: 'json', generator: 'search', gsrsearch: commonsSearchQuery(query, kind), gsrnamespace: '6', gsrlimit: '8', prop: kind === 'image' ? 'imageinfo' : 'videoinfo',
     [`${prefix}prop`]: `url|size|mime|extmetadata|badfile${kind === 'video' ? '|derivatives' : ''}`,
     [`${prefix}urlwidth`]: '480', [`${prefix}extmetadatafilter`]: 'Artist|Attribution|LicenseShortName|LicenseUrl|ImageDescription|Categories', [`${prefix}extmetadatalanguage`]: 'en' };
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);

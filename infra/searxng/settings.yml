@@ -25,9 +25,28 @@ outgoing:
   request_timeout: 2.4
   max_request_timeout: 4.0
 
-# Engines that routinely time out from residential IPs; disabling keeps p95 latency low.
+# Enable web engines that answer cleanly from server/datacenter IPs and disable
+# HTML scrapers that routinely return CAPTCHAs, rate-limit suspensions or timeouts.
 engines:
+  - name: bing
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: duckduckgo web
+    disabled: false
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: google
+    disabled: true
   - name: google cse
     disabled: true
   - name: wikidata
+    disabled: true
+  - name: brave.news
+    disabled: true
+  - name: google news
+    disabled: true
+  - name: reuters
     disabled: true

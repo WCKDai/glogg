@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import { envNumber } from './env.js';
+import { recordHttpBusy } from './telemetry.js';
 
 export class BusyError extends Error {
   readonly status = 503;
@@ -29,10 +30,10 @@ export function configuredLimit(name: string, fallback: number): number {
 export function apiCapacity(max = configuredLimit('GLOGG_MAX_API_REQUESTS', 64)): RequestHandler {
   const limit = createWorkLimit(max);
   return (req, res, next) => {
-    if (!req.path.startsWith('/api/') || ['/api/health', '/api/capabilities'].includes(req.path)) return next();
+    if (!req.path.startsWith('/api/') || ['/api/health', '/api/capabilities', '/api/telemetry'].includes(req.path)) return next();
     let release: () => void;
     try { release = limit.acquire(); }
-    catch { res.setHeader('Retry-After', '1'); res.setHeader('Cache-Control', 'no-store'); res.status(503).json({ error: new BusyError().message }); return; }
+    catch { recordHttpBusy(); res.setHeader('Retry-After', '1'); res.setHeader('Cache-Control', 'no-store'); res.status(503).json({ error: new BusyError().message }); return; }
     res.once('finish', release);
     res.once('close', release);
     next();

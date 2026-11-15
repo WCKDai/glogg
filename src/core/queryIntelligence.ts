@@ -591,29 +591,64 @@ const DEVERBAL_AL = /^(?:renew|remov|approv|arriv|surviv|reviv|retriev|propos|di
 const NEGATED_SPAN =
   /\b(?:without|with\s+no|no|lacks?|lacking)\s+(?:(?!\b(?:when|while|if|after|before|by|for|in|on|at|to|from|with|because|which|that|who|where|but|yet|though|although)\b)[\p{L}\p{M}\p{N}'-]+(?:\s+(?:or|and|nor)\s+|\s+|$)){1,5}/gu;
 
+const SPELLING_TWINS = (() => {
+  const map = new Map<string, string>();
+  const link = (a: string, b: string) => { map.set(a, b); map.set(b, a); };
+  for (const [uk, us] of 'tyre:tire,tyres:tires,aluminium:aluminum,grey:gray,greyscale:grayscale'.split(',').map((p) => p.split(':'))) link(uk, us);
+  for (const [uk, us] of 'colour:color,watercolour:watercolor,behaviour:behavior,armour:armor,flavour:flavor,harbour:harbor,labour:labor,neighbour:neighbor,vapour:vapor,honour:honor,humour:humor,rumour:rumor,catalogue:catalog'.split(',').map((p) => p.split(':'))) {
+    link(uk, us); link(`${uk}s`, `${us}s`);
+    link(uk.endsWith('e') ? `${uk}d` : `${uk}ed`, `${us}ed`);
+    link(uk.endsWith('e') ? `${uk.slice(0, -1)}ing` : `${uk}ing`, `${us}ing`);
+  }
+  for (const [uk, us] of 'fibre:fiber,centre:center,metre:meter,kilometre:kilometer,centimetre:centimeter,millimetre:millimeter,litre:liter,theatre:theater,defence:defense,offence:offense,licence:license,organisation:organization'.split(',').map((p) => p.split(':'))) {
+    link(uk, us); link(`${uk}s`, `${us}s`);
+  }
+  link('centred', 'centered'); link('licenced', 'licensed');
+  for (const stem of 'analys,optimis,organis,anodis,serialis,normalis,customis,authoris,recognis,summaris,prioritis,synchronis,virtualis,containeris,minimis,maximis,utilis,stabilis,initialis'.split(',')) {
+    const z = `${stem.slice(0, -1)}z`;
+    link(`${stem}e`, `${z}e`); link(`${stem}es`, `${z}es`); link(`${stem}ed`, `${z}ed`); link(`${stem}ing`, `${z}ing`);
+  }
+  return map;
+})();
+// Noun-only UK/US homograph twins ("tire" is also an unrelated verb meaning exhausted).
+const NO_VERB_TWINS = new Set(['tire', 'tires']);
+
+export function spellingTwin(word: string): string | undefined {
+  return SPELLING_TWINS.get(word.toLowerCase());
+}
+
 /** Whole words for spaced scripts; literal sequences for Japanese/Chinese text without spaces. */
 function wordMatcher(text: string): (word: string) => boolean {
   const words = new Set(text.match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
   const stems = new Set([...words].map(stemToken));
+  const matchAlpha = (w: string): boolean => {
+    if (words.has(w) || stems.has(stemToken(w))) return true;
+    if (!/^[a-z]+$/.test(w)) return false;
+    return (
+      words.has(`${w}s`) || words.has(`${w}es`) ||
+      words.has(`${w}ing`) || words.has(`${w}ed`) ||
+      (DEVERBAL_AL.test(`${w}al`) && words.has(`${w}al`)) ||
+      (w.endsWith('e') && w.length >= 4 && (
+        words.has(`${w}d`) ||
+        words.has(`${w.slice(0, -1)}ing`) ||
+        (DEVERBAL_AL.test(`${w.slice(0, -1)}al`) && words.has(`${w.slice(0, -1)}al`))
+      )) ||
+      (w.endsWith('ing') && w.length >= 6 && words.has(`${w.slice(0, -3)}e`)) ||
+      (w.endsWith('ed') && w.length >= 5 && (words.has(`${w.slice(0, -2)}e`) || words.has(w.slice(0, -1)))) ||
+      (DEVERBAL_AL.test(w) && (words.has(w.slice(0, -2)) || words.has(`${w.slice(0, -2)}e`) || stems.has(wordSlice(w, -2)))) ||
+      (/[aeiou][bcdfgklmnprstvwz]$/.test(w) && (words.has(`${w}${w.at(-1)}ing`) || words.has(`${w}${w.at(-1)}ed`))) ||
+      (w.length === 4 && w.endsWith('s') && !w.endsWith('ss') && words.has(w.slice(0, -1)))
+    );
+  };
   return (word) => {
-    if (words.has(word) || stems.has(stemToken(word))) return true;
-    // Keep common inflections the shared stemmer leaves intact, without accepting arbitrary prefixes.
-    if (/^[a-z]+$/.test(word)) {
-      if (
-        words.has(`${word}s`) || words.has(`${word}es`) ||
-        words.has(`${word}ing`) || words.has(`${word}ed`) ||
-        (DEVERBAL_AL.test(`${word}al`) && words.has(`${word}al`)) ||
-        (word.endsWith('e') && word.length >= 4 && (
-          words.has(`${word}d`) ||
-          words.has(`${word.slice(0, -1)}ing`) ||
-          (DEVERBAL_AL.test(`${word.slice(0, -1)}al`) && words.has(`${word.slice(0, -1)}al`))
-        )) ||
-        (word.endsWith('ing') && word.length >= 6 && words.has(`${word.slice(0, -3)}e`)) ||
-        (word.endsWith('ed') && word.length >= 5 && (words.has(`${word.slice(0, -2)}e`) || words.has(word.slice(0, -1)))) ||
-        (DEVERBAL_AL.test(word) && (words.has(word.slice(0, -2)) || words.has(`${word.slice(0, -2)}e`) || stems.has(word.slice(0, -2)))) ||
-        (/[aeiou][bcdfgklmnprstvwz]$/.test(word) && (words.has(`${word}${word.at(-1)}ing`) || words.has(`${word}${word.at(-1)}ed`))) ||
-        (word.length === 4 && word.endsWith('s') && !word.endsWith('ss') && words.has(word.slice(0, -1)))
-      ) return true;
+    if (matchAlpha(word)) return true;
+    const twin = SPELLING_TWINS.get(word);
+    if (twin) {
+      if (NO_VERB_TWINS.has(twin)) {
+        if (words.has(twin) || words.has(twin.endsWith('s') ? twin.slice(0, -1) : `${twin}s`)) return true;
+      } else if (matchAlpha(twin)) {
+        return true;
+      }
     }
     if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(word)) return text.includes(word);
     // Preserve compounds and symbols such as node.js, C++, HL-L2350DW and "roll back".
@@ -623,6 +658,10 @@ function wordMatcher(text: string): (word: string) => boolean {
     }
     return false;
   };
+}
+
+function wordSlice(w: string, end: number): string {
+  return w.slice(0, end);
 }
 
 function synonymMatch(word: string, matches: (word: string) => boolean): boolean {
