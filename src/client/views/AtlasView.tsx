@@ -255,7 +255,7 @@ export function AtlasView({
       ) : activeTab === 'index' ? (
         <DeepIndexPanel status={status} reload={loadStatus} onToast={onToast} uncensored={uncensored} />
       ) : (
-        <Directory key={activeTab} kind={activeTab} uncensored={uncensored} onCounts={setCounts} onRead={onRead} />
+        <Directory key={activeTab} kind={activeTab} uncensored={uncensored} onCounts={setCounts} onRead={onRead} onToast={onToast} />
       )}
     </div>
   );
@@ -332,11 +332,13 @@ function Directory({
   uncensored,
   onCounts,
   onRead,
+  onToast,
 }: {
   kind: Exclude<Tab, 'picked' | 'index'>;
   uncensored: boolean;
   onCounts: (c: DirPage['counts']) => void;
   onRead: (url: string) => void;
+  onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
 }) {
   const features = useFeatures();
   const [q, setQ] = useState('');
@@ -452,23 +454,42 @@ function Directory({
               <BookOpen size={13} />
             </button>
             {features.administration && it.origin === 'user' && (
-              <button
-                type="button"
-                className="icon-btn ghost"
-                title="Remove source"
-                aria-label={`Remove ${it.site}`}
-                onClick={async () => {
-                  try {
-                    await api(`/api/deep/sources/${it.id}`, { method: 'DELETE' });
-                    setItems((prev) => prev.filter((x) => x.id !== it.id));
-                    setTotal((n) => Math.max(0, n - 1));
-                  } catch {
-                    // ignore
-                  }
-                }}
-              >
-                <Trash2 size={13} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="icon-btn ghost"
+                  title="Refresh source now"
+                  aria-label={`Refresh ${it.site}`}
+                  onClick={async () => {
+                    try {
+                      const { source } = await api<{ source: DirItem }>(`/api/deep/sources/${it.id}/refresh`, { method: 'POST' });
+                      setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, ...source } : x)));
+                      onToast?.(`Refreshed ${it.site} (${plural(source.posts, 'post')}).`, 'ok');
+                    } catch (e) {
+                      onToast?.((e as Error).message, 'error');
+                    }
+                  }}
+                >
+                  <RefreshCw size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn ghost"
+                  title="Remove source"
+                  aria-label={`Remove ${it.site}`}
+                  onClick={async () => {
+                    try {
+                      await api(`/api/deep/sources/${it.id}`, { method: 'DELETE' });
+                      setItems((prev) => prev.filter((x) => x.id !== it.id));
+                      setTotal((n) => Math.max(0, n - 1));
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
             )}
           </li>
         ))}

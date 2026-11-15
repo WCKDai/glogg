@@ -6,32 +6,36 @@
 
 **The whole web, minus the junk.**
 
-A fast, self-hosted search engine and research workbench: instant answers & calculations, anti-slop ranking across 25+ sources, a local SQLite FTS5 deep index of ~56,000 small-web blogs, forums and imageboards, a clean reader, BYOK synthesis, and a zero-telemetry plugin toolkit.
+A fast, self-hosted search engine and research workbench: instant answers & calculations, anti-slop ranking across 28 connectors, a local SQLite FTS5 deep index of ~56,000 small-web blogs, forums and imageboards, a clean reader, BYOK synthesis, and a zero-telemetry plugin toolkit.
 
 [![Live Instance](https://img.shields.io/badge/live-glogg.app-16a34a.svg)](https://glogg.app)
 [![CI](https://github.com/WCKDai/glogg/actions/workflows/ci.yml/badge.svg)](https://github.com/WCKDai/glogg/actions/workflows/ci.yml)
+[![GHCR](https://img.shields.io/badge/ghcr.io-wckdai%2Fglogg-287BE8.svg)](https://github.com/WCKDai/glogg/pkgs/container/glogg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-287BE8.svg)](./LICENSE)
 [![Node >=22.13](https://img.shields.io/badge/node-%E2%89%A522.13-172C46.svg)](./package.json)
-[![Self-Hosted](https://img.shields.io/badge/self--hosted-Docker%20%7C%20Node-287BE8.svg)](./docs/install.md)
 
 [**Try glogg.app**](https://glogg.app) · [Install](#install) · [Usage](./docs/usage.md) · [Deep Index](#the-deep-index) · [Plugins](./docs/plugins.md) · [Public Service](./docs/public-service.md) · [API](./docs/api.md) · [Contributing](./CONTRIBUTING.md)
 
 </div>
 
-![glogg's search workspace: compact navigation, a direct search field, scopes and a personal saved library](./docs/screenshots/workspace.png)
+![glogg search results: instant reference card, ranked primary & small-web sources, and live connector timings](./docs/screenshots/results.png)
 
 ## Why glogg?
 
 Modern web search buries primary documentation, practitioner blogs, and real forum discussions beneath SEO listicles, affiliate roundups, and AI-rewritten content mills. **glogg** fixes both sides of the problem:
 
-- **Signal-first meta-search across 25+ connectors.** Queries SearXNG, Marginalia, Mwmbl, Wiby, Wikipedia, Wikimedia Commons (Images & Videos), Stack Exchange, Hacker News, Lobsters, Lemmy, Bluesky, Mastodon, Matrix, OpenAlex, Crossref, Europe PMC, arXiv, Open Library, GitHub, GDELT, Internet Archive, chan archives, old-school forums, BitTorrent DHT, and Usenet concurrently — streaming the first useful batch over NDJSON in ~300–650 ms while slower sources settle without reshuffling what you are reading.
+- **Signal-first meta-search across 28 connectors.** Queries SearXNG, DuckDuckGo, Brave, Mojeek API, Kagi API, Marginalia, Mwmbl, Wiby, Wikipedia, Wikimedia Commons (Images & Videos), Stack Exchange, Hacker News, Lobsters, Lemmy, Bluesky, Mastodon, Matrix, Stoat, OpenAlex, Crossref, Europe PMC, arXiv, Open Library, GitHub, GDELT, Internet Archive, chan archives, old-school forums, BitTorrent DHT, and Usenet concurrently — streaming the first useful batch over NDJSON in ~300–650 ms while slower sources settle without reshuffling what you are reading.
 - **Deterministic anti-slop scoring & diversity ranking.** Penalizes content farms, affiliate boilerplate, and monoculture mega-domains; deduplicates syndication copies; enforces per-domain caps (`1` / `2` / `3` / `∞`); elevates official docs, accepted answers, RFCs, primary papers, and independent sites; and supports time-range filtering (`24h`, `7d`, `30d`, `1y`) plus query-term snippet highlighting.
-- **Instant answers & zero-latency workbench calculations.** Evaluates math, scientific/bitwise expressions (`sqrt(2)`, `1 << 10`), percentages, base conversions, 55+ physical & binary unit conversions (`100 C in F`, `5 GiB in MB`), CSS colors (`#ff5733`, `rgb(...)`, `hsl(...)`) with live swatch & WCAG AA contrast ratios, IPv4 CIDR subnets (`192.168.1.0/24`), Unix/ISO timestamps, HTTP status codes (`http 418`), and cron expressions (`*/15 9-17 * * 1-5`) — plus accepted Stack Exchange answers and subject-aligned Wikipedia extracts.
-- **Local SQLite FTS5 Deep Index (~56,000 sources).** Politely crawls personal blogs (Kagi Small Web, 512KB Club, XXIIVV webring), imageboards (4chan, 2ch, lainchan, wizchan…), ~9,800 Lemmy communities, ~950 Discourse forums, and 100 Stack Exchange sites into a local full-text database (`deep.db`) with `site:`, `-word`, `"exact phrase"`, time-range filtering, instant single-source indexing, and OPML import/export.
+- **Instant answers & zero-latency workbench calculations.** Evaluates math, scientific/bitwise expressions (`sqrt(2)`, `1 << 10`), percentages, base conversions, 55+ physical & binary unit conversions (`100 C in F`, `5 GiB in MB`), CSS colors (`#ff5733`, `rgb(...)`, `hsl(...)`) with live swatch & WCAG AA contrast ratios, Unix `chmod` permissions (`chmod 755`, `chmod rwxr-x---`), display aspect ratios (`1920x1080`), TCP/UDP network ports (`port 5432`), offline Base64/URL encode-decode & JWT inspection (`jwt eyJ…`), IPv4 CIDR subnets (`192.168.1.0/24`), Unix/ISO timestamps, HTTP status codes (`http 418`), and cron expressions (`*/15 9-17 * * 1-5`) — previewing directly inside the search box, Command Palette, and browser OpenSearch omnibox.
+- **Local SQLite FTS5 Deep Index (~56,000 sources).** Politely crawls personal blogs (Kagi Small Web, 512KB Club, XXIIVV webring), imageboards (4chan, 2ch, lainchan, wizchan…), ~9,800 Lemmy communities, ~950 Discourse forums, and 100 Stack Exchange sites into a local full-text database (`deep.db`) with `site:`, `-word`, `"exact phrase"`, time-range filtering, automatic RSS/Atom/JSON Feed link & probe discovery, on-demand per-source refresh, and OPML import/export.
 - **Clean Reader, BYOK Research & Post-Search Tools.** Strip trackers and clutter with the DNS-pinned SSRF-safe reader (<kbd>r</kbd>), synthesize cited answers with your own local or remote model (Ollama, LM Studio, OpenAI, Anthropic, OpenRouter…), bookmark pages locally with offline PWA support, and route links or magnets to Real-Debrid, TorBox, Offcloud, SABnzbd, aria2, Nextcloud, or pCloud.
 - **Private Workbench or Hardened Public Service.** Run `GLOGG_MODE=private` (default) as your personal search workbench, or `GLOGG_MODE=public` (powering [glogg.app](https://glogg.app)) to serve public search, clean reading, media discovery, and read-only Atlas directories with zero administrative surface exposed.
 
 <table>
+  <tr>
+    <td><img src="./docs/screenshots/home-dark.png" alt="Dark mode search workspace with live instant chmod calculation preview" /></td>
+    <td><img src="./docs/screenshots/atlas.png" alt="The Real-Web Atlas and local SQLite FTS5 Deep Index directory" /></td>
+  </tr>
   <tr>
     <td><img src="./docs/screenshots/library.png" alt="The Saved library: bookmarked results with search, sorting, reader access and JSON export" /></td>
     <td width="28%"><img src="./docs/screenshots/mobile-workspace.png" alt="The mobile search workspace in dark mode" /></td>
@@ -44,7 +48,7 @@ Modern web search buries primary documentation, practitioner blogs, and real for
 flowchart LR
   Q["Query / >tool / !bang"] --> QC["Query Compiler & Intent"]
   QC --> IA["Instant Computation & Answer Engine"]
-  QC --> FS["Federated Fanout (25+ Connectors)"]
+  QC --> FS["Federated Fanout (28 Connectors)"]
   QC --> DI["Local Deep Index (SQLite FTS5)"]
   FS --> RK["Anti-Slop Scorer & Diversity Ranker"]
   DI --> RK
@@ -56,14 +60,16 @@ flowchart LR
 
 ## Install
 
-### Quick start (Docker Compose)
+### Quick start (Docker Compose — prebuilt `amd64` / `arm64` GHCR image)
 
 ```bash
 git clone https://github.com/WCKDai/glogg.git
 cd glogg
-docker compose up -d
+docker compose pull && docker compose up -d
 # Or bundle a private SearXNG meta-node alongside glogg:
 docker compose --profile searxng up -d
+# Or build locally from source instead of pulling ghcr.io/wckdai/glogg:
+docker compose up -d --build
 ```
 
 Open <http://localhost:4173>.
@@ -82,7 +88,7 @@ npm run build
 npm start        # production server on http://127.0.0.1:4173
 ```
 
-For hot-reloading development, run `npm run dev`. See the full [install guide](./docs/install.md) for macOS/Linux/Windows Docker setups, Podman, `systemd`/`launchd` services, reverse proxies, and optional companion containers (`npm run services:up` for SearXNG, Bitmagnet, Kubo IPFS, aria2, Prowlarr, NZBHydra2, and Nextcloud).
+For hot-reloading development, run `npm run dev` (Vite HMR shares the Express HTTP listener, so multiple dev instances can run concurrently on different `PORT`s). See the full [install guide](./docs/install.md) for macOS/Linux/Windows Docker setups, Podman, `systemd`/`launchd` services, reverse proxies, and optional companion containers (`npm run services:up` for SearXNG, Bitmagnet, Kubo IPFS, aria2, Prowlarr, NZBHydra2, and Nextcloud).
 
 ### Public search service (`GLOGG_MODE=public`)
 
@@ -98,13 +104,15 @@ Public mode disables administration, plugins, downloads, private keys, and calle
 
 Point a **Docker Compose** resource in [Coolify](https://coolify.io) at this repository with Compose location `/docker-compose.coolify.yml`. Coolify provisions HTTPS, a private SearXNG container, read-only container hardening, and a generated `SERVICE_PASSWORD_GLOGG`.
 
-### Browser extension (Manifest V3)
+### Browser extension (Manifest V3 — Chrome, Brave, Edge & Firefox)
+
+Download `glogg-extension-v0.6.0.zip` from [GitHub Releases](https://github.com/WCKDai/glogg/releases) or build from source:
 
 ```bash
 npm run build:extension
 ```
 
-Load `dist-extension/` unpacked in Chrome, Brave, Edge, or Vivaldi (`chrome://extensions` → **Developer mode** → **Load unpacked**). Works standalone without a glogg server to hide sponsored/SEO-slop results and badge primary & indie sources on Google, DuckDuckGo, Brave Search, and Bing.
+Load `dist-extension/` unpacked in Chromium browsers (`chrome://extensions` → **Developer mode** → **Load unpacked**) or load `dist-extension/glogg-extension-v0.6.0.zip` in Firefox 115+ (`about:debugging#/runtime/this-firefox` → **Load Temporary Add-on**). Works standalone without a glogg server to hide sponsored/SEO-slop results and badge primary & indie sources on Google, DuckDuckGo, Brave Search, and Bing.
 
 ## Using glogg
 
@@ -114,8 +122,8 @@ Switch between **Simple** (clean single-column search + instant time filter) and
 | :--- | :--- |
 | **Search operators** | `site:sqlite.org`, `-site:pinterest.com`, `-pinterest`, `"exact phrase"` |
 | **Time filter** | Filter to **Past 24h**, **Past week**, **Past month**, or **Past year** in the status line, Advanced rail, Command Palette, or `?time=week` |
-| **Instant calculations** | `100 C in F` · `5 GiB in MB` · `15% of 240` · `#ff5733` · `192.168.1.0/24` · `http 418` · `*/15 9-17 * * 1-5` · `1700000000` |
-| **Bangs (50+ built-in + custom)** | `!w turing` · `!gh ripgrep` · `!arch systemd` · `!hn sqlite` |
+| **Instant calculations** | `chmod 755` · `port 5432` · `1920x1080` · `jwt eyJ…` · `base64 encode hi` · `100 C in F` · `5 GiB in MB` · `#ff5733` · `192.168.1.0/24` · `http 418` · `*/15 9-17 * * 1-5` |
+| **Bangs (60+ built-in + custom)** | `!w turing` · `!gh ripgrep` · `!rfc 9110` · `!cve 2024` · `!crates serde` · `!docsrs tokio` · `!pypi httpx` · `!go net/http` · `!aur neovim` · `!man epoll` |
 | **Inline plugin tools** | `>dns example.com` · `>whois example.com` · `>headers example.com` · `>hash text` · `>rd magnet:?…` |
 | **Command palette** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> — live calculator, scopes, time filters, domain rules, tools, settings |
 | **Result navigation** | <kbd>/</kbd> focus search · <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>↵</kbd> open · <kbd>r</kbd> clean reader · <kbd>d</kbd> send to downloads · <kbd>?</kbd> all shortcuts |
@@ -125,10 +133,11 @@ Switch between **Simple** (clean single-column search + instant time filter) and
 ### Command-line interface (`glogg`)
 
 ```bash
-npm run cli -- search "sqlite wal mode" --lens docs --time year
+npm run cli -- search "sqlite wal mode" --lens primary --time year
 npm run cli -- inspect https://sqlite.org/wal.html
 npm run cli -- deep status
-npm run cli -- deep add https://jvns.ca/atom.xml --crawl
+npm run cli -- deep add https://jvns.ca
+npm run cli -- deep refresh 1
 npm run cli -- deep opml-export > feeds.opml
 npm run cli -- deep opml-import feeds.opml
 ```
@@ -156,7 +165,7 @@ Big search engines weight backlinks and ad inventory, leaving personal blogs, ni
 | **Small sites** | [512KB Club](https://512kb.club) (~960, MIT), XXIIVV members | Discovered feed, daily |
 | **Imageboards** | 4chan, 2ch, lainchan, leftypol, uboachan, sushigirl, wizchan, kissu | JSON catalogs, hourly (18+ boards gated behind 18+ mode) |
 | **Forums** | ~9,800 [Lemmy](https://lemmyverse.net) communities, ~950 [Discourse](https://discover.discourse.org) forums, 100 Stack Exchange sites, VOGONS, VCFed, Lobsters, Tildes | Feeds every 3–12 hours |
-| **Yours** | Add any URL or **Import/Export OPML** in Atlas → Deep index (or `glogg deep`) | Auto-detected feed, Discourse forum, or board catalog |
+| **Yours** | Add any site/feed URL, refresh on demand, or **Import/Export OPML** in Atlas → Deep index (or `glogg deep`) | Auto-detected RSS/Atom/JSON Feed, `<a href>` feed link, common feed path probe, Discourse forum, or board catalog |
 
 Crawling is **opt-in** (Atlas → Deep index → **Build the deep index**), paced to at most 1 request/sec per host, uses conditional HTTP (`ETag` / `If-Modified-Since` → `304`), honors `Retry-After`, and enforces a strict safety blocklist ([`server/deep/blocklist.ts`](./server/deep/blocklist.ts)) in every mode.
 
@@ -174,7 +183,7 @@ All settings are optional. Copy [`.env.example`](./.env.example) to `.env` for D
 | `HOST` / `PORT` | `127.0.0.1` / `4173` | Bind address and HTTP port (`GLOGG_PORT` controls host port in Compose) |
 | `GLOGG_HOME` / `GLOGG_DOWNLOADS_DIR` | `~/.glogg` / `~/Downloads/glogg` | Data directory (`/data` in Docker) and local download folder |
 | `SEARXNG_URL`, `BITMAGNET_URL`, `IPFS_GATEWAY_URL` | local ports | Self-hosted search & P2P backends |
-| `MARGINALIA_API_KEY`, `STACKEXCHANGE_KEY`, `BRAVE_API_KEY` | unset | Optional provider keys for higher rate limits or Brave Web Search API |
+| `MARGINALIA_API_KEY`, `STACKEXCHANGE_KEY`, `BRAVE_API_KEY`, `MOJEEK_API_KEY`, `KAGI_API_KEY` | unset | Optional provider keys for higher rate limits or Brave / Mojeek / Kagi Search APIs |
 | `TORZNAB_URL`/`_API_KEY`, `NEWZNAB_URL`/`_API_KEY`, `NZBLIFE_URL`/`_API_KEY` | unset | Private torrent & Usenet indexers (`private` mode only) |
 | `GLOGG_CORE_GRACE_MS` / `GLOGG_MIN_WAIT_MS` | `280` / `650` | Grace window (ms) after core connectors settle and minimum early-return floor |
 | `GLOGG_SOURCE_DEADLINE_MS` / `GLOGG_HARD_DEADLINE_MS` | `2000` / `7000` | Soft core-quorum deadline and hard per-search deadline (ms) |

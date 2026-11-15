@@ -110,6 +110,7 @@ function computeLensBonus(item: ScoredSearchResult, lens: SearchLensId): number 
         item.verdict === 'indie-gem' ||
         item.source === 'marginalia' ||
         item.source === 'wiby' ||
+        item.source === 'mojeek' ||
         item.source === 'indie-index' ||
         item.source === 'deep-blogs'
       ) {
@@ -146,6 +147,8 @@ function computeLensBonus(item: ScoredSearchResult, lens: SearchLensId): number 
         (item.source === 'wikipedia' ||
           item.source === 'stackexchange' ||
           item.source === 'web' ||
+          item.source === 'mojeek' ||
+          item.source === 'kagi' ||
           item.source === 'github' ||
           item.source === 'hn' ||
           item.source === 'deep-forums' ||

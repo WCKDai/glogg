@@ -69,7 +69,9 @@ export type SourceConnectorId =
   | 'deep-boards'
   | 'deep-forums'
   | 'mwmbl'
-  | 'discourse';
+  | 'discourse'
+  | 'mojeek'
+  | 'kagi';
 
 export type SlopVerdict =
   | 'primary-source'
@@ -213,6 +215,10 @@ export interface CustomEndpointsConfig {
   stackexchangeKey?: string;
   /** Brave Search API key: Brave's index without its search page's captchas. Paid per request. */
   braveApiKey?: string;
+  /** Mojeek Search API key: independent crawler-based web search without browser bot checks. */
+  mojeekApiKey?: string;
+  /** Kagi Search API key: curated web search API (`Authorization: Bot <key>`). */
+  kagiApiKey?: string;
   offcloudApiKey?: string;
   offcloudRemoteOptionId?: string;
   nextcloudUrl?: string;

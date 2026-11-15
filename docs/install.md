@@ -18,10 +18,10 @@ Once it runs, open <http://localhost:4173> and see the [usage guide](./usage.md)
 git clone https://github.com/WCKDai/glogg.git
 cd glogg
 cp .env.example .env          # optional: every setting in it is commented out
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
-Open <http://localhost:4173>. The first build takes a minute or two; later starts take seconds.
+Open <http://localhost:4173>. `docker-compose.yml` references the signed multi-architecture image on GitHub Container Registry (`ghcr.io/wckdai/glogg` for `linux/amd64` and `linux/arm64`, with OCI provenance & SBOM attestations), so starting takes seconds without compiling locally. To build from your local checkout instead, pass `--build` (`docker compose up -d --build`), or pin a specific release tag in `.env` with `GLOGG_IMAGE_TAG=0.6.0`.
 
 Add a private [SearXNG](https://docs.searxng.org) for better general web results. glogg is already pointed at it:
 
@@ -61,7 +61,8 @@ On Intel Macs the folder is `/usr/local/lib/docker/cli-plugins`. Check with `doc
 | :--- | :--- |
 | Logs | `docker compose logs -f glogg` |
 | Stop | `docker compose down` (your data stays in the `glogg-data` volume) |
-| Update | `git pull && docker compose up -d --build` |
+| Update (prebuilt GHCR image) | `git pull && docker compose pull && docker compose up -d` |
+| Update (build from local source) | `git pull && docker compose up -d --build` |
 | Status | `docker compose ps` (the container reports `healthy` once `/api/health` answers) |
 | Shell | `docker compose exec glogg sh` |
 

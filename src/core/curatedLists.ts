@@ -405,7 +405,7 @@ export const TRACKING_QUERY_PARAMS: string[] = [
 export const AFFILIATE_MARKERS: RegExp[] = [
   /[?&](?:tag|ascsubtag|linkCode|camp|creative)=[^&#]+/i,
   /\/\/(?:amzn\.to|geni\.us|howl\.me|rstyle\.me|shop-links\.co|bit\.ly|tidd\.ly|prf\.hn|shareasale\.com|anrdoezrs\.net|dpbolvw\.net|tkqlhce\.com|jdoqocy\.com|kqzyfj\.com)\//i,
-  /[?&](?:aff|affiliate|partner_id|ref_id|clickref)=[^&#]+/i,
+  /[?&](?:aff|aff_id|affiliate|affiliate_id|partner_id|ref_id|clickref)=[^&#]+/i,
 ];
 
 export const TRACKER_SCRIPT_PATTERNS: string[] = [

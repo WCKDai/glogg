@@ -11,6 +11,7 @@
 
 services:
   glogg:
+    image: ghcr.io/wckdai/glogg:${GLOGG_IMAGE_TAG:-0.6.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,6 +39,8 @@ services:
       - MARGINALIA_API_KEY=${MARGINALIA_API_KEY:-}
       - STACKEXCHANGE_KEY=${STACKEXCHANGE_KEY:-}
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - MOJEEK_API_KEY=${MOJEEK_API_KEY:-}
+      - KAGI_API_KEY=${KAGI_API_KEY:-}
       - GLOGG_MAX_SEARCHES=${GLOGG_MAX_SEARCHES:-32}
       - GLOGG_MAX_API_REQUESTS=${GLOGG_MAX_API_REQUESTS:-64}
       - GLOGG_MAX_FAVICONS=${GLOGG_MAX_FAVICONS:-32}

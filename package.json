@@ -1,6 +1,6 @@
 {
   "name": "glogg",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "MIT",
   "author": "wckdboy <boy@wckd.cc>",
   "description": "The whole web, minus the junk — self-hosted anti-slop meta-search engine, SQLite FTS5 small-web & forum deep index, instant answer & computation workbench, clean reader, BYOK research, and plugin toolkit.",

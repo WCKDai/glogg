@@ -354,7 +354,27 @@ export async function addUserSource(
     input = { url: `${new URL(page).origin}/latest.rss`, kind: 'forum', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.forum };
   } else if (json === undefined) {
     const feed = discoverFeeds(text, page)[0];
-    if (feed) input = { url: feed, kind: 'blog', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.blog };
+    if (feed) {
+      input = { url: feed, kind: 'blog', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.blog };
+    } else {
+      const parsedPage = new URL(page);
+      if (parsedPage.pathname === '/' && !parsedPage.search) {
+        for (const candidatePath of ['/feed.xml', '/atom.xml', '/index.xml', '/rss.xml', '/feed.json']) {
+          const probeUrl = `${parsedPage.origin}${candidatePath}`;
+          try {
+            const probeRes = await fetchImpl(probeUrl, { headers: { 'User-Agent': CRAWLER_UA }, redirect: 'follow', signal: AbortSignal.timeout(6000) });
+            if (!probeRes.ok) continue;
+            const probeText = (await probeRes.text()).slice(0, 1_500_000);
+            if (/<(rss|feed|rdf:RDF)[\s>]/i.test(probeText.slice(0, 4000)) || (/^\s*\{/.test(probeText) && probeText.includes('jsonfeed.org'))) {
+              input = { url: probeRes.url || probeUrl, kind: 'blog', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.blog };
+              break;
+            }
+          } catch {
+            // try next common path
+          }
+        }
+      }
+    }
   }
 
   if (!input) throw new Error(`No feed, forum or board found at ${url.host}. Try the page's RSS link or a board's catalog.json.`);
@@ -400,6 +420,20 @@ export async function addUserSource(
   }
   s.updateSource(row.id, { next_at: 0 });
   return { ...row, next_at: 0 };
+}
+
+/** Immediately crawls a single source by ID (conditional ETag/Last-Modified respected) and returns its updated row. */
+export async function refreshUserSource(
+  id: number,
+  fetchImpl?: typeof fetch
+): Promise<{ source: SourceRow; visit: 'ok' | 'unchanged' | 'moved' | 'error' }> {
+  const s = await getDeepStore();
+  if (!s) throw new Error(unavailable);
+  const existing = s.getSource(id);
+  if (!existing) throw new Error('Source not found.');
+  const oneShot = new DeepCrawler(s, fetchImpl ? { fetch: fetchImpl } : {});
+  const visit = await oneShot.visit(existing);
+  return { source: s.getSource(id)!, visit };
 }
 
 /** Removes a user-added source and all of its indexed posts. */

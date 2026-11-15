@@ -5,6 +5,8 @@ export const SEARCH_SOURCES: readonly SearchSource[] = [
   { id: 'searxng', name: 'SearXNG', category: 'Web search', homepage: 'https://docs.searxng.org', description: 'Your operator-configured metasearch engine. Requires a SearXNG server with JSON output.' },
   { id: 'ddg', name: 'DuckDuckGo', category: 'Web search', homepage: 'https://duckduckgo.com', description: 'General web discovery through DuckDuckGo. Availability depends on upstream rate limits.' },
   { id: 'brave', name: 'Brave', category: 'Web search', homepage: 'https://search.brave.com', description: 'Independent web search. Private instances can configure an optional paid API key.' },
+  { id: 'mojeek', name: 'Mojeek', category: 'Web search', homepage: 'https://www.mojeek.com', requiresKey: true, description: 'Independent crawler-based web search API. Used on private instances when an API key is configured.' },
+  { id: 'kagi', name: 'Kagi', category: 'Web search', homepage: 'https://kagi.com', requiresKey: true, description: 'Curated web search API. Used on private instances when a Kagi Search API key is configured.' },
   { id: 'mwmbl', name: 'Mwmbl', category: 'Independent web', homepage: 'https://mwmbl.org', description: 'A community-built, open-source search engine.' },
   { id: 'marginalia', name: 'Marginalia', category: 'Independent web', homepage: 'https://marginalia-search.com', description: 'Personal sites and the small web. Uses a shared limited key; private instances can supply their own.' },
   { id: 'wiby', name: 'Wiby', category: 'Independent web', homepage: 'https://wiby.me', description: 'Handmade pages, classic websites and independent voices.' },

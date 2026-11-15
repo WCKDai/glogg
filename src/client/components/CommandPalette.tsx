@@ -40,6 +40,22 @@ export function quickCalc(raw: string): InstantAnswerPayload | null {
     const h = (hex[1].length === 3 ? hex[1].replace(/./g, '$&$&') : hex[1]).toLowerCase(), n = parseInt(h, 16);
     return mkCalc(`#${h}`, 'Color', `#${h} · rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`, `#${h}`);
   }
+  const ch = raw.match(/^chmod\s+([0-7]{3,4}|[rwx-]{9})$/i);
+  if (ch) {
+    const v = ch[1];
+    if (/^\d+$/.test(v)) {
+      const o = v.slice(-3);
+      const sym = [...o].map((d) => ((+d & 4 ? 'r' : '-') + (+d & 2 ? 'w' : '-') + (+d & 1 ? 'x' : '-'))).join('');
+      return mkCalc(raw, 'Permissions', `${sym} (0${o})`);
+    }
+    const oct = [0, 3, 6].map((i) => (v[i] === 'r' ? 4 : 0) + (v[i + 1] === 'w' ? 2 : 0) + (v[i + 2] === 'x' ? 1 : 0)).join('');
+    return mkCalc(raw, 'Permissions', `0${oct} (${v.toLowerCase()})`);
+  }
+  const res = raw.match(/^(?:aspect\s+ratio\s+)?(\d{2,5})\s*[x×]\s*(\d{2,5})$/i);
+  if (res && +res[1] > 0 && +res[2] > 0) {
+    const w = +res[1], h = +res[2], g = (a: number, b: number): number => (b ? g(b, a % b) : a), d = g(w, h);
+    return mkCalc(`${w}×${h}`, 'Resolution', `${w / d}:${h / d} · ${((w * h) / 1e6).toFixed(2)} MP`);
+  }
   const base = raw.match(/^(0x[0-9a-f]+|0b[01]+|0o[0-7]+|\d+)\s+(?:in|to)\s+(hex|bin|binary|dec|decimal|oct)$/i);
   if (base && Number.isSafeInteger(+base[1])) {
     const v = +base[1], k = base[2].toLowerCase();

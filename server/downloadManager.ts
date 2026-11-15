@@ -29,6 +29,8 @@ const SECRET_KEYS: (keyof CustomEndpointsConfig)[] = [
   'marginaliaApiKey',
   'stackexchangeKey',
   'braveApiKey',
+  'mojeekApiKey',
+  'kagiApiKey',
   'nextcloudAppPassword',
   'aria2RpcSecret',
   'torznabApiKey',
@@ -72,6 +74,8 @@ const FROM_ENV: [keyof CustomEndpointsConfig, string][] = [
   ['marginaliaApiKey', 'MARGINALIA_API_KEY'],
   ['stackexchangeKey', 'STACKEXCHANGE_KEY'],
   ['braveApiKey', 'BRAVE_API_KEY'],
+  ['mojeekApiKey', 'MOJEEK_API_KEY'],
+  ['kagiApiKey', 'KAGI_API_KEY'],
 ];
 
 /** The settings the environment gives, for a search to fall back on. Never saved: they stay in the environment. */
@@ -116,7 +120,8 @@ export function maskConfig(cfg: CustomEndpointsConfig): CustomEndpointsConfig {
 /** Every setting an integration config may hold; anything else in a patch is ignored. */
 const INTEGRATION_KEYS = new Set<keyof CustomEndpointsConfig>([
   'bitmagnetUrl', 'searxngUrl', 'ipfsGatewayUrl', 'torznabUrl', 'torznabApiKey', 'newznabUrl', 'newznabApiKey',
-  'nzbLifeUrl', 'nzbLifeApiKey', 'marginaliaApiKey', 'stackexchangeKey', 'braveApiKey', 'offcloudApiKey', 'offcloudRemoteOptionId',
+  'nzbLifeUrl', 'nzbLifeApiKey', 'marginaliaApiKey', 'stackexchangeKey', 'braveApiKey', 'mojeekApiKey', 'kagiApiKey',
+  'offcloudApiKey', 'offcloudRemoteOptionId',
   'nextcloudUrl', 'nextcloudUser', 'nextcloudAppPassword', 'nextcloudFolder', 'aria2RpcUrl', 'aria2RpcSecret',
   'matrixHomeserverUrl', 'atprotoAppViewUrl',
 ]);
