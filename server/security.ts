@@ -24,6 +24,8 @@ import type { NextFunction, Request, Response } from 'express';
  */
 const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/health$/,
+  /^\/api\/capabilities$/,
+  /^\/api\/sources$/,
   /^\/api\/search$/,
   /^\/api\/opensearch\/suggest$/,
   /^\/api\/directory$/,
@@ -153,7 +155,8 @@ export function apiGuard(req: Request, res: Response, next: NextFunction): void 
 
 /**
  * The page's Content Security Policy: only glogg's own scripts (the inline
- * theme script by its hash), styles and images; no framing, plugins or <base>.
+ * theme script by its hash), styles and images; video playback may contact
+ * Wikimedia only after the user presses Play. No framing, plugins or <base>.
  */
 export function contentSecurityPolicy(indexHtml: string): string {
   const inline = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(
@@ -164,6 +167,7 @@ export function contentSecurityPolicy(indexHtml: string): string {
     ["script-src 'self'", ...inline].join(' '),
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
+    "media-src 'self' https://upload.wikimedia.org",
     "connect-src 'self'",
     "font-src 'self'",
     "manifest-src 'self'",

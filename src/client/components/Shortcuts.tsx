@@ -1,3 +1,4 @@
+import { useFeatures } from '../capabilities.js';
 import React, { useEffect } from 'react';
 import { useFocusTrap } from '../lib.js';
 
@@ -16,6 +17,7 @@ const SHORTCUTS: [keys: string[], what: string][] = [
 ];
 
 export function Shortcuts({ onClose }: { onClose: () => void }) {
+  const features = useFeatures();
   const box = useFocusTrap<HTMLDivElement>();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -34,7 +36,7 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
       <div className="palette shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" ref={box} tabIndex={-1}>
         <h2 id="shortcuts-title">Keyboard shortcuts</h2>
         <dl>
-          {SHORTCUTS.map(([keys, what]) => (
+          {SHORTCUTS.filter(([keys]) => keys[0] !== 'd' || features.downloads).map(([keys, what]) => (
             <div key={what}>
               <dt>
                 {keys.map((k) => (

@@ -1,8 +1,10 @@
+import { useFeatures } from '../capabilities.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   BookOpen,
+  Bookmark,
   Check,
   ChevronDown,
   Copy,
@@ -125,6 +127,8 @@ export function SendMenu({
   const close = useCallback(() => setOpen(false), []);
   const ref = useClickOutside<HTMLDivElement>(close, open);
   const targets = useDownloadTargets();
+  const features = useFeatures();
+  if (!features.downloads) return null;
 
   return (
     <div className="menu-wrap" ref={ref}>
@@ -189,8 +193,12 @@ export function ResultItem({
   newTab = true,
   detailed,
   index = 0,
+  saved = false,
+  onSave,
 }: {
   item: ScoredSearchResult;
+  saved?: boolean;
+  onSave?: () => void;
   /** Position in the list; staggers the entrance animation. */
   index?: number;
   active: boolean;
@@ -204,6 +212,7 @@ export function ResultItem({
   /** Open the title link in a new tab (Settings → Results). */
   newTab?: boolean;
 }) {
+  const features = useFeatures();
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
   const moreRef = useClickOutside<HTMLDivElement>(closeMore, moreOpen);
@@ -227,7 +236,7 @@ export function ResultItem({
     e.stopPropagation();
   };
   const crumb = urlCrumb(item.url);
-  const when = relativeDate(item.publishedAt);
+  const when = relativeDate(item.publishedAt, Date.now(), true);
   const isMagnet = item.url.startsWith('magnet:');
   const downloadable = Boolean(item.p2p?.magnetUri || item.p2p?.nzbUrl || item.p2p?.torrentUrl);
 
@@ -240,22 +249,24 @@ export function ResultItem({
       data-result-id={item.id}
       style={{ '--i': index } as React.CSSProperties}
     >
-      <div className="result-meta">
-        <Favicon domain={item.domain} />
-        <span className="result-domain">{item.domain}</span>
-        {crumb && <span className="result-crumb">{crumb}</span>}
-        {item.isNsfw && <span className="tag tag-danger">18+</span>}
-        {item.verdict === 'primary-source' && <span className="tag">primary</span>}
-        {(item.source === 'chanboards' || item.source === 'wild-west') && (
-          <span className="tag tag-accent">{SOURCE_LABELS[item.source]}</span>
-        )}
+      <span className="result-rank" aria-hidden="true">{index + 1}.</span>
+      <div className="result-heading">
+        <h2 className="result-h">
+          <a className="result-title" href={item.url} target={newTab ? '_blank' : undefined} rel="noreferrer">
+            {item.title}
+          </a>
+        </h2>
+        <div className="result-meta">
+          <Favicon domain={item.domain} size={12} />
+          <span className="result-domain">{item.domain}</span>
+          {crumb && <span className="result-crumb">{crumb}</span>}
+          {item.isNsfw && <span className="tag tag-danger">18+</span>}
+          {item.verdict === 'primary-source' && <span className="tag" title="Listed primary, reference or archive source; not a content verification">reference</span>}
+          {(item.source === 'chanboards' || item.source === 'wild-west') && (
+            <span className="tag tag-accent">{SOURCE_LABELS[item.source]}</span>
+          )}
+        </div>
       </div>
-
-      <h2 className="result-h">
-        <a className="result-title" href={item.url} target={newTab ? '_blank' : undefined} rel="noreferrer">
-          {item.title}
-        </a>
-      </h2>
 
       <p className="result-snippet">{item.snippet}</p>
 
@@ -266,7 +277,7 @@ export function ResultItem({
           <span className={item.slopScore >= 40 ? 'bad' : ''} title="SEO, affiliate and AI-filler signals">
             slop {Math.round(item.slopScore)}
           </span>
-          {item.isPrimarySource && <span className="good">primary source</span>}
+          {item.isPrimarySource && <span className="good">reference source</span>}
           {item.isIndieWeb && <span className="good">independent</span>}
           {item.isPreLlm && <span>pre-LLM</span>}
           {item.tld && <span>.{item.tld.replace(/^\./, '')}</span>}
@@ -276,7 +287,7 @@ export function ResultItem({
       <div className="result-foot">
         <span className="result-provenance">
           {SOURCE_LABELS[item.source] || item.source}
-          {when && <> · {when}</>}
+          {when && <> · {item.dateKind === 'indexed' ? 'indexed ' : ''}<time dateTime={item.publishedAt} title={item.publishedAt}>{when}</time></>}
           {item.p2p && (
             <>
               {' '}
@@ -295,6 +306,7 @@ export function ResultItem({
         </span>
 
         <div className="result-actions">
+          {onSave && <button type="button" className={`btn btn-ghost btn-sm save-result ${saved ? 'is-saved' : ''}`} onClick={onSave} aria-label={`${saved ? 'Unsave' : 'Save'} ${item.title}`} aria-pressed={saved}><Bookmark size={14} fill={saved ? 'currentColor' : 'none'} />{saved ? 'Saved' : 'Save'}</button>}
           {downloadable && (
             <SendMenu url={item.p2p?.magnetUri || item.p2p?.nzbUrl || item.p2p?.torrentUrl || item.url} onSend={(t) => onSend(item, t)} />
           )}
@@ -317,7 +329,7 @@ export function ResultItem({
             </button>
             {moreOpen && (
               <div className="menu menu-right" role="menu" aria-label={`Actions for ${item.rootDomain}`}>
-                {!downloadable && !isMagnet && (
+                {features.downloads && !downloadable && !isMagnet && (
                   <button type="button" role="menuitem" onClick={() => { onSend(item, 'auto'); setMoreOpen(false); }}>
                     <span>Save page</span>
                     <Download size={13} />
@@ -364,8 +376,12 @@ export function ResultItem({
 export function ReleaseList({
   items,
   onSend,
+  onSave,
+  savedUrls = [],
 }: {
   items: ScoredSearchResult[];
+  onSave?: (item: ScoredSearchResult) => void;
+  savedUrls?: string[];
   onSend: (item: ScoredSearchResult, target: DownloadTargetId) => void;
 }) {
   if (items.length === 0) {
@@ -401,6 +417,7 @@ export function ReleaseList({
               </div>
             </div>
             <div className="release-actions">
+              {onSave && <button className="icon-btn ghost" aria-label={`${savedUrls.includes(item.url) ? 'Unsave' : 'Save'} ${item.title}`} aria-pressed={savedUrls.includes(item.url)} title="Save to browser library" onClick={() => onSave(item)}><Bookmark size={15} fill={savedUrls.includes(item.url) ? 'currentColor' : 'none'} /></button>}
               {p.magnetUri && (
                 <a className="icon-btn ghost" href={p.magnetUri} title="Open magnet in your client">
                   <Magnet size={15} />

@@ -4,6 +4,27 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
+### Search workspace and public service foundation
+
+- Added Images and Videos tabs backed by Wikimedia Commons, with credits, license/source links, image zoom and native video playback after an explicit Play action. Images use a bounded same-origin raster proxy; video bytes come directly from Commons.
+- Time-sensitive queries and News now use recent provider filters, a cache capped at 60 seconds, real fetch timestamps and date-aware ranking. Removed invented reference-page dates and label GDELT discovery times as indexed, not published. Evergreen and historical searches keep their behavior.
+- Corrected responsive spacing across settings, tool headers, service actions, download forms, menus, reader controls and phone navigation. Search now has one inset focus border rather than a misaligned second outline. Added layout, pointer and media playback regressions.
+- Reduced shipped JavaScript with a measured, pinned build-only minifier; the existing bundle limits remain unchanged.
+- Tightened the workspace around Hacker News-style utility: compact header and search, numbered title-first results, adjacent domains and text actions, and denser Saved/Source lists. Preserved readable snippets and added browser checks for desktop density, phone touch targets and scope-label overlap.
+- Added an installable PWA shell, iPhone safe-area support, offline Saved metadata and an explicit update/reload prompt. The versioned cache excludes queries, APIs and article content. Docker now includes the PWA builder.
+- Adopted neutral early-web controls, Verdana interface text and a Trebuchet MS wordmark while retaining the original mug logo and app icons. No webfont download is required.
+- Streamed ready search results while an independent slow instant-answer lookup finishes, with a regression for the first useful batch.
+- Removed primary-source boosts based only on URL paths such as `/paper` or `/issues/123`. Reference and curated-site labels describe classification rather than claiming a page is verified.
+- Simplified the search workspace with compact navigation, a direct search action, unboxed result and collection lists, and plain interface copy. Preserved mobile navigation, keyboard controls, source preferences and library export.
+- Pinned reader/research/crawler connections to validated DNS answers, preserving Host/TLS verification and closing the DNS-rebinding gap. Cancelled lookups no longer start transport, and forbidden redirect bodies are closed.
+- Gave the public Compose stack its own project name so it cannot replace a private instance's containers.
+- Added a browser-local Saved library with search, sorting, clean-reader access and JSON export, plus a searchable Sources catalogue with persistent switches.
+- Added Crossref and Europe PMC scholarly metadata in Docs & Papers, and Open Library book discovery in Archives, with conservative per-provider limits and refusal backoff.
+- Added opt-in `GLOGG_MODE=public`, capability discovery and a source catalogue API. Public mode denies private administration and tools, ignores caller-supplied upstream endpoints, and uses a separate deployment/data volume. Private remains the default.
+- Bounded API, search, favicon and reader work. Excess work returns HTTP 503 with `Retry-After`; search and reader permits remain held while background work survives an early response or disconnect. Upstream bodies have deadlines and size limits.
+- Fixed malformed answer data releasing sibling work early, SPA deep links under hidden checkout paths, and shutdown waiting on requests that had already become idle.
+- Added regression tests, offline load experiments, deployment examples and an explicit [50,000-DAU validation plan](docs/public-service.md). Production capacity, container runtime and host security still require deployment validation.
+
 ## [0.4.0] — 2026-11-12
 
 First public release. The first two sections are new in this release; the rest cover the work merged since 0.3.0.

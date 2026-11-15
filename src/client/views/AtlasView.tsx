@@ -1,3 +1,4 @@
+import { useFeatures } from '../capabilities.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Dices, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
 import type { IndieSiteEntry } from '../../core/browser.js';
@@ -121,6 +122,7 @@ export function AtlasView({
   uncensored: boolean;
   onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
 }) {
+  const features = useFeatures();
   // The tab is part of the address (/atlas?tab=boards), so it can be linked and survives a refresh.
   const [tab, setTabState] = useState<Tab>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
@@ -213,7 +215,7 @@ export function AtlasView({
       </div>
 
       {/* First run: thousands of sources and nothing indexed yet. Say what that means, and offer the start here. */}
-      {tab !== 'picked' && tab !== 'index' && status?.available && !status.crawling && !status.posts && (
+      {features.administration && tab !== 'picked' && tab !== 'index' && status?.available && !status.crawling && !status.posts && (
         <div className="notice atlas-first-run" role="note">
           <p>
             None of these are in your deep index yet. Build it to search their posts from glogg: it crawls politely in the background, about 3–4 hours and 1–1.5 GB for everything.
@@ -472,6 +474,7 @@ function DeepIndexPanel({
   onToast?: (t: string, tone?: 'ok' | 'error' | 'info') => void;
   uncensored: boolean;
 }) {
+  const features = useFeatures();
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [adult, setAdult] = useState(false);
@@ -551,7 +554,7 @@ function DeepIndexPanel({
             </span>
           ))}
         </div>
-        <div className="row-gap">
+        {features.administration && <div className="row-gap">
           {status.seeding && <span className="muted">Loading the Lemmy and Discourse directories…</span>}
           {status.crawling ? (
             <button type="button" className="btn" disabled={busy} onClick={() => void act('pause')}>
@@ -565,7 +568,7 @@ function DeepIndexPanel({
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void act('reseed')}>
             <RefreshCw size={13} /> Refresh directories
           </button>
-        </div>
+        </div>}
         {status.lastError && <p className="setting-hint">Last error: {status.lastError}</p>}
         <p className="setting-hint">
           Crawling stays off until you start it. glogg then reads each source's feed (one request per site at a time, at least a second apart, and only
@@ -574,7 +577,7 @@ function DeepIndexPanel({
         </p>
       </section>
 
-      <section className="plugin-section">
+      {features.administration && <section className="plugin-section">
         <h3 className="section-title">Add a source</h3>
         <form className="tool-form inline" onSubmit={add}>
           <div className="field">
@@ -599,7 +602,7 @@ function DeepIndexPanel({
           </label>
         )}
         <p className="setting-hint">glogg works out what it is: an RSS/Atom/JSON feed, a Discourse forum, an imageboard catalog, or a page whose feed it can find.</p>
-      </section>
+      </section>}
 
       <section className="plugin-section deep-credits">
         <h3 className="section-title">Where the directories come from</h3>

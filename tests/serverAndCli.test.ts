@@ -69,7 +69,7 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
     expect(osintHits.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("serves /api/health with package.json's version and 20 active connectors", async () => {
+  it("serves /api/health with package.json's version and the source catalogue count", async () => {
     const res = await fetch(`${baseUrl}/api/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -82,7 +82,7 @@ describe('glogg server API, container orchestrator, OpenSearch & CLI integration
     expect(body.service).toBe('glogg-engine');
     const { version } = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
     expect(body.version).toBe(version);
-    expect(body.connectors).toBe(20);
+    expect(body.connectors).toBe((await import('../src/core/sourceCatalog.js')).SEARCH_SOURCES.length);
   });
 
   it('serves /opensearch.xml and /api/opensearch/suggest for browser search bar integration', async () => {

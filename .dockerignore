@@ -12,5 +12,6 @@ brand
 docs
 extension
 infra
-scripts
+scripts/*
+!scripts/build-pwa.ts
 tests

@@ -1,0 +1,50 @@
+# A separate, single-process public search instance. See docs/public-service.md.
+# Supply GLOGG_ALLOWED_HOSTS and terminate HTTPS at the host's reverse proxy.
+name: glogg-public
+services:
+  glogg:
+    build: .
+    image: glogg:public-local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${GLOGG_PORT:-4173}:4173"
+    environment:
+      GLOGG_MODE: public
+      GLOGG_ALLOWED_HOSTS: ${GLOGG_ALLOWED_HOSTS:?Set the public hostname}
+      GLOGG_TRUST_PROXY: ${GLOGG_TRUST_PROXY:-loopback}
+      GLOGG_MAX_SEARCHES: ${GLOGG_MAX_SEARCHES:-32}
+      GLOGG_MAX_API_REQUESTS: ${GLOGG_MAX_API_REQUESTS:-64}
+      GLOGG_MAX_FAVICONS: ${GLOGG_MAX_FAVICONS:-32}
+      GLOGG_MAX_READERS: ${GLOGG_MAX_READERS:-16}
+      GLOGG_SHUTDOWN_MS: "15000"
+      GLOGG_PUBLIC_OPENLIBRARY: ${GLOGG_PUBLIC_OPENLIBRARY:-0}
+      SEARXNG_URL: http://searxng:8080
+    volumes:
+      - public-data:/data
+    read_only: true
+    tmpfs: [/tmp:size=128m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Initial containment limits, not a claim that this allocation serves 50,000 DAU.
+    mem_limit: ${GLOGG_MEMORY_LIMIT:-2g}
+    cpus: ${GLOGG_CPU_LIMIT:-2}
+    pids_limit: 256
+    stop_grace_period: 30s
+    logging:
+      driver: local
+      options: { max-size: "10m", max-file: "3" }
+    depends_on: [searxng]
+  searxng:
+    build: ./infra/searxng
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    pids_limit: 128
+    logging:
+      driver: local
+      options: { max-size: "10m", max-file: "3" }
+volumes:
+  public-data:

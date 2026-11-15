@@ -375,9 +375,10 @@ export function scoreSearchResult(
     slopPoints = Math.max(0, slopPoints - 14);
     signals.push({
       id: 'curated-indie-gem',
-      label: 'Verified Indie / High-Signal Site',
+      label: 'Curated Independent Site',
       delta: 34,
       category: 'indie',
+      detail: 'Included in Glogg\'s curated domain list; this is not a verification of the page.',
     });
   }
 
@@ -421,8 +422,7 @@ export function scoreSearchResult(
     raw.source === 'archive' ||
     raw.source === 'archive-bt' ||
     raw.source === 'archive-deep' ||
-    raw.source === 'academic-torrents' ||
-    /\/(rfc\d+|papers?|spec|standard|man\d|whitepaper|commits?|pull\/\d+|issues\/\d+)/i.test(pathname);
+    raw.source === 'academic-torrents';
 
   if (isPrimarySource) {
     humanPoints += 32;

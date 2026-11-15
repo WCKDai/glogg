@@ -1,4 +1,8 @@
+import { fetchUpstream, readUpstreamJson, readUpstreamText } from './upstream.js';
 import * as cheerio from 'cheerio';
+import { SourceUnavailable } from './sourceStatus.js';
+import { searchMetadataSource } from './metadataSources.js';
+import { searchCommonsMedia } from './mediaSearch.js';
 import {
   analyzeQueryIntent,
   compileSearchQuery,
@@ -16,6 +20,10 @@ import {
   clip,
   htmlToText,
   isSearchLens,
+  inferFreshness,
+  freshnessQuery,
+  SearchFreshnessIntent,
+  evaluateInstantComputation,
   wellFormed,
 } from '../src/core/index.js';
 import { createHash } from 'node:crypto';
@@ -31,6 +39,7 @@ import {
   searchObscureForumsAndWildWest,
 } from './wildWestIndexer.js';
 import { envNumber } from './env.js';
+import { configuredLimit, createWorkLimit, runWithCapacity } from './workLimits.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -45,15 +54,7 @@ function count(n: number, word: string): string {
  * check, a 403), or it isn't set up. The message is the line the status bar
  * shows under it, so you can tell a refusal from "nothing matched".
  */
-export class SourceUnavailable extends Error {
-  constructor(
-    readonly status: 'refused' | 'unset',
-    note: string
-  ) {
-    super(note);
-    this.name = 'SourceUnavailable';
-  }
-}
+export { SourceUnavailable } from './sourceStatus.js';
 
 /** A connector's catch-all: a refusal goes on to the status bar, anything else means no results. */
 function unlessRefused(e: unknown): RawSearchResult[] {
@@ -138,30 +139,23 @@ async function fetchWithTimeout(
     if (Date.now() - (lastAsked.get(host) ?? 0) < gap.ms) throw new SourceUnavailable('refused', gap.why);
     lastAsked.set(host, Date.now());
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json, text/html, application/xml;q=0.9, */*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        ...headers,
-      },
-    });
-    if (res.status === 429 || res.status === 403) {
-      // Unread, the refusal page would hold its connection.
-      void res.body?.cancel().catch(() => undefined);
-      if (res.status === 429 || res.headers.get('x-ratelimit-remaining') === '0') {
-        throw restHost(host, restAfterRateLimit(res), refusals[429] ?? 'Too many searches from this glogg.', key);
-      }
-      throw new SourceUnavailable('refused', refusals[403] ?? 'Turned glogg away (HTTP 403).');
+  const res = await fetchUpstream(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json, text/html, application/xml;q=0.9, */*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      ...headers,
+    },
+  }, timeoutMs, host === 'api.stackexchange.com' ? [400] : []);
+  if (res.status === 429 || res.status === 403) {
+    // Unread, the refusal page would hold its connection.
+    void res.body?.cancel().catch(() => undefined);
+    if (res.status === 429 || res.headers.get('x-ratelimit-remaining') === '0') {
+      throw restHost(host, restAfterRateLimit(res), refusals[429] ?? 'Too many searches from this glogg.', key);
     }
-    return res;
-  } finally {
-    clearTimeout(timer);
+    throw new SourceUnavailable('refused', refusals[403] ?? 'Turned glogg away (HTTP 403).');
   }
+  return res;
 }
 
 /**
@@ -208,7 +202,6 @@ export function searchCuratedIndieIndex(query: string): RawSearchResult[] {
     url: entry.url,
     snippet: entry.description,
     source: 'indie-index' as const,
-    publishedAt: entry.era === 'pre-llm' || entry.era === 'classic-web' ? '2021-06-15' : '2024-01-15',
     tags: entry.tags,
     isNsfw: entry.is18Plus,
   }));
@@ -225,7 +218,7 @@ async function searchMarginalia(rawQuery: string, kwQuery: string, apiKey?: stri
     const url = `https://api2.marginalia-search.com/search?query=${encodeURIComponent(kwQuery || rawQuery)}&count=10`;
     const res = await fetchWithTimeout(url, 3800, { 'API-Key': key }, key === 'public' ? { 429: 'The shared key is over its limit: add your own in Settings → Keys.', key } : { key });
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       results?: Array<{
         url: string;
         title?: string;
@@ -261,7 +254,7 @@ async function searchMwmbl(rawQuery: string, kwQuery: string): Promise<RawSearch
   try {
     const res = await fetchWithTimeout(`https://api.mwmbl.org/search?s=${encodeURIComponent(kwQuery || rawQuery)}`, 3500);
     if (!res.ok) return [];
-    const data = (await res.json()) as { url: string; title?: { value: string }[]; extract?: { value: string }[] }[];
+    const data = (await readUpstreamJson(res)) as { url: string; title?: { value: string }[]; extract?: { value: string }[] }[];
     const join = (parts?: { value: string }[]) => (parts || []).map((p) => p.value).join('').trim();
     return (Array.isArray(data) ? data : [])
       .filter((r) => /^https?:\/\//.test(r.url))
@@ -283,7 +276,7 @@ async function searchDiscourseLive(rawQuery: string, kwQuery: string): Promise<R
       try {
         const res = await fetchWithTimeout(`https://${host}/search.json?q=${q}`, 3500, { Accept: 'application/json' });
         if (!res.ok) return [];
-        const data = (await res.json()) as {
+        const data = (await readUpstreamJson(res)) as {
           posts?: { topic_id: number; blurb?: string; created_at?: string; post_number?: number }[];
           topics?: { id: number; title: string; slug: string }[];
         };
@@ -322,7 +315,7 @@ async function searchWiby(rawQuery: string, kwQuery: string): Promise<RawSearchR
     const url = `https://wiby.me/json/?q=${encodeURIComponent(kwQuery || rawQuery)}`;
     const res = await fetchWithTimeout(url, 3600);
     if (!res.ok) return [];
-    const items = (await res.json()) as Array<{
+    const items = (await readUpstreamJson(res)) as Array<{
       URL?: string;
       Title?: string;
       Snippet?: string;
@@ -354,7 +347,7 @@ async function searchWiby(rawQuery: string, kwQuery: string): Promise<RawSearchR
 /**
  * 4. SearXNG Meta-Search Connector (Local SearXNG node or user-configured SearXNG instance)
  */
-async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode = false): Promise<RawSearchResult[]> {
+async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode = false, freshness?: SearchFreshnessIntent): Promise<RawSearchResult[]> {
   const baseUrl = setUrl || process.env.SEARXNG_URL || 'http://localhost:8080';
   let u: URL;
   try {
@@ -368,12 +361,14 @@ async function searchSearxngNode(query: string, setUrl?: string, uncensoredMode 
     u.searchParams.set('q', query);
     u.searchParams.set('format', 'json');
     u.searchParams.set('safesearch', uncensoredMode ? '0' : '1');
+    if (freshness) u.searchParams.set('time_range', freshness === 'news' ? 'day' : 'month');
+    if (freshness === 'news') u.searchParams.set('categories', 'news');
     const res = await fetchWithTimeout(u.toString(), 2400, {}, {
       403: "Doesn't answer in JSON: add json to search.formats in its settings.yml.",
       429: 'Its rate limiter turned glogg away.',
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       results?: Array<{
         url: string;
         title: string;
@@ -411,7 +406,7 @@ async function searchLemmyFediverse(rawQuery: string, kwQuery: string): Promise<
     )}&type_=Posts&sort=TopAll&limit=8`;
     const res = await fetchWithTimeout(url, 3800);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       posts?: Array<{
         post: {
           id: number;
@@ -484,7 +479,7 @@ async function searchOpenAlex(rawQuery: string, kwQuery: string): Promise<RawSea
     )}&per-page=6`;
     const res = await fetchWithTimeout(url, 3800);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       results?: Array<{
         id: string;
         doi?: string;
@@ -529,14 +524,15 @@ async function searchOpenAlex(rawQuery: string, kwQuery: string): Promise<RawSea
 /**
  * 7. Hacker News (Algolia API)
  */
-async function searchHackerNews(rawQuery: string, kwQuery: string): Promise<RawSearchResult[]> {
+async function searchHackerNews(rawQuery: string, kwQuery: string, freshness?: SearchFreshnessIntent): Promise<RawSearchResult[]> {
   try {
-    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(
+    const cutoff = Math.floor((Date.now() - (freshness === 'news' ? 1 : 30) * 86_400_000) / 1000);
+    const url = `https://hn.algolia.com/api/v1/${freshness ? 'search_by_date' : 'search'}?query=${encodeURIComponent(
       kwQuery || rawQuery
-    )}&tags=story&hitsPerPage=14`;
+    )}&tags=story&hitsPerPage=14${freshness ? `&numericFilters=created_at_i%3E${cutoff}` : ''}`;
     const res = await fetchWithTimeout(url, 3800);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       hits?: Array<{
         objectID: string;
         title?: string;
@@ -600,7 +596,7 @@ async function searchWikipedia(rawQuery: string, kwQuery: string, entitySubject:
     )}&utf8=1&format=json&srlimit=6`;
     const res = await fetchWithTimeout(url, 3500);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       query?: {
         search?: Array<{
           pageid: number;
@@ -623,7 +619,6 @@ async function searchWikipedia(rawQuery: string, kwQuery: string, entitySubject:
           url: wikiUrl,
           snippet: cleanSnippet,
           source: 'wikipedia' as const,
-          publishedAt: '2021-01-01',
         },
         score: rel.relevanceScore + (rel.isDirectAnswerCandidate ? 20 : 0),
       };
@@ -668,7 +663,7 @@ async function searchStackExchange(
           const res = await fetchWithTimeout(url, 3600, {}, { key });
           if (res.status === 400) {
             // Out of requests: {"error_name":"throttle_violation","error_message":"too many requests from this IP, more requests available in 70544 seconds"}
-            const err = (await res.json().catch(() => ({}))) as { error_name?: string; error_message?: string };
+            const err = (await readUpstreamJson(res).catch(() => ({}))) as { error_name?: string; error_message?: string };
             if (err.error_name === 'throttle_violation') {
               const seconds = Number(/available in (\d+) seconds/.exec(err.error_message || '')?.[1]);
               const why = key ? 'Out of requests for today.' : "Out of today's 300 requests: a free key in Settings → Keys allows 10,000.";
@@ -677,7 +672,7 @@ async function searchStackExchange(
             return [];
           }
           if (!res.ok) return [];
-          const data = (await res.json()) as {
+          const data = (await readUpstreamJson(res)) as {
             items?: Array<{
               question_id: number;
               title: string;
@@ -732,7 +727,7 @@ async function searchArxiv(rawQuery: string, kwQuery: string): Promise<RawSearch
     const url = `https://export.arxiv.org/api/query?search_query=${arxivExpr}&start=0&max_results=5`;
     const res = await fetchWithTimeout(url, 4000);
     if (!res.ok) return [];
-    const xml = await res.text();
+    const xml = await readUpstreamText(res);
     const $ = cheerio.load(xml, { xmlMode: true });
     const results: RawSearchResult[] = [];
 
@@ -780,7 +775,7 @@ async function searchGitHub(
       { 429: 'Allows 10 searches a minute without signing in.' }
     );
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       items?: Array<{
         id: number;
         full_name: string;
@@ -825,7 +820,7 @@ async function searchDuckDuckGoHtml(
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}${safeParam}`;
     const res = await fetchWithTimeout(url, 4000);
     if (!res.ok) return [];
-    const html = await res.text();
+    const html = await readUpstreamText(res);
     // A bot check instead of results: 202 and an "anomaly" page. Asking again at once only gets another. The markup,
     // not the words: a search for "challenge-form" comes back in the page's search box.
     if (res.status === 202 || /id="challenge-form"|class="anomaly-modal/.test(html)) throw restHost('html.duckduckgo.com', 60_000, 'Asked for a bot check.');
@@ -880,7 +875,7 @@ async function searchBraveWebHtml(
     // Brave often answers a server with a captcha page, as a 429. Its Search API doesn't.
     const res = await fetchWithTimeout(url, 3800, {}, { 429: 'Asked for a captcha: a Brave Search API key in Settings → Keys avoids it.' });
     if (!res.ok) return [];
-    const html = await res.text();
+    const html = await readUpstreamText(res);
     const $ = cheerio.load(html);
     const results: RawSearchResult[] = [];
 
@@ -922,9 +917,9 @@ async function searchBraveWebHtml(
  * 12c. Brave Search API, with your key (Settings → Keys): the same index as
  * its search page, which mostly answers a server with a captcha.
  */
-async function searchBraveApi(query: string, apiKey: string, uncensoredMode = false): Promise<RawSearchResult[]> {
+async function searchBraveApi(query: string, apiKey: string, uncensoredMode = false, freshness?: SearchFreshnessIntent): Promise<RawSearchResult[]> {
   try {
-    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&safesearch=${uncensoredMode ? 'off' : 'moderate'}`;
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&safesearch=${uncensoredMode ? 'off' : 'moderate'}${freshness ? `&freshness=${freshness === 'news' ? 'pd' : 'pm'}` : ''}`;
     const res = await fetchWithTimeout(
       url,
       3800,
@@ -933,7 +928,7 @@ async function searchBraveApi(query: string, apiKey: string, uncensoredMode = fa
     );
     if (res.status === 401 || res.status === 422) throw new SourceUnavailable('refused', "Brave didn't accept the API key: check it in Settings → Keys.");
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       web?: { results?: Array<{ title?: string; url?: string; description?: string; page_age?: string }> };
     };
     const results: RawSearchResult[] = [];
@@ -960,14 +955,14 @@ async function searchBraveApi(query: string, apiKey: string, uncensoredMode = fa
 /**
  * 13. GDELT Project Global Unfiltered Real-World News Wire API (v2 DOC API)
  */
-async function searchGdeltRawNews(rawQuery: string, kwQuery: string): Promise<RawSearchResult[]> {
+async function searchGdeltRawNews(rawQuery: string, kwQuery: string, freshness?: SearchFreshnessIntent): Promise<RawSearchResult[]> {
   try {
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(
       kwQuery || rawQuery
-    )}&mode=artlist&maxrecords=7&format=json`;
+    )}&mode=artlist&maxrecords=7&format=json${freshness ? `&timespan=${freshness === 'news' ? '24h' : '30d'}&sort=DateDesc` : ''}`;
     const res = await fetchWithTimeout(url, 3800);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       articles?: Array<{
         url: string;
         title?: string;
@@ -983,19 +978,21 @@ async function searchGdeltRawNews(rawQuery: string, kwQuery: string): Promise<Ra
       .slice(0, 6)
       .map((a, idx) => {
         let isoDate: string | undefined;
-        if (a.seendate && /^(\d{4})(\d{2})(\d{2})T/.test(a.seendate)) {
-          const m = a.seendate.match(/^(\d{4})(\d{2})(\d{2})/);
-          if (m) isoDate = `${m[1]}-${m[2]}-${m[3]}`;
+        const m = a.seendate?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+        if (m) {
+          const candidate = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`;
+          if (Number.isFinite(Date.parse(candidate)) && new Date(candidate).toISOString().replace('.000Z', 'Z') === candidate) isoDate = candidate;
         }
         return {
           id: `gdelt-${idx}-${a.url}`,
-          title: `[Raw Wire · ${a.sourcecountry || a.domain || 'Global'}] ${a.title!.trim()}`,
+          title: a.title!.trim(),
           url: a.url,
-          snippet: `GDELT Unfiltered Global News Wire · Source: ${a.domain || 'Wire'} (${
+          snippet: `News indexed by GDELT · Source: ${a.domain || 'News outlet'} (${
             a.sourcecountry || 'International'
-          }${a.language ? `, ${a.language}` : ''}). Indexed without algorithmic editorializing.`,
+          }${a.language ? `, ${a.language}` : ''}).${isoDate ? ` First seen ${isoDate}.` : ''}`,
           source: 'gdelt-news' as const,
           publishedAt: isoDate,
+          dateKind: 'indexed' as const,
         };
       });
   } catch (e) {
@@ -1021,7 +1018,7 @@ async function searchArchiveDeepTexts(rawQuery: string, kwQuery: string): Promis
     )}&fl[]=identifier,title,description,mediatype,downloads,publicdate&sort[]=downloads+desc&rows=5&page=1&output=json`;
     const res = await fetchWithTimeout(url, 3900);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       response?: {
         docs?: Array<{
           identifier: string;
@@ -1087,6 +1084,8 @@ export interface SourceTiming {
   status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' | 'refused' | 'unset';
   /** Why, for `refused` and `unset`: one line for the status bar. */
   note?: string;
+  fetchedAt?: string;
+  cacheAgeMs?: number;
 }
 
 /** How long an early batch waits for the full answer before going out on its own. */
@@ -1254,33 +1253,42 @@ const CACHE_TTL_MS = envNumber('GLOGG_CACHE_TTL_MS', 10 * 60_000);
 const CACHE_EMPTY_TTL_MS = Math.min(CACHE_TTL_MS, 60_000);
 const CACHE_MAX = 600;
 const sourceCache = new Map<string, { at: number; ttl: number; value: Promise<RawSearchResult[]> }>();
+type CacheRead = { fetchedAt: string; cacheAgeMs: number };
 
 export function clearSearchCache(): void {
   sourceCache.clear();
 }
 
 /** Cached and de-duplicated: a repeat call joins the in-flight request. Errors are not cached. */
-export function cachedSource(key: string, run: () => Promise<RawSearchResult[]>): Promise<RawSearchResult[]> {
-  if (CACHE_TTL_MS <= 0) return run();
+export function cachedSource(key: string, run: () => Promise<RawSearchResult[]>, opts: { ttlMs?: number; onRead?: (read: CacheRead) => void } = {}): Promise<RawSearchResult[]> {
+  const ttl = Math.min(CACHE_TTL_MS, opts.ttlMs ?? CACHE_TTL_MS);
+  const read = (entry: { at: number; value: Promise<RawSearchResult[]> }) => entry.value.then((value) => {
+    opts.onRead?.({ fetchedAt: new Date(entry.at).toISOString(), cacheAgeMs: Math.max(0, Date.now() - entry.at) });
+    return value;
+  });
+  if (ttl <= 0) return run().then((value) => {
+    opts.onRead?.({ fetchedAt: new Date().toISOString(), cacheAgeMs: 0 });
+    return value;
+  });
   const hit = sourceCache.get(key);
-  if (hit && Date.now() - hit.at < hit.ttl) {
+  if (hit && Date.now() - hit.at < Math.min(hit.ttl, ttl)) {
     sourceCache.delete(key);
     sourceCache.set(key, hit);
-    return hit.value;
+    return read(hit);
   }
-  const entry = { at: Date.now(), ttl: CACHE_TTL_MS, value: run() };
+  const entry = { at: Date.now(), ttl, value: run() };
   sourceCache.set(key, entry);
   if (sourceCache.size > CACHE_MAX) sourceCache.delete(sourceCache.keys().next().value!);
   entry.value.then(
     (v) => {
       entry.at = Date.now();
-      entry.ttl = v.length ? CACHE_TTL_MS : CACHE_EMPTY_TTL_MS;
+      entry.ttl = v.length ? ttl : Math.min(ttl, CACHE_EMPTY_TTL_MS);
     },
     () => {
       if (sourceCache.get(key) === entry) sourceCache.delete(key);
     }
   );
-  return entry.value;
+  return read(entry);
 }
 
 const CORE_BY_LENS: Partial<Record<SearchLensId, string[]>> = {
@@ -1293,6 +1301,8 @@ const CORE_BY_LENS: Partial<Record<SearchLensId, string[]>> = {
   primary: ['openalex', 'arxiv', 'github', 'wiki'],
   'deep-archives': ['archive', 'openalex'],
   'raw-news': ['gdelt', 'searxng', 'ddg'],
+  images: ['wikimedia'],
+  videos: ['wikimedia'],
 };
 const DEFAULT_CORE = ['searxng', 'ddg', 'brave', 'se', 'wiki', 'hn', 'github', 'deep'];
 /** Which parts of the deep index each scope searches (scopes not listed skip it). */
@@ -1331,29 +1341,43 @@ export interface SearchRunOptions {
   onPartial?: (response: RankedSearchResponse) => void;
 }
 
-export async function executeFederatedSearch(
+const searchCapacity = createWorkLimit(configuredLimit('GLOGG_MAX_SEARCHES', 32));
+
+export function executeFederatedSearch(
   rawQuery: string,
   partialConfig?: Partial<SearchFilterConfig>,
   opts: SearchRunOptions = {}
+): Promise<RankedSearchResponse> {
+  return runWithCapacity(searchCapacity, (track) => runFederatedSearch(rawQuery, partialConfig, opts, track));
+}
+
+async function runFederatedSearch(
+  rawQuery: string,
+  partialConfig: Partial<SearchFilterConfig> | undefined,
+  opts: SearchRunOptions,
+  track: <T>(work: Promise<T>) => Promise<T>
 ): Promise<RankedSearchResponse> {
   const startTime = Date.now();
   const raw = wellFormed(rawQuery).trim();
   // site:, -site:, -word and "phrase" are glogg's to apply: most sources would search for them as words.
   // Web engines still get the query as typed; everything else gets the words.
   const ops = parseQueryOperators(raw);
-  const query = ops.text || raw;
+  const lens = isSearchLens(partialConfig?.lens) ? partialConfig.lens : 'all';
+  const mediaKind = lens === 'images' ? 'image' : lens === 'videos' ? 'video' : undefined;
+  const freshness = partialConfig?.preLlmOnly ? undefined : inferFreshness(raw, lens, startTime);
+  const query = freshness ? freshnessQuery(ops.text || raw, freshness) : ops.text || raw;
   const rankConfig: Partial<SearchFilterConfig> = { ...partialConfig, onlySites: ops.sites, excludeSites: ops.notSites, excludeWords: ops.without, phrases: ops.phrases };
   const uncensoredMode = Boolean(partialConfig?.uncensoredMode);
-  const lens = isSearchLens(partialConfig?.lens) ? partialConfig.lens : 'all';
   const compiledQuery = compileSearchQuery(raw, partialConfig);
   // Answer lookups need only the query, so they run while the sources are searched. A site: search wants that site, not an answer.
-  const answerLookups = ops.sites.length ? null : prefetchInstantAnswer(query, { stackexchangeKey: partialConfig?.endpoints?.stackexchangeKey });
+  const answerLookups = ops.sites.length || freshness || mediaKind ? null : prefetchInstantAnswer(query, { stackexchangeKey: partialConfig?.endpoints?.stackexchangeKey });
+  if (answerLookups) track(answerLookups);
   const analysis = analyzeQueryIntent(query);
   const kwQuery = analysis.keywordQuery || query;
-  const wantsWildWest = lens === 'wild-west' || lens === 'forums' || uncensoredMode;
-  const core = new Set(CORE_BY_LENS[lens] ?? DEFAULT_CORE);
+  const wantsWildWest = !mediaKind && (lens === 'wild-west' || lens === 'forums' || uncensoredMode);
+  const core = new Set(freshness ? ['gdelt', 'searxng', 'brave', 'hn', 'ddg'] : CORE_BY_LENS[lens] ?? DEFAULT_CORE);
 
-  const sourcesQueried: SourceConnectorId[] = [
+  const sourcesQueried: SourceConnectorId[] = mediaKind ? ['wikimedia'] : [
     'marginalia',
     'wiby',
     'indie-index',
@@ -1380,16 +1404,16 @@ export async function executeFederatedSearch(
     ...(wantsWildWest ? (['chanboards', 'wild-west'] as SourceConnectorId[]) : []),
   ];
 
-  const tasks: Omit<SourceTask, 'core'>[] = [
+  const tasks: Omit<SourceTask, 'core'>[] = mediaKind ? [{ key: 'wikimedia', run: () => searchCommonsMedia(query, mediaKind) }] : [
     { key: 'marginalia', run: () => searchMarginalia(query, kwQuery, partialConfig?.endpoints?.marginaliaApiKey) },
     { key: 'wiby', run: () => searchWiby(query, kwQuery) },
-    { key: 'searxng', run: () => searchSearxngNode(raw, partialConfig?.endpoints?.searxngUrl, uncensoredMode) },
+    { key: 'searxng', run: () => searchSearxngNode(raw, partialConfig?.endpoints?.searxngUrl, uncensoredMode, freshness) },
     { key: 'lemmy', run: () => searchLemmyFediverse(query, kwQuery) },
     { key: 'fediverse', run: () => executeFediverseSearch(query, uncensoredMode, partialConfig?.endpoints) },
-    { key: 'gdelt', run: () => searchGdeltRawNews(query, kwQuery) },
+    { key: 'gdelt', run: () => searchGdeltRawNews(query, kwQuery, freshness) },
     { key: 'archive', run: () => searchArchiveDeepTexts(query, kwQuery) },
     { key: 'openalex', run: () => searchOpenAlex(query, kwQuery) },
-    { key: 'hn', run: () => searchHackerNews(query, kwQuery) },
+    { key: 'hn', run: () => searchHackerNews(query, kwQuery, freshness) },
     { key: 'wiki', run: () => searchWikipedia(query, kwQuery, analysis.entitySubject) },
     { key: 'se', run: () => searchStackExchange(query, kwQuery, analysis.isTechnical, partialConfig?.endpoints?.stackexchangeKey) },
     { key: 'arxiv', run: () => searchArxiv(query, kwQuery) },
@@ -1399,7 +1423,7 @@ export async function executeFederatedSearch(
       key: 'brave',
       run: () => {
         const braveKey = partialConfig?.endpoints?.braveApiKey;
-        return braveKey ? searchBraveApi(raw, braveKey, uncensoredMode) : searchBraveWebHtml(raw, uncensoredMode);
+        return braveKey ? searchBraveApi(raw, braveKey, uncensoredMode, freshness) : searchBraveWebHtml(raw, uncensoredMode);
       },
     },
     { key: 'p2p', run: () => executeP2PAndUsenetSearch(query, partialConfig?.endpoints, uncensoredMode) },
@@ -1412,6 +1436,14 @@ export async function executeFederatedSearch(
       run: () => searchDeep(query, { nsfw: uncensoredMode, kinds: deepKinds === 'all' ? undefined : deepKinds, limit: 12 }),
     });
   }
+  if (lens === 'primary') {
+    tasks.push(...(['crossref', 'europepmc'] as const).map((key) => ({ key, run: () => searchMetadataSource(key, query) })));
+    sourcesQueried.push('crossref', 'europepmc');
+  }
+  if (lens === 'deep-archives') {
+    tasks.push({ key: 'openlibrary', run: () => searchMetadataSource('openlibrary', query) });
+    sourcesQueried.push('openlibrary');
+  }
   if (lens === 'forums') tasks.push({ key: 'discourse', run: () => searchDiscourseLive(query, kwQuery) });
   if (wantsWildWest) {
     tasks.push(
@@ -1422,8 +1454,10 @@ export async function executeFederatedSearch(
   }
 
   const sourceTimings: Record<string, SourceTiming> = {};
+  const sourceReads: Record<string, CacheRead> = {};
+  const rankFreshness = freshness ? { intent: freshness, now: startTime } : undefined;
   const endpointsSig = createHash('sha1').update(JSON.stringify(partialConfig?.endpoints || {})).digest('hex').slice(0, 12);
-  const cacheKey = (key: string) => `${key}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${(['ddg', 'brave', 'searxng'].includes(key) ? raw : query).toLowerCase()}`;
+  const cacheKey = (key: string) => `${key}|${mediaKind ?? freshness ?? 'evergreen'}|${uncensoredMode ? 1 : 0}|${endpointsSig}|${(['ddg', 'brave', 'searxng'].includes(key) ? raw : query).toLowerCase()}`;
   const disabled = new Set(partialConfig?.disabledSources ?? []);
   const runnable = tasks.filter((t) => {
     if (disabled.has(t.key)) {
@@ -1434,10 +1468,11 @@ export async function executeFederatedSearch(
     sourceTimings[t.key] = { ms: 0, count: 0, status: 'resting' };
     return false;
   });
-  const indieResults = searchCuratedIndieIndex(query);
+  const indieResults = mediaKind ? [] : searchCuratedIndieIndex(query);
   /** Every source's results, in the order ranking breaks ties by. */
   const combine = (got: Record<string, RawSearchResult[]>): RawSearchResult[] => {
     const pick = (k: string) => (got[k] ?? []).map(clipped);
+    if (mediaKind) return pick('wikimedia');
     return [
       ...pick('wiki'),
       ...pick('se'),
@@ -1461,68 +1496,94 @@ export async function executeFederatedSearch(
       ...pick('archive'),
       ...pick('openalex'),
       ...pick('arxiv'),
+      ...pick('crossref'),
+      ...pick('europepmc'),
+      ...pick('openlibrary'),
       ...pick('p2p'),
     ];
   };
-  const respond = (allRaw: RawSearchResult[], ranked: RankOutput, instantAnswer: RankedSearchResponse['instantAnswer'], partial: boolean): RankedSearchResponse => ({
-    // The query as typed, operators and all.
-    query: raw,
-    lens,
-    uncensoredMode,
-    compiledQuery,
-    instantAnswer,
-    results: ranked.surfaced,
-    p2pResults: ranked.p2pResults,
-    filteredSlop: ranked.filteredSlop,
-    ...(partial ? { partial: true } : {}),
-    metrics: {
-      totalRawResults: allRaw.length,
-      surfacedCount: ranked.surfaced.length,
-      p2pCount: ranked.p2pResults.length,
-      fediverseCount: ranked.fediverseCount,
-      filteredSlopCount: ranked.filteredSlop.length,
-      sponsoredRemovedCount: ranked.sponsoredRemovedCount,
-      primarySourcesCount: ranked.primarySourcesCount,
-      demotedDuplicateDomainsCount: ranked.demotedDuplicateDomainsCount,
-      uniqueDomainsCount: ranked.uniqueDomainsCount,
-      tldDistribution: ranked.tldDistribution,
-      sourceDistribution: ranked.sourceDistribution,
-      domainDiversityRatio: ranked.domainDiversityRatio,
-      avgAuthenticityScore: ranked.avgAuthenticityScore,
-      avgSlopScore: ranked.avgSlopScore,
-      sourcesQueried,
-      sourceTimings: { ...sourceTimings },
-      durationMs: Date.now() - startTime,
-    },
-  });
+  const respond = (allRaw: RawSearchResult[], ranked: RankOutput, instantAnswer: RankedSearchResponse['instantAnswer'], partial: boolean): RankedSearchResponse => {
+    const checkedAt = new Date().toISOString();
+    const timings = Object.fromEntries(Object.entries(sourceTimings).map(([key, timing]) => {
+      const read = ['ok', 'empty'].includes(timing.status) ? sourceReads[key] : undefined;
+      return [key, read ? { ...timing, fetchedAt: read.fetchedAt, cacheAgeMs: Math.max(0, Date.parse(checkedAt) - Date.parse(read.fetchedAt)) } : { ...timing }];
+    }));
+    return {
+      // The query as typed, operators and all.
+      query: raw,
+      lens,
+      uncensoredMode,
+      compiledQuery,
+      instantAnswer,
+      results: ranked.surfaced,
+      p2pResults: ranked.p2pResults,
+      filteredSlop: ranked.filteredSlop,
+      ...(partial ? { partial: true } : {}),
+      metrics: {
+        ...(freshness ? { freshness: { intent: freshness, checkedAt, maxCacheAgeMs: Math.max(0, ...Object.values(timings).map((timing) => timing.cacheAgeMs ?? 0)) } } : {}),
+        totalRawResults: allRaw.length,
+        surfacedCount: ranked.surfaced.length,
+        p2pCount: ranked.p2pResults.length,
+        fediverseCount: ranked.fediverseCount,
+        filteredSlopCount: ranked.filteredSlop.length,
+        sponsoredRemovedCount: ranked.sponsoredRemovedCount,
+        primarySourcesCount: ranked.primarySourcesCount,
+        demotedDuplicateDomainsCount: ranked.demotedDuplicateDomainsCount,
+        uniqueDomainsCount: ranked.uniqueDomainsCount,
+        tldDistribution: ranked.tldDistribution,
+        sourceDistribution: ranked.sourceDistribution,
+        domainDiversityRatio: ranked.domainDiversityRatio,
+        avgAuthenticityScore: ranked.avgAuthenticityScore,
+        avgSlopScore: ranked.avgSlopScore,
+        sourcesQueried,
+        sourceTimings: timings,
+        durationMs: Date.now() - startTime,
+      },
+    };
+  };
+  let partialSent = false;
+  const sendPartial = (allRaw: RawSearchResult[], ranked: RankOutput) => {
+    if (partialSent || !opts.onPartial) return;
+    partialSent = true;
+    try {
+      opts.onPartial(respond(allRaw, ranked, undefined, true));
+    } catch {
+      // A disconnected or failing listener must not prevent the final result.
+    }
+  };
   const got = await gatherSources(
     // The deep index is local and grows while it crawls, so it is never cached.
-    runnable.map((t) => ({ key: t.key, core: core.has(t.key), run: t.key === 'deep' ? t.run : () => cachedSource(cacheKey(t.key), t.run) })),
+    runnable.map((t) => ({ key: t.key, core: core.has(t.key), run: () => track(t.key === 'deep' ? t.run() : cachedSource(cacheKey(t.key), t.run, { ttlMs: freshness ? 60_000 : undefined, onRead: (read) => { sourceReads[t.key] = read; } })) })),
     {
       timings: sourceTimings,
       onSettle: recordSourceOutcome,
       onFirstBatch: opts.onPartial
         ? (sofar) => {
             const early = combine(sofar);
-            opts.onPartial!(respond(early, diversifyAndRankResults(early, rankConfig, query), undefined, true));
+            sendPartial(early, diversifyAndRankResults(early, rankConfig, query, rankFreshness));
           }
         : undefined,
     }
   );
   const allRaw = combine(got);
 
-  const ranked = diversifyAndRankResults(allRaw, rankConfig, query);
+  const ranked = diversifyAndRankResults(allRaw, rankConfig, query, rankFreshness);
   // The answer started with the search; give it what's left of its budget.
   const answerWaitMs = Math.max(50, ANSWER_BUDGET_MS - (Date.now() - startTime));
   let answerTimer: NodeJS.Timeout | undefined;
+  // Even when every search source finishes together, an answer lookup may still be slow.
+  // Give a fast answer the same grace period, then let people use the results already ready.
+  const partialTimer = opts.onPartial && !partialSent && (ranked.surfaced.length || ranked.p2pResults.length)
+    ? setTimeout(() => sendPartial(allRaw, ranked), FIRST_BATCH_DELAY_MS)
+    : undefined;
   const instantAnswer = await Promise.race([
     // A site: search wants that site, not an answer. (Sums and conversions have no lookups, and still get theirs.)
-    ops.sites.length ? Promise.resolve(undefined) : buildInstantAnswer(query, ranked.surfaced, answerLookups),
+    ops.sites.length || mediaKind ? Promise.resolve(undefined) : freshness ? Promise.resolve(evaluateInstantComputation(query) ?? undefined) : track(buildInstantAnswer(query, ranked.surfaced, answerLookups)),
     new Promise<undefined>((resolve) => {
       answerTimer = setTimeout(() => resolve(undefined), answerWaitMs);
     }),
   ])
     .catch(() => undefined)
-    .finally(() => clearTimeout(answerTimer));
+    .finally(() => { clearTimeout(answerTimer); clearTimeout(partialTimer); });
   return respond(allRaw, ranked, instantAnswer, false);
 }

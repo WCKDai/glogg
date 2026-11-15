@@ -7,11 +7,12 @@
  *
  *   GLOGG_ALLOW_PRIVATE_FETCH=1  also fetch private and local addresses (to read pages on your own network)
  *
- * A name is checked by resolving it first; a DNS server that answers
- * differently a moment later could still slip through that window.
+ * Each connection is pinned to the addresses checked for that redirect hop.
+ * The original hostname is retained for HTTP Host and TLS certificate checks.
  */
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { Agent } from 'undici';
 
 const PRIVATE = new net.BlockList();
 for (const [prefix, bits] of [
@@ -76,13 +77,18 @@ const allowPrivate = () => process.env.GLOGG_ALLOW_PRIVATE_FETCH === '1';
 type Lookup = (host: string) => Promise<{ address: string }[]>;
 const systemLookup: Lookup = (host) => dns.lookup(host, { all: true, verbatim: true });
 
-/** Throws unless `url` is http(s) on a public address. */
-export async function assertPublicUrl(url: URL, lookup: Lookup = systemLookup): Promise<void> {
+async function approvedAddresses(url: URL, lookup: Lookup) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`Only http(s) addresses can be fetched, not ${url.protocol}`);
   if (allowPrivate()) return;
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addresses = net.isIP(host) ? [{ address: host }] : await lookup(host);
   if (addresses.length === 0 || addresses.some((a) => isPrivateAddress(a.address))) throw new PrivateAddressError(url.hostname);
+  return addresses.map(({ address }) => ({ address, family: net.isIP(address) }));
+}
+
+/** Throws unless `url` is http(s) on a public address. */
+export async function assertPublicUrl(url: URL, lookup: Lookup = systemLookup): Promise<void> {
+  await approvedAddresses(url, lookup);
 }
 
 /**
@@ -92,12 +98,32 @@ export async function assertPublicUrl(url: URL, lookup: Lookup = systemLookup): 
 export async function publicFetch(input: string | URL, init: RequestInit = {}, lookup: Lookup = systemLookup): Promise<Response> {
   let url = new URL(String(input));
   for (let hop = 0; ; hop++) {
-    await assertPublicUrl(url, lookup);
-    const res = await fetch(url, { ...init, redirect: 'manual' });
+    init.signal?.throwIfAborted();
+    const addresses = await approvedAddresses(url, lookup);
+    // A DNS lookup cannot be cancelled; do not start a connection if its caller left.
+    init.signal?.throwIfAborted();
+    const pinnedLookup: net.LookupFunction = (_host, options, callback) => {
+      const family = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : options.family;
+      const matches = addresses!.filter((a) => !family || a.family === family);
+      if (!matches.length) return callback(Object.assign(new Error('No validated address for this address family'), { code: 'ENOTFOUND' }), []);
+      if (options.all) callback(null, matches);
+      else callback(null, matches[0].address, matches[0].family);
+    };
+    const dispatcher = addresses ? new Agent({ connections: 1, connect: { lookup: pinnedLookup } }) : undefined;
+    const options = { ...init, redirect: 'manual' as const, ...(dispatcher ? { dispatcher } : {}) };
+    let res: Response;
+    try {
+      res = await fetch(url, options);
+    } catch (error) {
+      await dispatcher?.destroy();
+      throw error;
+    }
+    // close() waits for the active response to drain; awaiting it here would deadlock body readers.
+    if (dispatcher) void dispatcher.close().catch(() => dispatcher.destroy()).catch(() => undefined);
     const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
     if (!location || init.redirect === 'manual') return res;
-    if (init.redirect === 'error') throw new TypeError('Redirected');
     await res.body?.cancel().catch(() => undefined);
+    if (init.redirect === 'error') throw new TypeError('Redirected');
     if (hop >= 5) throw new Error('Too many redirects');
     url = new URL(location, url);
   }

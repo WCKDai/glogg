@@ -1,3 +1,4 @@
+import { fetchUpstream, readUpstreamJson, readUpstreamText } from './upstream.js';
 import * as cheerio from 'cheerio';
 import { analyzeQueryIntent, clip, htmlToText, RawSearchResult } from '../src/core/index.js';
 
@@ -11,22 +12,16 @@ async function fetchWithTimeout(
   options: RequestInit = {},
   timeoutMs = 1900
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        Accept: 'application/json, text/html, */*',
-        ...(options.headers || {}),
-      },
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  return await fetchUpstream(url, {
+    ...options,
+
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Accept: 'application/json, text/html, */*',
+      ...(options.headers || {}),
+    },
+  }, timeoutMs);
 }
 
 /** 4chan boards that aren't work-safe (`ws_board: 0` in a.4cdn.org/boards.json, checked 2026-11-09). */
@@ -70,7 +65,7 @@ export async function searchFourChanCatalogs(
           1600
         );
         if (!res.ok) return [];
-        const pages = (await res.json()) as {
+        const pages = (await readUpstreamJson(res)) as {
           page: number;
           threads: {
             no: number;
@@ -147,7 +142,7 @@ export async function searchChanArchives(
         1800
       );
       if (!res.ok) return [];
-      const data = (await res.json()) as {
+      const data = (await readUpstreamJson(res)) as {
         0?: {
           posts?: {
             num?: string;
@@ -196,7 +191,7 @@ export async function searchChanArchives(
         1800
       );
       if (!res.ok) return [];
-      const data = (await res.json()) as {
+      const data = (await readUpstreamJson(res)) as {
         0?: {
           posts?: {
             num?: string;
@@ -242,7 +237,7 @@ export async function searchChanArchives(
     try {
       const res = await fetchWithTimeout('https://lainchan.org/tech/catalog.json', {}, 1500);
       if (!res.ok) return [];
-      const pages = (await res.json()) as {
+      const pages = (await readUpstreamJson(res)) as {
         threads?: {
           no: number;
           sub?: string;
@@ -292,7 +287,7 @@ async function searchFoolFuuka(host: string, label: string, q: string, max: numb
   try {
     const res = await fetchWithTimeout(`https://${host}/_/api/chan/search/?text=${encodeURIComponent(q)}`, {}, 2000);
     if (!res.ok) return [];
-    const data = (await res.json()) as {
+    const data = (await readUpstreamJson(res)) as {
       0?: { posts?: { num?: string; thread_num?: string; board?: { shortname?: string }; title?: string | null; comment?: string; timestamp?: number }[] };
     };
     return (data?.[0]?.posts || []).slice(0, max).flatMap((p) => {
@@ -337,7 +332,7 @@ export async function searchObscureForumsAndWildWest(
         1700
       );
       if (!res.ok) return [];
-      const html = await res.text();
+      const html = await readUpstreamText(res);
       const $ = cheerio.load(html);
       const items: RawSearchResult[] = [];
       $('li.story').each((idx, el) => {
@@ -380,7 +375,7 @@ export async function searchObscureForumsAndWildWest(
         1900
       );
       if (!res.ok) return [];
-      const html = await res.text();
+      const html = await readUpstreamText(res);
       const $ = cheerio.load(html);
       const items: RawSearchResult[] = [];
       $('.result').each((idx, el) => {

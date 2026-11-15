@@ -5,6 +5,7 @@
  * per site). Raster images only, small, kept in memory.
  */
 import { readCapped } from './publicFetch.js';
+import { configuredLimit, createWorkLimit } from './workLimits.js';
 
 const ICON_SERVICE = 'https://icons.duckduckgo.com/ip3/';
 const MAX_BYTES = 64 * 1024;
@@ -17,6 +18,7 @@ export type Icon = { body: Buffer; type: string; at: number } | { body?: undefin
 
 const cache = new Map<string, Icon>();
 const pending = new Map<string, Promise<Icon>>();
+const capacity = createWorkLimit(configuredLimit('GLOGG_MAX_FAVICONS', 32));
 
 /** A plain host name: letters, digits, hyphens and dots, with at least one dot. */
 export function isIconDomain(domain: string): boolean {
@@ -49,7 +51,8 @@ export function siteIcon(domain: string, fetchImpl: typeof fetch = fetch): Promi
   if (hit && Date.now() - hit.at < TTL_MS) return Promise.resolve(hit);
   let p = pending.get(key);
   if (!p) {
-    p = load(key, fetchImpl).finally(() => pending.delete(key));
+    const release = capacity.acquire();
+    p = load(key, fetchImpl).finally(() => { pending.delete(key); release(); });
     pending.set(key, p);
   }
   return p;

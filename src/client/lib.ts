@@ -14,12 +14,14 @@ import type {
   ToolResult,
 } from '../core/browser.js';
 
-export type View = 'search' | 'downloads' | 'atlas' | 'services' | 'settings' | 'tools';
+export type View = 'saved' | 'sources' | 'search' | 'downloads' | 'atlas' | 'services' | 'settings' | 'tools';
 export type ThemePref = 'system' | 'light' | 'dark';
 export type Mode = 'simple' | 'advanced';
 
 export const SCOPES: { id: SearchLensId; label: string; hint: string }[] = [
   { id: 'all', label: 'All', hint: 'Everything, ranked for signal' },
+  { id: 'images', label: 'Images', hint: 'Images from Wikimedia Commons, with source credits and licenses' },
+  { id: 'videos', label: 'Videos', hint: 'Videos from Wikimedia Commons; play here or open the source' },
   { id: 'wild-west', label: 'Wild West', hint: 'Imageboards, chan archives, old forums, BBS text files' },
   { id: 'forums', label: 'Forums', hint: 'HN, Lobsters, StackExchange, Lemmy, niche boards' },
   { id: 'small-web', label: 'Small Web', hint: 'Personal sites via Marginalia & Wiby' },
@@ -32,6 +34,7 @@ export const SCOPES: { id: SearchLensId; label: string; hint: string }[] = [
 ];
 
 export const SOURCE_LABELS: Record<string, string> = {
+  wikimedia: 'Wikimedia Commons',
   marginalia: 'Marginalia',
   wiby: 'Wiby',
   'indie-index': 'Atlas',
@@ -52,6 +55,9 @@ export const SOURCE_LABELS: Record<string, string> = {
   'nzb-life': 'NZB.life',
   openalex: 'OpenAlex',
   arxiv: 'arXiv',
+  crossref: 'Crossref',
+  europepmc: 'Europe PMC',
+  openlibrary: 'Open Library',
   hn: 'Hacker News',
   stackexchange: 'StackExchange',
   github: 'GitHub',
@@ -318,14 +324,22 @@ export function urlCrumb(url: string): string {
 }
 
 /** "today", "yesterday", "3 days ago", then the date: "Mar 12", or "Mar 2019" for other years. */
-export function relativeDate(iso?: string, now = Date.now()): string {
+export function relativeDate(iso?: string, now = Date.now(), precise = false): string {
   if (!iso) return '';
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return '';
-  const days = Math.floor((now - t) / 86_400_000);
-  if (days < 1) return 'today';
-  if (days < 2) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
+  const age = now - t;
+  const days = Math.floor(age / 86_400_000);
+  if (age >= 0) {
+    if (precise && iso.includes('T') && days < 1) {
+      if (age < 60_000) return 'just now';
+      if (age < 3_600_000) return `${Math.floor(age / 60_000)} min ago`;
+      return `${Math.floor(age / 3_600_000)} hr ago`;
+    }
+    if (days < 1) return 'today';
+    if (days < 2) return 'yesterday';
+    if (days < 7) return `${days} days ago`;
+  }
   const date = new Date(t);
   const thisYear = date.getFullYear() === new Date(now).getFullYear();
   return date.toLocaleDateString(undefined, thisYear ? { month: 'short', day: 'numeric' } : { month: 'short', year: 'numeric' });

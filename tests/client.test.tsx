@@ -321,4 +321,13 @@ describe('dates and counts', () => {
     expect(plural(0, 'post')).toBe('0 posts');
     expect(plural(1, 'index', 'indexes')).toBe('1 index');
   });
+
+  it('shows precise recent timestamps without presenting future or date-only values as live', () => {
+    expect(relativeDate(new Date(now - 30_000).toISOString(), now, true)).toBe('just now');
+    expect(relativeDate(new Date(now - 7 * 60_000).toISOString(), now, true)).toBe('7 min ago');
+    expect(relativeDate(new Date(now - 3 * 3_600_000).toISOString(), now, true)).toBe('3 hr ago');
+    expect(relativeDate('2026-11-09', now, true)).toBe('today');
+    expect(relativeDate(new Date(now + 86_400_000).toISOString(), now, true)).not.toMatch(/today|just now|ago/);
+    expect(relativeDate('not a date', now, true)).toBe('');
+  });
 });

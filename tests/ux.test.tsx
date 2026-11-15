@@ -73,6 +73,8 @@ function installApi() {
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
     switch (`${method} ${url.pathname}`) {
+      case 'GET /api/capabilities':
+        return json({ mode: 'private', features: { tools: true, research: true, downloads: true, administration: true, savedProfiles: true } });
       case 'GET /api/plugins':
         return json({ plugins: [], userDir: '/tmp' });
       case 'GET /api/auth':

@@ -1,6 +1,9 @@
 import type { PluginDownloadTargetInfo } from './plugins.js';
+import type { SearchMedia } from './media.js';
 
 export type SearchLensId =
+  | 'images'
+  | 'videos'
   | 'all'
   | 'wild-west'
   | 'small-web'
@@ -13,7 +16,7 @@ export type SearchLensId =
   | 'primary'
   | 'pre-llm';
 
-export const SEARCH_LENS_IDS: readonly SearchLensId[] = ['all', 'wild-west', 'small-web', 'fediverse', 'forums', 'deep-archives', 'raw-news', 'p2p-magnet', 'usenet-nzb', 'primary', 'pre-llm'];
+export const SEARCH_LENS_IDS: readonly SearchLensId[] = ['all', 'wild-west', 'small-web', 'fediverse', 'forums', 'deep-archives', 'raw-news', 'p2p-magnet', 'usenet-nzb', 'primary', 'pre-llm', 'images', 'videos'];
 
 /** A lens glogg knows. ("constructor" is a property of every object, not a lens.) */
 export function isSearchLens(v: unknown): v is SearchLensId {
@@ -21,6 +24,7 @@ export function isSearchLens(v: unknown): v is SearchLensId {
 }
 
 export type SourceConnectorId =
+  | 'wikimedia'
   | 'marginalia'
   | 'indie-index'
   | 'wiby'
@@ -37,6 +41,9 @@ export type SourceConnectorId =
   | 'archive-deep'
   | 'openalex'
   | 'arxiv'
+  | 'crossref'
+  | 'europepmc'
+  | 'openlibrary'
   | 'codeberg'
   | 'github'
   | 'archive'
@@ -123,6 +130,9 @@ export interface RawSearchResult {
   snippet: string;
   source: SourceConnectorId;
   publishedAt?: string;
+  /** Whether the provider's date records publication or its own discovery of the page. */
+  dateKind?: 'published' | 'indexed';
+  media?: SearchMedia;
   author?: string;
   points?: number;
   commentsCount?: number;
@@ -284,6 +294,8 @@ export interface RankedSearchResponse {
   /** An early batch, streamed before the final response; slower sources are still coming. */
   partial?: boolean;
   metrics: {
+    /** Present only for a time-sensitive query. checkedAt is this search, not an article's publication time. */
+    freshness?: { intent: SearchFreshnessIntent; checkedAt: string; maxCacheAgeMs: number };
     totalRawResults: number;
     surfacedCount: number;
     p2pCount: number;
@@ -303,10 +315,12 @@ export interface RankedSearchResponse {
      * Per upstream: time to answer, results returned, and whether it made the deadline. `refused`: it
      * turned glogg away (a rate limit, a bot check); `unset`: it isn't set up; `note` says why.
      */
-    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' | 'refused' | 'unset'; note?: string }>;
+    sourceTimings?: Record<string, { ms: number; count: number; status: 'ok' | 'empty' | 'error' | 'late' | 'resting' | 'off' | 'refused' | 'unset'; note?: string; fetchedAt?: string; cacheAgeMs?: number }>;
     durationMs: number;
   };
 }
+
+export type SearchFreshnessIntent = 'news' | 'current';
 
 export interface CompiledQueryPlan {
   rawQuery: string;

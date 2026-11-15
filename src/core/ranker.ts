@@ -5,6 +5,7 @@ import {
   ScoredSearchResult,
   SearchFilterConfig,
   SearchLensId,
+  SearchFreshnessIntent,
 } from './types.js';
 
 export const DEFAULT_FILTER_CONFIG: SearchFilterConfig = {
@@ -55,6 +56,7 @@ function computeLensBonus(item: ScoredSearchResult, lens: SearchLensId): number 
       return -20;
     case 'deep-archives':
       if (
+        item.source === 'openlibrary' ||
         item.source === 'archive-deep' ||
         item.source === 'archive' ||
         item.source === 'archive-bt' ||
@@ -80,6 +82,8 @@ function computeLensBonus(item: ScoredSearchResult, lens: SearchLensId): number 
       if (
         item.isPrimarySource ||
         item.verdict === 'primary-source' ||
+        item.source === 'crossref' ||
+        item.source === 'europepmc' ||
         item.source === 'arxiv' ||
         item.source === 'openalex' ||
         item.source === 'wikipedia' ||
@@ -210,7 +214,8 @@ const SPECIALIZED_CONNECTORS = new Set([
 export function diversifyAndRankResults(
   rawItems: RawSearchResult[],
   partialConfig?: Partial<SearchFilterConfig>,
-  query?: string
+  query?: string,
+  freshness?: { intent: SearchFreshnessIntent; now: number }
 ): RankOutput {
   const config: SearchFilterConfig = {
     ...DEFAULT_FILTER_CONFIG,
@@ -231,9 +236,13 @@ export function diversifyAndRankResults(
     const answerBonus = analysis ? computeAnswerBonus(item, analysis) : 0;
     // "Exact phrases" you quoted: results that contain them all come first.
     const phraseBonus = phrases.length > 0 && phrases.every((p) => textOf(item).includes(p)) ? 25 : 0;
+    const age = freshness && item.publishedAt ? freshness.now - Date.parse(item.publishedAt) : NaN;
+    const window = freshness?.intent === 'news' ? 86_400_000 : 30 * 86_400_000;
+    // Never let an invalid/future timestamp buy rank. Relevance and all existing filters still apply.
+    const recencyBonus = age >= 0 && age < window ? 24 * (1 - age / window) : 0;
     return {
       ...item,
-      netScore: item.netScore + lensBonus + answerBonus + phraseBonus,
+      netScore: item.netScore + lensBonus + answerBonus + phraseBonus + recencyBonus,
     };
   });
 
@@ -249,9 +258,13 @@ export function diversifyAndRankResults(
   let sponsoredRemovedCount = 0;
 
   const isP2PLens = config.lens === 'p2p-magnet' || config.lens === 'usenet-nzb';
+  const mediaKind = config.lens === 'images' ? 'image' : config.lens === 'videos' ? 'video' : undefined;
 
   for (const item of scored) {
-    const dedupKey = item.p2p?.infoHash
+    if (mediaKind && item.media?.kind !== mediaKind) continue;
+    const dedupKey = mediaKind && item.media
+      ? `media:${item.media.url}`
+      : item.p2p?.infoHash
       ? `btih:${item.p2p.infoHash.toLowerCase()}`
       : item.url.replace(/\/+$/, '').toLowerCase();
 
@@ -365,6 +378,10 @@ export function diversifyAndRankResults(
     }
 
     // Check Pre-LLM Era strict filter
+    if (mediaKind && config.preLlmOnly && (!item.publishedAt || !Number.isFinite(Date.parse(item.publishedAt)) || item.dateKind === 'indexed')) {
+      filteredSlop.push({ ...item, demotedReason: 'Creation date is unknown; cannot confirm this file predates Nov 2022' });
+      continue;
+    }
     if ((config.preLlmOnly || config.lens === 'pre-llm') && item.publishedAt && !item.isPreLlm) {
       filteredSlop.push({
         ...item,
@@ -375,7 +392,7 @@ export function diversifyAndRankResults(
 
     // Check Syndicated / Scraper Title Deduplication
     const titleFp = normalizeTitleFingerprint(item.title);
-    if (!item.p2p && !item.fediverse && titleFp.split(' ').length >= 4 && seenTitleFingerprints.has(titleFp)) {
+    if (!mediaKind && !item.p2p && !item.fediverse && titleFp.split(' ').length >= 4 && seenTitleFingerprints.has(titleFp)) {
       filteredSlop.push({
         ...item,
         demotedReason: 'A copy of a result shown above',
@@ -385,8 +402,8 @@ export function diversifyAndRankResults(
 
     // Check Domain Diversity Cap for web sites
     const currentDomainCount = domainCounts.get(item.rootDomain) ?? 0;
-    // A site: search wants that site's pages, as many as there are.
-    const effectiveCap = onlySites.length > 0
+    // A media scope diversifies by asset; a site: search wants that site's pages.
+    const effectiveCap = mediaKind || onlySites.length > 0
       ? 0
       : item.p2p
       ? Math.max(config.maxPerDomain, 3)
@@ -412,7 +429,7 @@ export function diversifyAndRankResults(
       seenTitleFingerprints.add(titleFp);
     }
 
-    const diversityPenalty = currentDomainCount > 0 ? currentDomainCount * 16 : 0;
+    const diversityPenalty = !mediaKind && currentDomainCount > 0 ? currentDomainCount * 16 : 0;
     surfaced.push({
       ...item,
       domainOccurrenceRank: currentDomainCount + 1,

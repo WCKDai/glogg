@@ -1,3 +1,4 @@
+import { fetchUpstream, readUpstreamJson } from './upstream.js';
 import {
   analyzeQueryIntent,
   clip,
@@ -11,19 +12,12 @@ const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) GloggFediverse/0.3 (+https://github.com/WCKDai/glogg)';
 
 async function fetchFast(url: string, timeoutMs = 3600): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json, text/plain, */*',
-      },
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  return await fetchUpstream(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json, text/plain, */*',
+    },
+  }, timeoutMs);
 }
 
 /**
@@ -50,7 +44,7 @@ export async function searchAtProtocol(
       )}&limit=6`;
       const postsRes = await fetchFast(postsUrl, 3200);
       if (postsRes.ok) {
-        const postsData = (await postsRes.json()) as {
+        const postsData = (await readUpstreamJson(postsRes)) as {
           posts?: Array<{
             uri: string;
             cid: string;
@@ -111,7 +105,7 @@ export async function searchAtProtocol(
       )}&limit=4`;
       const actorRes = await fetchFast(actorUrl, 3000);
       if (actorRes.ok) {
-        const actorData = (await actorRes.json()) as {
+        const actorData = (await readUpstreamJson(actorRes)) as {
           actors?: Array<{
             did: string;
             handle: string;
@@ -186,7 +180,7 @@ export async function searchActivityPubMastodon(
           const url = `https://${inst}/api/v1/timelines/tag/${encodeURIComponent(primaryTag)}?limit=4`;
           const res = await fetchFast(url, 3200);
           if (!res.ok) return [];
-          const items = (await res.json()) as Array<{
+          const items = (await readUpstreamJson(res)) as Array<{
             id: string;
             url?: string | null;
             uri: string;
@@ -293,7 +287,7 @@ export async function searchMatrixPublicRooms(
     if (!cached || now - cached.at > 5 * 60 * 1000) {
       const res = await fetchFast(`${homeserver}/_matrix/client/v3/publicRooms?limit=300`, 3600);
       if (res.ok) {
-        const data = (await res.json()) as {
+        const data = (await readUpstreamJson(res)) as {
           chunk?: MatrixRoom[];
         };
         if (Array.isArray(data.chunk)) {

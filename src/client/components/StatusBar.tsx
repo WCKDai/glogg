@@ -1,3 +1,4 @@
+import { useFeatures } from '../capabilities.js';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Command } from 'lucide-react';
 import { SEARCH_SOURCE_NAMES } from '../../core/browser.js';
@@ -15,6 +16,20 @@ const STATUS_ORDER = { refused: 0, error: 1, late: 2, ok: 3, empty: 4, resting: 
 const STATUS_LABEL: Partial<Record<keyof typeof STATUS_ORDER, string>> = { refused: 'turned away', unset: 'not set up' };
 
 type Timing = NonNullable<RankedSearchResponse['metrics']['sourceTimings']>[string];
+
+export function FreshnessStatus({ data, onRefresh }: { data: RankedSearchResponse; onRefresh: () => void }) {
+  const freshness = data.metrics.freshness;
+  if (!freshness) return null;
+  return (
+    <div className="freshness-status">
+      <span title="Recent source results. Publication and indexing delays vary.">
+        Checked <time dateTime={freshness.checkedAt} title={freshness.checkedAt}>{new Date(freshness.checkedAt).toLocaleTimeString()}</time>
+        {freshness.maxCacheAgeMs > 0 && ` · fetched up to ${Math.ceil(freshness.maxCacheAgeMs / 1000)}s ago`}
+      </span>
+      <button type="button" className="link-btn" onClick={onRefresh}>Check again</button>
+    </div>
+  );
+}
 
 export function sourceSummary(timings: Record<string, Timing> = {}) {
   // Sources you turned off weren't asked, and ones that aren't set up couldn't be.
@@ -62,6 +77,7 @@ function SourceBreakdown({ data }: { data: RankedSearchResponse }) {
             <span className="sb-num">{t.count || ''}</span>
             <span className={`sb-status s-${t.status}`}>{t.status === 'ok' || t.status === 'empty' ? `${t.ms} ms` : STATUS_LABEL[t.status] ?? t.status}</span>
           </div>
+          {t.fetchedAt && <p className="sb-note">Fetched <time dateTime={t.fetchedAt} title={t.fetchedAt}>{new Date(t.fetchedAt).toLocaleTimeString()}</time></p>}
           {t.note ? (
             <p className="sb-note">{t.note}</p>
           ) : (
@@ -116,6 +132,7 @@ export function StatusBar({
   onToggleMode: () => void;
   onOpenPalette: () => void;
 }) {
+  const features = useFeatures();
   // A new search (or leaving the results) closes the breakdown.
   const { open, setOpen, ref } = usePopover<HTMLDivElement>(data);
 
@@ -147,13 +164,13 @@ export function StatusBar({
       ) : (
         <span className="sb-item">
           <span className="sb-dot ok" aria-hidden />
-          Ready · {plural(toolCount, 'tool')}
+          Ready{features.tools ? ` · ${plural(toolCount, 'tool')}` : ' · Independent search'}
         </span>
       )}
 
       {data && !loading && (
         <span className="sb-item">
-          {ms < 40 ? 'cached' : `${(ms / 1000).toFixed(2)} s`}
+          {(ms / 1000).toFixed(2)} s
         </span>
       )}
 

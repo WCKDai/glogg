@@ -15,6 +15,7 @@ services:
     image: glogg:local
     restart: unless-stopped
     init: true
+    stop_grace_period: 30s
     ports:
       - "127.0.0.1:${GLOGG_PORT:-4173}:4173"
     # What .env sets (see .env.example). Where glogg listens and keeps its data is the image's to set.
@@ -48,6 +49,13 @@ services:
       GLOGG_CACHE_TTL_MS: ${GLOGG_CACHE_TTL_MS:-}
       GLOGG_SOURCE_REST_MS: ${GLOGG_SOURCE_REST_MS:-}
       GLOGG_TOOL_TIMEOUT_MS: ${GLOGG_TOOL_TIMEOUT_MS:-}
+      GLOGG_MODE: ${GLOGG_MODE:-private}
+      GLOGG_MAX_SEARCHES: ${GLOGG_MAX_SEARCHES:-32}
+      GLOGG_MAX_API_REQUESTS: ${GLOGG_MAX_API_REQUESTS:-64}
+      GLOGG_MAX_FAVICONS: ${GLOGG_MAX_FAVICONS:-32}
+      GLOGG_MAX_READERS: ${GLOGG_MAX_READERS:-16}
+      GLOGG_SHUTDOWN_MS: ${GLOGG_SHUTDOWN_MS:-15000}
+      GLOGG_PUBLIC_OPENLIBRARY: ${GLOGG_PUBLIC_OPENLIBRARY:-0}
     volumes:
       - glogg-data:/data
     # Nothing but /data (and a scratch /tmp) is writable, and the process can't gain privileges.
