@@ -204,7 +204,7 @@ export interface RankOutput {
   avgSlopScore: number;
 }
 
-const SPECIALIZED_CONNECTORS = new Set([
+const SPECIALIZED_CONNECTORS = /* @__PURE__ */ new Set([
   'indie-index',
   'wiby',
   'marginalia',
@@ -222,11 +222,19 @@ const SPECIALIZED_CONNECTORS = new Set([
   'deep-boards',
 ]);
 
+const TIME_RANGE_MS: Record<string, number> = {
+  day: 86_400_000,
+  week: 7 * 86_400_000,
+  month: 31 * 86_400_000,
+  year: 365 * 86_400_000,
+};
+
 export function diversifyAndRankResults(
   rawItems: RawSearchResult[],
   partialConfig?: Partial<SearchFilterConfig>,
   query?: string,
-  freshness?: { intent: SearchFreshnessIntent; now: number }
+  freshness?: { intent: SearchFreshnessIntent; now: number },
+  scoreCache?: WeakMap<RawSearchResult, ScoredSearchResult>
 ): RankOutput {
   const config: SearchFilterConfig = {
     ...DEFAULT_FILTER_CONFIG,
@@ -241,9 +249,15 @@ export function diversifyAndRankResults(
   const phrases = (config.phrases ?? []).map((p) => p.toLowerCase());
   const textOf = (r: RawSearchResult) => `${r.title} ${r.snippet}`.toLowerCase();
   const onSite = (r: ScoredSearchResult, sites: string[]) => sites.some((s) => r.domain === s || r.domain.endsWith(`.${s}`) || r.rootDomain === s);
+  const refNow = freshness?.now ?? Date.now();
+  const maxAgeMs = config.timeRange && config.timeRange !== 'any' ? TIME_RANGE_MS[config.timeRange] : undefined;
   // Both visible and hidden results contain clickable links; omit unusable schemes before scoring.
   const scored: ScoredSearchResult[] = rawItems.filter(hasNavigableResultUrl).map((raw) => {
-    const item = scoreSearchResult(raw, config, query);
+    let item = scoreCache?.get(raw);
+    if (!item) {
+      item = scoreSearchResult(raw, config, query);
+      scoreCache?.set(raw, item);
+    }
     const lensBonus = computeLensBonus(item, config.lens);
     const answerBonus = analysis ? computeAnswerBonus(item, analysis) : 0;
     // "Exact phrases" you quoted: results that contain them all come first.
@@ -402,6 +416,21 @@ export function diversifyAndRankResults(
         demotedReason: `Published after Nov 2022 (${item.publishedAt.slice(0, 10)})`,
       });
       continue;
+    }
+
+    // Check explicit user timeRange filter (day / week / month / year)
+    if (maxAgeMs !== undefined) {
+      const pubTs = item.publishedAt ? Date.parse(item.publishedAt) : NaN;
+      const itemAge = refNow - pubTs;
+      if (!Number.isFinite(pubTs) || item.dateKind === 'indexed' || itemAge < -3_600_000 || itemAge > maxAgeMs) {
+        filteredSlop.push({
+          ...item,
+          demotedReason: !item.publishedAt || item.dateKind === 'indexed' || !Number.isFinite(pubTs)
+            ? `No verified publication date for the past ${config.timeRange}`
+            : `Older than the selected ${config.timeRange} window (${item.publishedAt.slice(0, 10)})`,
+        });
+        continue;
+      }
     }
 
     eligible.push(item);

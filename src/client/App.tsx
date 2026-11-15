@@ -22,6 +22,7 @@ import {
   BangDefinition,
   DEFAULT_BOOSTED_DOMAINS,
   DEFAULT_SLOP_DOMAINS,
+  isSearchTimeRange,
   parseToolTrigger,
   resolveBang,
 } from '../core/browser.js';
@@ -34,6 +35,7 @@ import type {
   ResearchEvent,
   ScoredSearchResult,
   SearchLensId,
+  SearchTimeRange,
 } from '../core/browser.js';
 import { FeaturesContext, SAFE_FEATURES, useCapabilities } from './capabilities.js';
 import { useLibrary, safeSavedUrl } from './library.js';
@@ -46,7 +48,7 @@ import { Shortcuts } from './components/Shortcuts.js';
 import { AnswerCard, ReleaseList, ResultItem } from './components/Results.js';
 import { ReaderSheet } from './components/ReaderSheet.js';
 import { MediaResults, MediaViewer } from './components/Media.js';
-import { CommandPalette, PaletteCommand } from './components/CommandPalette.js';
+import { CommandPalette, PaletteCommand, quickCalc } from './components/CommandPalette.js';
 import { AdvancedRail } from './components/AdvancedRail.js';
 import { Favicon } from './components/Favicon.js';
 import { FreshnessStatus, SourcesButton, StatusBar } from './components/StatusBar.js';
@@ -78,6 +80,7 @@ import {
   streamEvents,
   streamSearch,
   SiteIconsContext,
+  TIME_RANGES,
   withDomainRule,
   targetLabel,
   useLocalStorage,
@@ -123,12 +126,14 @@ function viewFromPath(pathname: string): View {
 }
 
 /** What the address says; `scope` is null when it says none, so your default scope applies. */
-function readUrlState(): { q: string; scope: SearchLensId | null; view: View } {
+function readUrlState(): { q: string; scope: SearchLensId | null; time: SearchTimeRange; view: View } {
   const params = new URLSearchParams(window.location.search);
   const scope = params.get('scope') as SearchLensId | null;
+  const rawTime = params.get('time');
   return {
     q: params.get('q') || '',
     scope: scope && SCOPES.some((s) => s.id === scope) ? scope : null,
+    time: isSearchTimeRange(rawTime) ? rawTime : 'any',
     view: viewFromPath(window.location.pathname),
   };
 }
@@ -153,6 +158,7 @@ function pushUrl(url: string) {
 
 interface SearchOpts {
   scope?: SearchLensId;
+  timeRange?: SearchTimeRange;
   push?: boolean;
   uncensored?: boolean;
   /** Re-run with these prefs (the rail changes them and searches at once). */
@@ -213,6 +219,7 @@ export function App() {
   const [input, setInput] = useState(initial.q);
   const [submitted, setSubmitted] = useState('');
   const [scope, setScope] = useState<SearchLensId>(initial.scope ?? prefs.defaultScope);
+  const [timeRange, setTimeRange] = useState<SearchTimeRange>(initial.time);
   const [data, setData] = useState<RankedSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -272,8 +279,8 @@ export function App() {
   }, [aiPlugin]);
 
   // Always-fresh snapshot for async handlers and key bindings.
-  const live = useRef({ domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread });
-  live.current = { domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, submitted, mode, researchAuto, researchDepth, targets, data, research, thread };
+  const live = useRef({ domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, timeRange, submitted, mode, researchAuto, researchDepth, targets, data, research, thread });
+  live.current = { domains, prefs, blocked, boosted, lowered, pinned, phrases, uncensored, customBangs, scope, timeRange, submitted, mode, researchAuto, researchDepth, targets, data, research, thread };
 
   // ── Theme ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -506,6 +513,7 @@ export function App() {
       }
 
       const nextScope = opts.scope ?? s.scope;
+      const nextTime = opts.timeRange ?? s.timeRange;
       const nextUncensored = opts.uncensored ?? s.uncensored;
       const p = opts.prefs ?? s.prefs;
       const researchNow = Boolean(allowed?.features.research) && nextScope !== 'images' && nextScope !== 'videos' && s.mode === 'advanced' && s.researchAuto && !opts.keepResearch;
@@ -514,6 +522,7 @@ export function App() {
       setInput(q);
       setSubmitted(q);
       setScope(nextScope);
+      setTimeRange(nextTime);
       setLoading(true);
       setError(null);
       setActive(0);
@@ -528,7 +537,7 @@ export function App() {
         setResearch(researchNow ? { id: -1, query: q, stage: 'searching', detail: 'Searching', sources: [], answer: '' } : null);
       }
 
-      if (opts.push !== false) pushUrl(`/?q=${encodeURIComponent(q)}${nextScope !== 'all' ? `&scope=${nextScope}` : ''}`);
+      if (opts.push !== false) pushUrl(`/?q=${encodeURIComponent(q)}${nextScope !== 'all' ? `&scope=${nextScope}` : ''}${nextTime !== 'any' ? `&time=${nextTime}` : ''}`);
       document.title = `${q} — glogg`;
       if (!opts.keepResearch && s.prefs.rememberHistory) setHistory((h) => [q, ...h.filter((x) => x !== q)].slice(0, HISTORY_MAX));
 
@@ -540,6 +549,7 @@ export function App() {
         compact: true,
         config: {
           lens: nextScope,
+          ...(nextTime !== 'any' ? { timeRange: nextTime } : {}),
           maxPerDomain: p.maxPerDomain,
           slopThreshold: STRICTNESS_THRESHOLD[p.strictness] ?? 48,
           preLlmOnly: p.preLlmOnly,
@@ -573,7 +583,12 @@ export function App() {
           const untouched = activeRef.current === 0 && window.scrollY < 40;
           setData((cur) => {
             if (!got.early || untouched || !cur) return e.response;
+            const selectedUrl = cur.results[activeRef.current]?.url;
             const merged = mergeLateResults(cur, e.response) ?? e.response;
+            if (selectedUrl) {
+              const idx = merged.results.findIndex((r) => r.url === selectedUrl);
+              if (idx >= 0 && idx !== activeRef.current) setActive(idx);
+            }
             return { ...merged, partial: undefined };
           });
         });
@@ -616,6 +631,7 @@ export function App() {
     setView('search');
     setSubmitted('');
     setInput('');
+    setTimeRange('any');
     setData(null);
     setError(null);
     setLoading(false);
@@ -636,20 +652,21 @@ export function App() {
 
   // Initial URL + back/forward
   useEffect(() => {
-    if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
+    if (initial.q) void runSearch(initial.q, { scope: initial.scope ?? live.current.prefs.defaultScope, timeRange: initial.time, push: false, fromAddress: true });
     else if (initial.view !== 'search') document.title = VIEW_TITLES[initial.view];
     const onPop = () => {
       setMediaItem(null);
-      const { q, scope: sc, view: v } = readUrlState();
+      const { q, scope: sc, time: tm, view: v } = readUrlState();
       if (v !== 'search') {
         searchIntent.current++;
         setView(v);
         document.title = VIEW_TITLES[v];
-      } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, push: false, fromAddress: true });
+      } else if (q) void runSearch(q, { scope: sc ?? live.current.prefs.defaultScope, timeRange: tm, push: false, fromAddress: true });
       else {
         stopWork();
         setSubmitted('');
         setInput('');
+        setTimeRange('any');
         setData(null);
         setToolRun(null);
         setResearch(null);
@@ -758,6 +775,22 @@ export function App() {
     (id: SearchLensId) => {
       if (live.current.submitted && !parseToolTrigger(live.current.submitted)) void runSearch(live.current.submitted, { scope: id });
       else setScope(id);
+    },
+    [runSearch]
+  );
+
+  const switchTimeRange = useCallback(
+    (next: SearchTimeRange) => {
+      if (live.current.submitted && !parseToolTrigger(live.current.submitted)) void runSearch(live.current.submitted, { timeRange: next, keepResearch: true });
+      else setTimeRange(next);
+    },
+    [runSearch]
+  );
+
+  const siteSearch = useCallback(
+    (domain: string) => {
+      const rest = live.current.submitted.replace(/(?:^|\s)-?site:\S+/gi, ' ').trim();
+      void runSearch(rest ? `site:${domain} ${rest}` : `site:${domain}`);
     },
     [runSearch]
   );
@@ -899,6 +932,16 @@ export function App() {
         run: () => switchScope(s.id),
       })
     );
+    TIME_RANGES.forEach((t) =>
+      c.push({
+        id: `tr-${t.id}`,
+        label: `Time: ${t.label}`,
+        group: 'Filter',
+        hint: timeRange === t.id ? 'active' : undefined,
+        keywords: `time date recent fresh ${t.id}`,
+        run: () => switchTimeRange(t.id),
+      })
+    );
     c.push(
       uncensored
         ? { id: 't-18', label: 'Turn 18+ off', group: 'Toggle', keywords: 'nsfw uncensored safesearch adult', run: () => setAdultMode(false) }
@@ -939,6 +982,7 @@ export function App() {
     if (activeItem) {
       c.push(
         { id: 'a-read', label: `Read “${activeItem.title.slice(0, 48)}”`, group: 'Selected result', hint: 'r', run: () => setReaderUrl(activeItem.url) },
+        { id: 'a-site', label: `More from ${activeItem.rootDomain}`, group: 'Selected result', run: () => siteSearch(activeItem.rootDomain) },
         { id: 'a-send', label: 'Send selected to downloads', group: 'Selected result', hint: 'd', run: () => sendItem(activeItem, 'auto') },
         { id: 'a-pin', label: `Pin ${activeItem.rootDomain} on top`, group: 'Selected result', run: () => ruleDomain(activeItem.rootDomain, 'pin') },
         { id: 'a-lower', label: `Lower ${activeItem.rootDomain}`, group: 'Selected result', run: () => ruleDomain(activeItem.rootDomain, 'lower') },
@@ -955,7 +999,7 @@ export function App() {
       if (command.id === 'm-depth') return features.research;
       return true;
     });
-  }, [features, goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, uncensored, isDark, prefs, tools, activeItem, data, switchScope, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, ruleDomain, openUrl]);
+  }, [features, goHome, openTools, mode, switchMode, researchDepth, setResearchDepth, aiReady, aiLabel, setupAi, submitted, timeRange, uncensored, isDark, prefs, tools, activeItem, data, switchScope, switchTimeRange, siteSearch, setAdultMode, openSettings, toggleTheme, setThemePref, applyPrefs, prefill, sendItem, ruleDomain, openUrl]);
 
   const toggleSaved = (item: { url: string; title: string; snippet: string; source: string }) => {
     if (!safeSavedUrl(item.url)) return;
@@ -972,6 +1016,13 @@ export function App() {
   // ── Render ────────────────────────────────────────────────────────────
   const isHome = view === 'search' && !submitted;
   const advanced = mode === 'advanced';
+  const instantPreview = useMemo(
+    () =>
+      submitted && !parseToolTrigger(submitted) && !isReleaseScope && !isMediaScope && !/\bsite:\S+/i.test(submitted)
+        ? quickCalc(submitted)
+        : null,
+    [submitted, isReleaseScope, isMediaScope]
+  );
   const searchBoxProps = {
     value: input,
     onChange: setInput,
@@ -982,7 +1033,10 @@ export function App() {
   };
 
   const resultsBody = loading ? (
-    <ResultsSkeleton />
+    <>
+      {instantPreview && !(advanced && research) && <AnswerCard answer={instantPreview} onRead={setReaderUrl} />}
+      <ResultsSkeleton />
+    </>
   ) : error ? (
     <div className="search-problem" role="alert">
       <p>{error}</p>
@@ -1015,6 +1069,18 @@ export function App() {
         ) : (
           <span />
         )}
+        {!advanced && !isReleaseScope && !isMediaScope && (
+          <select
+            className={`time-select ${timeRange !== 'any' ? 'active' : ''}`}
+            aria-label="Time range"
+            value={timeRange}
+            onChange={(e) => switchTimeRange(e.target.value as SearchTimeRange)}
+          >
+            {TIME_RANGES.map((t) => (
+              <option key={t.id} value={t.id}>{t.label}</option>
+            ))}
+          </select>
+        )}
         <span className="status-count">
           {navList.length} result{navList.length === 1 ? '' : 's'} · {(data.metrics.durationMs / 1000).toFixed(1)}s
         </span>
@@ -1028,8 +1094,8 @@ export function App() {
 
       <FreshnessStatus data={data} onRefresh={() => void runSearch(submitted, { push: false })} />
 
-      {!isReleaseScope && !isMediaScope && !sourceFilter && data.instantAnswer && !(advanced && research) && (
-        <AnswerCard answer={data.instantAnswer} onRead={setReaderUrl} />
+      {!isReleaseScope && !isMediaScope && !sourceFilter && (data.instantAnswer ?? instantPreview) && !(advanced && research) && (
+        <AnswerCard answer={(data.instantAnswer ?? instantPreview)!} onRead={setReaderUrl} />
       )}
 
       {isReleaseScope ? (
@@ -1075,6 +1141,8 @@ export function App() {
                 onRead={setReaderUrl}
                 onSend={sendItem}
                 onRule={ruleDomain}
+                onSiteSearch={siteSearch}
+                query={submitted}
                 newTab={prefs.newTab}
               />
             </React.Fragment>
@@ -1326,6 +1394,8 @@ export function App() {
                 }}
                 prefs={prefs}
                 onPrefs={applyPrefs}
+                timeRange={timeRange}
+                onTimeRange={switchTimeRange}
                 researchAuto={researchAuto}
                 onResearchAuto={setResearchAuto}
                 researchDepth={researchDepth}

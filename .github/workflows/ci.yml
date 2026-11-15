@@ -36,6 +36,8 @@ jobs:
       # Built first: the browser tests and the asset tests run against the build.
       - name: Build web app & browser extension
         run: npm run build
+      - name: Check search ranking benchmark
+        run: npm run benchmark:search
       # The speed budgets time real code, so they run uninstrumented; coverage leaves that suite out.
       - name: Run unit tests
         run: npm test

@@ -1,8 +1,8 @@
 import { useFeatures } from '../capabilities.js';
 import React from 'react';
 import { ArrowLeft, Sparkles, Wrench } from 'lucide-react';
-import type { ResearchDepth, SearchLensId } from '../../core/browser.js';
-import { SCOPES, SOURCE_LABELS } from '../lib.js';
+import type { ResearchDepth, SearchLensId, SearchTimeRange } from '../../core/browser.js';
+import { SCOPES, SOURCE_LABELS, TIME_RANGES } from '../lib.js';
 import type { SearchPrefs } from '../views/SettingsView.js';
 
 function RailToggle({ label, hint, on, set }: { label: string; hint?: string; on: boolean; set: (v: boolean) => void }) {
@@ -25,6 +25,8 @@ export function AdvancedRail({
   onSourceFilter,
   prefs,
   onPrefs,
+  timeRange = 'any',
+  onTimeRange,
   researchAuto,
   onResearchAuto,
   researchDepth,
@@ -42,6 +44,8 @@ export function AdvancedRail({
   onSourceFilter: (s: string | null) => void;
   prefs: SearchPrefs;
   onPrefs: (p: SearchPrefs) => void;
+  timeRange?: SearchTimeRange;
+  onTimeRange?: (t: SearchTimeRange) => void;
   researchAuto: boolean;
   onResearchAuto: (v: boolean) => void;
   researchDepth: ResearchDepth;
@@ -99,6 +103,26 @@ export function AdvancedRail({
 
       <section className="rail-section">
         <h2 className="rail-title">Filters</h2>
+        {onTimeRange && (
+          <div className="rail-row">
+            <span>Time</span>
+            <div className="segmented segmented-sm" role="radiogroup" aria-label="Time range">
+              {TIME_RANGES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={timeRange === t.id}
+                  className={timeRange === t.id ? 'active' : ''}
+                  onClick={() => onTimeRange(t.id)}
+                  title={t.label}
+                >
+                  {t.short}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="rail-row">
           <span>Per site</span>
           <div className="segmented segmented-sm" role="radiogroup" aria-label="Results per site">

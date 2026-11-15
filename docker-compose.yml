@@ -56,6 +56,7 @@ services:
       GLOGG_MAX_READERS: ${GLOGG_MAX_READERS:-16}
       GLOGG_SHUTDOWN_MS: ${GLOGG_SHUTDOWN_MS:-15000}
       GLOGG_PUBLIC_OPENLIBRARY: ${GLOGG_PUBLIC_OPENLIBRARY:-0}
+      GLOGG_TELEMETRY_TOKEN: ${GLOGG_TELEMETRY_TOKEN:-}
     volumes:
       - glogg-data:/data
     # Nothing but /data (and a scratch /tmp) is writable, and the process can't gain privileges.

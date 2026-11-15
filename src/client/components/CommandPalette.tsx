@@ -1,7 +1,58 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Search } from 'lucide-react';
 import { BangDefinition, mergeBangs } from '../../core/browser.js';
+import type { InstantAnswerPayload } from '../../core/browser.js';
 import { useFocusTrap } from '../lib.js';
+
+function evalBasicExpr(s: string): number | null {
+  const t = s.match(/\d+(?:\.\d+)?|[+\-*/%^()]/g);
+  if (!t || t.join('') !== s.replace(/\s+/g, '')) return null;
+  let i = 0;
+  const atom = (): number => {
+    const k = t[i++];
+    if (k === '+' || k === '-') return k === '-' ? -atom() : atom();
+    if (k === '(') { const v = add(); if (t[i++] !== ')') throw 0; return v; }
+    const n = Number(k);
+    if (!Number.isFinite(n)) throw 0;
+    return n;
+  };
+  const pow = (): number => { const b = atom(); return t[i] === '^' ? (i++, b ** pow()) : b; };
+  const mul = (): number => {
+    let v = pow();
+    while (t[i] === '*' || t[i] === '/' || t[i] === '%') {
+      const o = t[i++], r = pow();
+      if (o !== '*' && r === 0) throw 0;
+      v = o === '*' ? v * r : o === '/' ? v / r : v % r;
+    }
+    return v;
+  };
+  const add = (): number => { let v = mul(); while (t[i] === '+' || t[i] === '-') v += t[i++] === '+' ? mul() : -mul(); return v; };
+  try { const v = add(); return i === t.length && Number.isFinite(v) ? +v.toPrecision(12) : null; } catch { return null; }
+}
+
+const mkCalc = (title: string, subtitle: string, directAnswer: string, swatchColor?: string): InstantAnswerPayload => ({
+  kind: 'computation', title, subtitle, directAnswer, swatchColor, confidence: 'verified', citations: [],
+});
+
+export function quickCalc(raw: string): InstantAnswerPayload | null {
+  const hex = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = (hex[1].length === 3 ? hex[1].replace(/./g, '$&$&') : hex[1]).toLowerCase(), n = parseInt(h, 16);
+    return mkCalc(`#${h}`, 'Color', `#${h} · rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`, `#${h}`);
+  }
+  const base = raw.match(/^(0x[0-9a-f]+|0b[01]+|0o[0-7]+|\d+)\s+(?:in|to)\s+(hex|bin|binary|dec|decimal|oct)$/i);
+  if (base && Number.isSafeInteger(+base[1])) {
+    const v = +base[1], k = base[2].toLowerCase();
+    return mkCalc(raw, 'Base', k === 'hex' ? `0x${v.toString(16)}` : k[0] === 'b' ? `0b${v.toString(2)}` : k === 'oct' ? `0o${v.toString(8)}` : `${v}`);
+  }
+  const pct = raw.match(/^(-?\d+(?:\.\d+)?)%\s+of\s+(-?\d+(?:\.\d+)?)$/i);
+  if (pct) return mkCalc(raw, 'Percentage', `${+((+pct[1] / 100) * +pct[2]).toPrecision(12)}`);
+  if (/^[\d\s.+\-*/%^()]+$/.test(raw) && /[+\-*/%^]/.test(raw) && /\d/.test(raw) && raw.length <= 64) {
+    const v = evalBasicExpr(raw);
+    if (v !== null) return mkCalc(raw, 'Math', `${v}`);
+  }
+  return null;
+}
 
 export interface PaletteCommand {
   id: string;
@@ -43,14 +94,25 @@ export function CommandPalette({
   }, [onClose]);
 
   const items = useMemo<PaletteCommand[]>(() => {
-    const t = text.trim().toLowerCase();
+    const raw = text.trim();
+    const t = raw.toLowerCase();
     const out: PaletteCommand[] = [];
-    if (t) {
+    if (raw) {
+      const calc = quickCalc(raw);
+      if (calc) {
+        out.push({
+          id: 'calc',
+          label: `= ${calc.directAnswer}`,
+          group: 'Instant answer',
+          hint: `Copy · ${calc.subtitle || calc.title}`,
+          run: () => void navigator.clipboard?.writeText(calc.directAnswer),
+        });
+      }
       out.push({
         id: 'search',
-        label: `Search “${text.trim()}”`,
+        label: `Search “${raw}”`,
         group: 'Search',
-        run: () => onSearch(text.trim()),
+        run: () => onSearch(raw),
       });
     }
     const bangMatch = t.match(/^!([a-z0-9._-]*)\s*(.*)$/);

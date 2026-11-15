@@ -1,16 +1,25 @@
 #!/usr/bin/env tsx
+import fs from 'node:fs';
 import {
   cleanAndAutopsyHtml,
   compileSearchQuery,
   CURATED_INDIE_INDEX,
   DEFAULT_SLOP_DOMAINS,
   exportUBlacklistRuleset,
+  isSearchTimeRange,
   SearchLensId,
 } from '../src/core/index.js';
 import {
   getContainerStackStatus,
   runContainerOrchestrationAction,
 } from '../server/containerManager.js';
+import {
+  addUserSource,
+  deepStatus,
+  ensureSeeded,
+  exportUserOpml,
+  importUserOpml,
+} from '../server/deep/index.js';
 import { integrationDefaultsFromEnv } from '../server/downloadManager.js';
 import { executeFederatedSearch } from '../server/federatedSearch.js';
 import { configureNetwork } from '../server/net.js';
@@ -36,14 +45,22 @@ ${BOLD}USAGE${RESET}
   glogg <command> [options]
 
 ${BOLD}COMMANDS${RESET}
-  ${BLUE}search${RESET} <query>            Federated search across 20 real-web, Fediverse, P2P DHT & Usenet indexes
+  ${BLUE}search${RESET} <query>            Federated search across 26 real-web, Fediverse, P2P DHT & Usenet indexes
     --lens <id>             Lens: all | small-web | fediverse | p2p-magnet | usenet-nzb | deep-archives | raw-news | primary | forums | pre-llm
+    --time <range>          Time window: any | day | week | month | year
     --uncensored            Enable 18+ Uncensored & Raw mode (adult DHT/NZB, SafeSearch=0, FOIA/OSINT)
     --max-per-domain <n>    Max results per domain (default: 1)
     --json                  Output raw JSON response
 
   ${BLUE}inspect${RESET} <url>             Deshittify a web page, strip trackers, collapse SEO fluff & extract primary sources
     --json                  Output raw JSON autopsy report
+
+  ${BLUE}deep${RESET} [subcommand]         Manage the local SQLite FTS5 Deep Index (blogs, forums & imageboards)
+    status                  Show indexed posts, sources & crawl state (default)
+    seed                    Refresh open small-web, forum & board directories
+    add <url>               Add & immediately index a feed, forum or board catalog
+    opml-export             Print OPML 2.0 subscriptions to stdout
+    opml-import <file>      Import feeds from an OPML 2.0 file
 
   ${BLUE}containers${RESET} [subcommand]   Manage self-hosted Docker / Podman / Colima stack (Bitmagnet, IPFS, SearXNG, Prowlarr, NZBHydra2, Tor)
     status                  Inspect runtime & container status (default)
@@ -77,7 +94,7 @@ export async function runCli(argv: string[]): Promise<number> {
   // The words after the command: flags, and the values of flags that take one, aren't among them.
   const positional: string[] = [];
   for (let i = 1; i < args.length; i++) {
-    if (args[i] === '--lens' || args[i] === '--max-per-domain') i++;
+    if (args[i] === '--lens' || args[i] === '--time' || args[i] === '--max-per-domain') i++;
     else if (!args[i].startsWith('--')) positional.push(args[i]);
   }
 
@@ -104,6 +121,8 @@ export async function runCli(argv: string[]): Promise<number> {
 
   if (command === 'search') {
     const lens = (getFlagValue('--lens') as SearchLensId) || 'all';
+    const rawTime = getFlagValue('--time');
+    const timeRange = isSearchTimeRange(rawTime) ? rawTime : undefined;
     const uncensoredMode = hasFlag('--uncensored') || hasFlag('--18+');
     const maxPerDomain = Number(getFlagValue('--max-per-domain') ?? 1);
     const jsonMode = hasFlag('--json');
@@ -115,6 +134,7 @@ export async function runCli(argv: string[]): Promise<number> {
 
     const response = await executeFederatedSearch(q, {
       lens,
+      ...(timeRange ? { timeRange } : {}),
       uncensoredMode,
       maxPerDomain,
       // Keys from the environment (MARGINALIA_API_KEY, STACKEXCHANGE_KEY, BRAVE_API_KEY …), as before.
@@ -234,6 +254,61 @@ export async function runCli(argv: string[]): Promise<number> {
       console.log(`${BOLD}Core Takeaway:${RESET}\n  ${report.coreTakeaway}\n`);
     }
     return 0;
+  }
+
+  if (command === 'deep') {
+    const sub = positional[0] || 'status';
+    if (sub === 'status') {
+      const st = await deepStatus();
+      if (hasFlag('--json')) {
+        console.log(JSON.stringify(st, null, 2));
+        return 0;
+      }
+      printBanner();
+      if (!st.available) {
+        console.log(`\n${ROSE}${st.reason}${RESET}`);
+        return 1;
+      }
+      console.log(`\n${BOLD}Deep Index:${RESET} ${GREEN}${st.posts} posts${RESET} · ${Math.round(st.bytes / 1024)} KB · Crawl: ${st.crawling ? `${GREEN}RUNNING${RESET}` : 'IDLE'}`);
+      for (const k of st.byKind) {
+        console.log(`  ${BLUE}${k.kind.padEnd(8)}${RESET} ${String(k.sources).padStart(5)} sources · ${String(k.posts).padStart(6)} posts`);
+      }
+      return 0;
+    }
+    if (sub === 'seed') {
+      const res = await ensureSeeded({ force: true, wait: true });
+      if (hasFlag('--json')) console.log(JSON.stringify(res, null, 2));
+      else console.log(`${GREEN}Added ${res.added} new sources.${RESET}${res.errors.length ? ` (${res.errors.length} directory errors)` : ''}`);
+      return 0;
+    }
+    if (sub === 'add') {
+      const target = positional[1];
+      if (!target) {
+        console.error('Error: Please provide a feed, forum or catalog URL.');
+        return 1;
+      }
+      const src = await addUserSource(target, undefined, { nsfw: hasFlag('--uncensored'), indexNow: true });
+      if (hasFlag('--json')) console.log(JSON.stringify(src, null, 2));
+      else console.log(`${GREEN}Indexed ${src.url}${RESET} (${src.kind} · ${src.posts} posts)`);
+      return 0;
+    }
+    if (sub === 'opml-export') {
+      console.log(await exportUserOpml({ scope: hasFlag('--all') ? 'all' : 'user', nsfw: hasFlag('--uncensored') }));
+      return 0;
+    }
+    if (sub === 'opml-import') {
+      const file = positional[1];
+      if (!file) {
+        console.error('Error: Please provide an OPML file path.');
+        return 1;
+      }
+      const res = await importUserOpml(fs.readFileSync(file, 'utf8'), { nsfw: hasFlag('--uncensored') });
+      if (hasFlag('--json')) console.log(JSON.stringify(res, null, 2));
+      else console.log(`${GREEN}Imported ${res.added} new feeds${RESET} (${res.parsed} outlines read).`);
+      return 0;
+    }
+    console.error(`Error: Unknown deep subcommand "${sub}".`);
+    return 1;
   }
 
   if (command === 'containers') {

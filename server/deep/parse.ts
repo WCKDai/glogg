@@ -294,3 +294,70 @@ export function parseDiscourseDirectory(data: unknown, pageUrl: string): { forum
   const more = list?.more_topics_url;
   return { forums, next: more ? absolute(more.replace(/^\/latest(?=\?|$)/, '/latest.json'), pageUrl) : undefined };
 }
+
+export interface OpmlOutline {
+  xmlUrl: string;
+  htmlUrl?: string;
+  title?: string;
+  category?: string;
+}
+
+/** OPML 1.x / 2.0 subscription lists (`<outline xmlUrl="…">`), nested folders included. */
+export function parseOpml(xml: string): OpmlOutline[] {
+  if (typeof xml !== 'string' || !xml.trim()) return [];
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const out: OpmlOutline[] = [];
+  const seen = new Set<string>();
+  $('outline').each((_, el) => {
+    const node = $(el);
+    const rawXml = node.attr('xmlUrl') || node.attr('xmlurl') || node.attr('url');
+    const xmlUrl = absolute(rawXml, 'https://x');
+    if (!xmlUrl || seen.has(xmlUrl)) return;
+    seen.add(xmlUrl);
+    const htmlUrl = absolute(node.attr('htmlUrl') || node.attr('htmlurl'), xmlUrl);
+    const title = htmlToText(node.attr('title') || node.attr('text') || '', 200) || undefined;
+    const parent = node.parent('outline');
+    const category = parent.length ? htmlToText(parent.attr('title') || parent.attr('text') || '', 80) || undefined : undefined;
+    out.push({ xmlUrl, htmlUrl, title, category });
+  });
+  return out;
+}
+
+function escapeXmlAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Exports deep-index feeds as standard OPML 2.0 grouped by kind. */
+export function exportOpml(sources: { url: string; site: string; title?: string | null; kind: DeepKind }[], docTitle = 'glogg Deep Index Subscriptions'): string {
+  const byKind = new Map<DeepKind, typeof sources>();
+  for (const s of sources) {
+    if (s.kind === 'site') continue;
+    const bucket = byKind.get(s.kind) ?? [];
+    bucket.push(s);
+    byKind.set(s.kind, bucket);
+  }
+  const groups: string[] = [];
+  for (const [kind, items] of byKind.entries()) {
+    const label = kind === 'blog' ? 'Small-Web Blogs' : kind === 'forum' ? 'Independent Forums' : 'Imageboard Catalogs';
+    const rows = items.map((s) => {
+      const text = escapeXmlAttr(s.title || s.site);
+      const xmlUrl = escapeXmlAttr(s.url);
+      const htmlUrl = escapeXmlAttr(`https://${s.site}/`);
+      return `      <outline type="rss" text="${text}" title="${text}" xmlUrl="${xmlUrl}" htmlUrl="${htmlUrl}"/>`;
+    });
+    groups.push(`    <outline text="${label}" title="${label}">\n${rows.join('\n')}\n    </outline>`);
+  }
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<opml version="2.0">',
+    '  <head>',
+    `    <title>${escapeXmlAttr(docTitle)}</title>`,
+    '  </head>',
+    '  <body>',
+    ...groups,
+    '  </body>',
+    '</opml>',
+    '',
+  ].join('\n');
+}
+

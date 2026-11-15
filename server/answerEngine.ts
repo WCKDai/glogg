@@ -70,9 +70,16 @@ async function fetchWikipediaDirectExtract(
       }>(apiUrl, 3200);
 
       const pages = Object.values(data?.query?.pages ?? {});
+      const queryWordSet = new Set(
+        analysis.normalizedQuery
+          .toLowerCase()
+          .split(/[^a-z0-9+.#-]+/)
+          .filter((w) => w.length >= 2)
+      );
+      const subjectNorm = (analysis.entitySubject || analysis.keywordQuery).toLowerCase().trim();
       for (const page of pages) {
         if (typeof page.title !== 'string' || typeof page.extract !== 'string' || page.extract.length < 40) continue;
-        if (/may refer to:/i.test(page.extract)) continue;
+        if (/may refer to:/i.test(page.extract) || /\(disambiguation\)/i.test(page.title)) continue;
         const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(
           page.title.replace(/\s+/g, '_')
         )}`;
@@ -82,12 +89,34 @@ async function fetchWikipediaDirectExtract(
           page.extract,
           pageUrl
         );
-        if (rel.matchedAnchor && rel.relevanceScore >= 46) {
+        const cleanTitleLower = page.title
+          .replace(/\s*\([^)]*\)\s*/g, '')
+          .toLowerCase()
+          .trim();
+        const titleWords = cleanTitleLower
+          .split(/[^a-z0-9+.#-]+/)
+          .filter((w) => w.length >= 3 && !/^(?:the|and|for|with|from)$/.test(w));
+        const unqueriedTitleWords = titleWords.filter(
+          (tw) => ![...queryWordSet].some((qw) => qw === tw || (qw.length >= 4 && (tw.startsWith(qw) || qw.startsWith(tw))))
+        );
+        const exactTitleMatch = cleanTitleLower === subjectNorm || cleanTitleLower === analysis.normalizedQuery.toLowerCase().trim();
+        // Prevent narrow sub-topic Wikipedia articles (e.g. "Community cat" for "cat care") from hijacking multi-word general queries
+        if (
+          !exactTitleMatch &&
+          analysis.coreKeywords.length >= 2 &&
+          unqueriedTitleWords.length > 0 &&
+          titleWords.length - unqueriedTitleWords.length < analysis.coreKeywords.length
+        ) {
+          continue;
+        }
+        const alignmentBonus = exactTitleMatch ? 18 : -unqueriedTitleWords.length * 12;
+        const effectiveRelevance = rel.relevanceScore + (page.index === 1 ? 8 : 0) + alignmentBonus;
+        if (rel.matchedAnchor && effectiveRelevance >= 46) {
           candidates.push({
             title: page.title,
             extract: page.extract.replace(/\s+/g, ' ').trim(),
             url: pageUrl,
-            relevance: rel.relevanceScore + (page.index === 1 ? 8 : 0),
+            relevance: effectiveRelevance,
           });
         }
       }
@@ -142,11 +171,16 @@ async function fetchDuckDuckGoZeroClick(
   keyFacts: { label: string; value: string }[];
 } | null> {
   const queries = Array.from(new Set([analysis.rawQuery, analysis.entitySubject].filter(Boolean)));
-  for (const q of queries) {
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(
-      q
-    )}&format=json&no_html=1&skip_disambig=1`;
-    const data = await fetchJsonFast<DdgZeroClickResponse>(url, 2800);
+  const responses = await Promise.all(
+    queries.map((q) => {
+      const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(
+        q
+      )}&format=json&no_html=1&skip_disambig=1`;
+      return fetchJsonFast<DdgZeroClickResponse>(url, 2600).then((data) => ({ q, data }));
+    })
+  );
+
+  for (const { q, data } of responses) {
     if (!data) continue;
 
     const answerText = (
@@ -283,7 +317,7 @@ async function fetchStackExchangeTopAnswer(
  * Extracts multi-source key takeaways & citations from the top-ranked surfaced results.
  */
 function buildExtractiveTakeaways(
-  analysis: QueryAnalysis,
+  _analysis: QueryAnalysis,
   surfacedResults: ScoredSearchResult[]
 ): {
   takeaways: { text: string; citationIndex: number }[];
@@ -297,9 +331,11 @@ function buildExtractiveTakeaways(
   const takeaways: { text: string; citationIndex: number }[] = [];
 
   for (const res of topCandidates) {
+    if (/^Published in .+ · Cited by 0 peer-reviewed works/i.test(res.snippet)) continue;
     const cleanSnippet = res.snippet
       .replace(/^(?:Surfaced via Hacker News|Shared on Fediverse|GDELT Unfiltered Global News Wire)[^.]*\.\s*/i, '')
       .replace(/\bDiscussion: https?:\/\/\S+/gi, '')
+      .replace(/\s*·\s*AT-URI:\s*at:\/\/\S+/gi, '')
       .replace(/\s*·\s*★\s*[\d,]+.*$/, '')
       .replace(/\s*\[SearXNG via [^\]]+\]\s*/g, '')
       .replace(/\s+/g, ' ')

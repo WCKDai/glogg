@@ -2,40 +2,39 @@
 
 ## Reporting a vulnerability
 
-Please report security problems **privately**:
+Please report security vulnerabilities **privately**:
 
-- [Open a private security advisory](https://github.com/WCKDai/glogg/security/advisories/new) (preferred), or
-- email **boy@wckd.cc** with "glogg security" in the subject.
+- [Open a private GitHub Security Advisory](https://github.com/WCKDai/glogg/security/advisories/new) (preferred), or
+- email **boy@wckd.cc** with `"glogg security"` in the subject line.
 
-Include what's affected, how to reproduce it, and what an attacker gains. You'll get an answer within 7 days. Fixes are released as soon as they're ready, and you're credited in the changelog unless you'd rather not be.
+Include the affected component or mode (`private` vs `public`), reproduction steps, and the concrete impact. You will receive an initial response within 7 days. Fixes ship on `main` as soon as they are verified, with credit in [`CHANGELOG.md`](./CHANGELOG.md) unless you prefer to remain anonymous.
 
-Please don't open public issues for vulnerabilities, and don't test against glogg instances you don't own.
+Please do not open public issues for undisclosed vulnerabilities, and never test exploits against public glogg instances you do not operate.
 
 ## Supported versions
 
-glogg is pre-1.0 and released from `main`. Security fixes go into the latest release only; update with `git pull` and a rebuild ([docs/install.md](./docs/install.md#update)).
+glogg is pre-1.0 and maintained on `main` (latest release `0.5.x`). Security fixes land in the latest release; upgrade with `git pull` and rebuild ([`docs/install.md`](./docs/install.md#update)).
 
-## What's in scope
+## Scope
 
-glogg holds API keys (debrid, cloud storage, AI) and runs tools on your server, so these matter most:
+glogg runs in two modes — `GLOGG_MODE=private` (personal workbench holding API keys and tools) and `GLOGG_MODE=public` (multi-user public search service). High-priority issues include:
 
-- reading or changing keys and settings without being signed in, or from another website;
-- getting glogg to fetch private or local addresses (SSRF) when `GLOGG_ALLOW_PRIVATE_FETCH` is off;
-- script or markup from search results, pages, feeds or tool output running in glogg's page (XSS);
-- writing files outside the downloads folder, or overwriting files;
-- bypassing the password, the sign-in rate limit, or the `Host` check;
-- command injection through the container manager or plugins' inputs.
+- Reading or modifying stored keys, profiles, or plugin settings without authentication or cross-origin;
+- Reaching administrative, plugin, download, crawl, or private-key surfaces when `GLOGG_MODE=public`;
+- Server-Side Request Forgery (SSRF) or DNS-rebinding bypasses in the reader, Research, media proxy, or Deep Index when `GLOGG_ALLOW_PRIVATE_FETCH` is unset;
+- Cross-Site Scripting (XSS) or Content Security Policy bypasses from upstream search snippets, cleaned pages, feeds, or tool outputs;
+- Path traversal or arbitrary file overwrite in the download manager;
+- Bypassing `GLOGG_PASSWORD`, session revocation, sign-in rate limiting, `GLOGG_TELEMETRY_TOKEN`, or the `Host` allowlist;
+- Command injection in container orchestration or plugin inputs.
 
-Out of scope: problems that need an attacker to already control your glogg server, its data folder or a plugin you installed; denial of service by sending a lot of traffic; and missing hardening headers without a demonstrated impact.
+**Out of scope:** attacks requiring prior root/shell access to the host or writable `$GLOGG_HOME`, volumetric network DoS, and theoretical header scanners without a demonstrable exploit path.
 
-## How glogg protects you
+## Built-in defenses
 
-The full list is in [Security in the README](./README.md#security). In short:
+See [Security in `README.md`](./README.md#security) and [`docs/public-service.md`](./docs/public-service.md) for full details:
 
-- **Local by default.** glogg listens on `127.0.0.1`, and Docker Compose publishes it there only. On a network, set `GLOGG_PASSWORD`.
-- **Keys stay on the server.** They're stored in glogg's data folder with mode 600 and masked in every API response.
-- **No telemetry.** The page loads nothing from third parties; site icons are proxied through glogg, and no page sends a `Referer`.
-- **Untrusted content stays untrusted.** Pages are cleaned on the server, rendered as text, and the app runs under a strict Content Security Policy. Research tells models to ignore instructions found in pages.
-- **Public fetches only.** The reader, Research and the deep index refuse private addresses at every redirect.
-- **Containers without a shell.** The container manager calls `docker`/`podman` with `execFile` and an allowlist of services, never a shell string. glogg's own container runs read-only, as an unprivileged user, with every capability dropped.
-- **CI.** Tests can't reach the network; dependencies are audited (`npm audit`) and updated by Dependabot.
+- **Loopback by default:** binds to `127.0.0.1` unless explicitly configured otherwise.
+- **Hardened `public` mode:** disables plugins, downloads, private indexers, crawl administration, and caller-supplied backend URLs at process startup.
+- **DNS-pinned public fetches:** resolves each redirect hop once, blocks loopback/private/link-local/metadata addresses (and mixed DNS sets), and pins socket connections to the validated IP while preserving TLS SNI.
+- **Strict CSP & zero third-party leaks:** hash-locked CSP (`frame-ancestors 'none'`), `Referrer-Policy: no-referrer`, and same-origin proxying for favicons and Commons thumbnails.
+- **Shell-free container execution:** invokes `docker`/`podman` via `execFile` with strict service allowlists; production containers run unprivileged with `read_only: true`, `cap_drop: [ALL]`, and `no-new-privileges:true`.

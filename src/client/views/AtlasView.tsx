@@ -1,6 +1,6 @@
 import { useFeatures } from '../capabilities.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Dices, Pause, Play, Plus, RefreshCw, Shuffle } from 'lucide-react';
+import { BookOpen, Dices, Download, Pause, Play, Plus, RefreshCw, Shuffle, Trash2, Upload } from 'lucide-react';
 import type { IndieSiteEntry } from '../../core/browser.js';
 import { Favicon } from '../components/Favicon.js';
 import { api, plural, relativeDate } from '../lib.js';
@@ -451,6 +451,25 @@ function Directory({
             <button type="button" className="icon-btn ghost" title="Read clean" aria-label={`Read ${it.site}`} onClick={() => onRead(siteUrl(it))}>
               <BookOpen size={13} />
             </button>
+            {features.administration && it.origin === 'user' && (
+              <button
+                type="button"
+                className="icon-btn ghost"
+                title="Remove source"
+                aria-label={`Remove ${it.site}`}
+                onClick={async () => {
+                  try {
+                    await api(`/api/deep/sources/${it.id}`, { method: 'DELETE' });
+                    setItems((prev) => prev.filter((x) => x.id !== it.id));
+                    setTotal((n) => Math.max(0, n - 1));
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -486,6 +505,7 @@ function DeepIndexPanel({
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [adult, setAdult] = useState(false);
+  const opmlRef = useRef<HTMLInputElement>(null);
 
   if (!status) return <div className="skeleton-stack" aria-busy="true"><div className="skeleton w-80" /></div>;
   if (!status.available) return <div className="notice notice-warn">{status.reason}</div>;
@@ -508,22 +528,41 @@ function DeepIndexPanel({
     }
   };
 
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addSource = async (indexNow: boolean) => {
     if (!url.trim()) return;
     setBusy(true);
     try {
-      const { source } = await api<{ source: { kind: string; url: string } }>('/api/deep/sources', {
+      const json: Record<string, unknown> = { url, nsfw: uncensored && adult };
+      if (indexNow) json.indexNow = true;
+      const { source, indexed } = await api<{ source: { kind: string; url: string }; indexed?: number }>('/api/deep/sources', {
         method: 'POST',
-        json: { url, nsfw: uncensored && adult },
+        json,
       });
-      onToast?.(`Added as ${source.kind === 'board' ? 'a board' : source.kind === 'forum' ? 'a forum' : 'a blog'}. It's crawled next.`, 'ok');
+      const kind = source.kind === 'board' ? 'a board' : source.kind === 'forum' ? 'a forum' : 'a blog';
+      onToast?.(indexed ? `Added as ${kind} and indexed ${plural(indexed, 'post')}.` : `Added as ${kind}. It's crawled next.`, 'ok');
       setUrl('');
       await reload();
     } catch (err) {
       onToast?.((err as Error).message, 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const importOpml = async (file: File) => {
+    setBusy(true);
+    try {
+      const res = await api<{ imported: number; total: number }>('/api/deep/opml', {
+        method: 'POST',
+        json: { xml: await file.text(), nsfw: uncensored && adult },
+      });
+      onToast?.(`Imported ${plural(res.imported, 'feed')} (${res.total} in OPML).`, 'ok');
+      await reload();
+    } catch (err) {
+      onToast?.((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+      if (opmlRef.current) opmlRef.current.value = '';
     }
   };
 
@@ -587,7 +626,7 @@ function DeepIndexPanel({
 
       {features.administration && <section className="plugin-section">
         <h3 className="section-title">Add a source</h3>
-        <form className="tool-form inline" onSubmit={add}>
+        <form className="tool-form inline" onSubmit={(e) => { e.preventDefault(); void addSource(false); }}>
           <div className="field">
             <label htmlFor="deep-add">Blog, forum, board or feed</label>
             <input
@@ -602,6 +641,9 @@ function DeepIndexPanel({
           <button className="btn btn-primary" disabled={busy || !url.trim()}>
             <Plus size={13} /> Add
           </button>
+          <button type="button" className="btn" disabled={busy || !url.trim()} onClick={() => void addSource(true)}>
+            Add &amp; index
+          </button>
         </form>
         {uncensored && (
           <label className="check-row">
@@ -609,6 +651,25 @@ function DeepIndexPanel({
             18+ source: only shown in 18+ mode
           </label>
         )}
+        <div className="row-gap" style={{ marginTop: 10 }}>
+          <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => opmlRef.current?.click()}>
+            <Upload size={13} /> Import OPML
+          </button>
+          <a className="btn btn-sm btn-ghost" href="/api/deep/opml" download="glogg-feeds.opml">
+            <Download size={13} /> Export OPML
+          </a>
+          <input
+            ref={opmlRef}
+            type="file"
+            accept=".opml,.xml"
+            hidden
+            aria-label="Import OPML file"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void importOpml(f);
+            }}
+          />
+        </div>
         <p className="setting-hint">glogg works out what it is: an RSS/Atom/JSON feed, a Discourse forum, an imageboard catalog, or a page whose feed it can find.</p>
       </section>}
 

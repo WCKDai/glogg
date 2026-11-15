@@ -1,6 +1,6 @@
 import { InstantAnswerPayload } from './types.js';
 
-export const SEARCH_STOPWORDS = new Set([
+export const SEARCH_STOPWORDS = /* @__PURE__ */ new Set([
   'a',
   'about',
   'above',
@@ -182,7 +182,7 @@ export const SEARCH_STOPWORDS = new Set([
 ]);
 
 // High-frequency generic words that are weaker than specific entity/technical nouns
-export const GENERIC_ATTRIBUTE_WORDS = new Set([
+export const GENERIC_ATTRIBUTE_WORDS = /* @__PURE__ */ new Set([
   'capital',
   'population',
   'president',
@@ -280,6 +280,14 @@ export function analyzeQueryIntent(rawQuery: string): QueryAnalysis {
   return analysis;
 }
 
+function anchorSpecWeight(token: string): number {
+  let w = token.length;
+  // Identifiers with digits/hyphens/symbols (HL-L2350DW, C++, ipv6) are ultra-specific anchors; -ing/-ed participles are weaker than nouns.
+  if (/[\d+#._-]/.test(token)) w += 4;
+  else if (token.length >= 6 && /(?:ing|ed)$/.test(token)) w -= 3;
+  return w;
+}
+
 function analyzeQuery(rawQuery: string): QueryAnalysis {
   const cleaned = rawQuery
     .trim()
@@ -335,10 +343,10 @@ function analyzeQuery(rawQuery: string): QueryAnalysis {
   // Deduplicate while preserving order
   coreKeywords = Array.from(new Set(coreKeywords));
 
-  // Identify anchor tokens: non-generic specific tokens first, sorted by specificity/length
+  // Identify anchor tokens: non-generic specific tokens first, sorted by specificity
   const specificTokens = coreKeywords.filter((t) => !GENERIC_ATTRIBUTE_WORDS.has(t));
   const anchorCandidates = specificTokens.length > 0 ? specificTokens : coreKeywords;
-  const anchorTokens = [...anchorCandidates].sort((a, b) => b.length - a.length);
+  const anchorTokens = [...anchorCandidates].sort((a, b) => anchorSpecWeight(b) - anchorSpecWeight(a));
 
   const isQuestion =
     /\?$/.test(rawQuery.trim()) ||
@@ -376,14 +384,130 @@ function analyzeQuery(rawQuery: string): QueryAnalysis {
   };
 }
 
+type UnitSpec = [group: string, factor: number, label: string];
+const UNIT_TABLE: Record<string, UnitSpec> = {
+  b: ['byte', 1, 'B'], byte: ['byte', 1, 'B'], bytes: ['byte', 1, 'B'],
+  kb: ['byte', 1024, 'KB'], kib: ['byte', 1024, 'KiB'],
+  mb: ['byte', 1024 ** 2, 'MB'], mib: ['byte', 1024 ** 2, 'MiB'],
+  gb: ['byte', 1024 ** 3, 'GB'], gib: ['byte', 1024 ** 3, 'GiB'],
+  tb: ['byte', 1024 ** 4, 'TB'], tib: ['byte', 1024 ** 4, 'TiB'],
+  pb: ['byte', 1024 ** 5, 'PB'], pib: ['byte', 1024 ** 5, 'PiB'],
+  mm: ['len', 0.001, 'mm'], millimeter: ['len', 0.001, 'mm'], millimeters: ['len', 0.001, 'mm'], millimetre: ['len', 0.001, 'mm'], millimetres: ['len', 0.001, 'mm'],
+  cm: ['len', 0.01, 'cm'], centimeter: ['len', 0.01, 'cm'], centimeters: ['len', 0.01, 'cm'], centimetre: ['len', 0.01, 'cm'], centimetres: ['len', 0.01, 'cm'],
+  m: ['len', 1, 'm'], meter: ['len', 1, 'm'], meters: ['len', 1, 'm'], metre: ['len', 1, 'm'], metres: ['len', 1, 'm'],
+  km: ['len', 1000, 'km'], kilometer: ['len', 1000, 'km'], kilometers: ['len', 1000, 'km'], kilometre: ['len', 1000, 'km'], kilometres: ['len', 1000, 'km'],
+  in: ['len', 0.0254, 'in'], inch: ['len', 0.0254, 'in'], inches: ['len', 0.0254, 'in'],
+  ft: ['len', 0.3048, 'ft'], foot: ['len', 0.3048, 'ft'], feet: ['len', 0.3048, 'ft'],
+  yd: ['len', 0.9144, 'yd'], yard: ['len', 0.9144, 'yd'], yards: ['len', 0.9144, 'yd'],
+  mi: ['len', 1609.344, 'miles'], mile: ['len', 1609.344, 'miles'], miles: ['len', 1609.344, 'miles'],
+  nmi: ['len', 1852, 'nmi'],
+  mg: ['mass', 0.001, 'mg'], g: ['mass', 1, 'g'], gram: ['mass', 1, 'g'], grams: ['mass', 1, 'g'],
+  kg: ['mass', 1000, 'kg'], kilogram: ['mass', 1000, 'kg'], kilograms: ['mass', 1000, 'kg'],
+  oz: ['mass', 28.349523125, 'oz'], ounce: ['mass', 28.349523125, 'oz'], ounces: ['mass', 28.349523125, 'oz'],
+  lb: ['mass', 453.59237, 'lbs'], lbs: ['mass', 453.59237, 'lbs'], pound: ['mass', 453.59237, 'lbs'], pounds: ['mass', 453.59237, 'lbs'],
+  st: ['mass', 6350.29318, 'st'], stone: ['mass', 6350.29318, 'st'],
+  ml: ['vol', 1, 'mL'], l: ['vol', 1000, 'L'], liter: ['vol', 1000, 'L'], liters: ['vol', 1000, 'L'], litre: ['vol', 1000, 'L'], litres: ['vol', 1000, 'L'],
+  floz: ['vol', 29.57352956, 'fl oz'], cup: ['vol', 236.5882365, 'cups'], cups: ['vol', 236.5882365, 'cups'],
+  pt: ['vol', 473.176473, 'pt'], pint: ['vol', 473.176473, 'pt'], pints: ['vol', 473.176473, 'pt'],
+  qt: ['vol', 946.352946, 'qt'], quart: ['vol', 946.352946, 'qt'], quarts: ['vol', 946.352946, 'qt'],
+  gal: ['vol', 3785.411784, 'gal'], gallon: ['vol', 3785.411784, 'gal'], gallons: ['vol', 3785.411784, 'gal'],
+  mps: ['spd', 1, 'm/s'], kmh: ['spd', 1 / 3.6, 'km/h'], kph: ['spd', 1 / 3.6, 'km/h'],
+  mph: ['spd', 0.44704, 'mph'], kn: ['spd', 0.514444, 'knots'], knot: ['spd', 0.514444, 'knots'], knots: ['spd', 0.514444, 'knots'],
+  ms: ['time', 0.001, 'ms'], s: ['time', 1, 's'], sec: ['time', 1, 's'], secs: ['time', 1, 's'], second: ['time', 1, 's'], seconds: ['time', 1, 's'],
+  min: ['time', 60, 'min'], mins: ['time', 60, 'min'], minute: ['time', 60, 'min'], minutes: ['time', 60, 'min'],
+  h: ['time', 3600, 'hr'], hr: ['time', 3600, 'hr'], hrs: ['time', 3600, 'hr'], hour: ['time', 3600, 'hr'], hours: ['time', 3600, 'hr'],
+  d: ['time', 86400, 'days'], day: ['time', 86400, 'days'], days: ['time', 86400, 'days'],
+  wk: ['time', 604800, 'weeks'], week: ['time', 604800, 'weeks'], weeks: ['time', 604800, 'weeks'],
+};
+
+const HTTP_STATUS_INFO: Record<number, [string, string]> = {
+  100: ['Continue', 'Interim response; client may send the request body.'],
+  101: ['Switching Protocols', 'Server is switching protocols as requested (e.g. WebSocket upgrade).'],
+  200: ['OK', 'Standard response for a successful HTTP request.'],
+  201: ['Created', 'Request succeeded and created a new resource.'],
+  202: ['Accepted', 'Request accepted for asynchronous processing.'],
+  204: ['No Content', 'Succeeded with an empty response body.'],
+  206: ['Partial Content', 'Range request succeeded with partial payload.'],
+  301: ['Moved Permanently', 'Resource permanently moved to the Location URI.'],
+  302: ['Found', 'Temporary redirect to another URI.'],
+  304: ['Not Modified', 'Cached representation is still fresh (ETag / If-Modified-Since).'],
+  307: ['Temporary Redirect', 'Temporary redirect preserving HTTP method and body.'],
+  308: ['Permanent Redirect', 'Permanent redirect preserving HTTP method and body.'],
+  400: ['Bad Request', 'Malformed syntax, invalid parameters, or invalid request framing.'],
+  401: ['Unauthorized', 'Valid authentication credentials are required.'],
+  403: ['Forbidden', 'Server understood the request but refuses authorization.'],
+  404: ['Not Found', 'No resource matches the requested URI.'],
+  405: ['Method Not Allowed', 'Target resource does not support this HTTP method.'],
+  408: ['Request Timeout', 'Server timed out waiting for the client request.'],
+  409: ['Conflict', 'Request conflicts with current state of the target resource.'],
+  410: ['Gone', 'Resource is permanently removed with no forwarding address.'],
+  413: ['Content Too Large', 'Request payload exceeds the server limit.'],
+  415: ['Unsupported Media Type', 'Payload Content-Type or encoding is not supported.'],
+  418: ["I'm a teapot", 'RFC 2324 HTCPCP joke status: server refuses to brew coffee in a teapot.'],
+  422: ['Unprocessable Content', 'Valid syntax, but semantic validation failed.'],
+  429: ['Too Many Requests', 'Rate limit exceeded; check Retry-After before retrying.'],
+  451: ['Unavailable For Legal Reasons', 'Access denied due to a legal demand or censorship order.'],
+  500: ['Internal Server Error', 'Unhandled server-side failure.'],
+  502: ['Bad Gateway', 'Reverse proxy received an invalid upstream response.'],
+  503: ['Service Unavailable', 'Server is overloaded or down for maintenance.'],
+  504: ['Gateway Timeout', 'Upstream server failed to respond in time.'],
+};
+
+const MATH_FUNCS: Record<string, string> = {
+  sqrt: 'Math.sqrt', cbrt: 'Math.cbrt', abs: 'Math.abs',
+  sin: 'Math.sin', cos: 'Math.cos', tan: 'Math.tan',
+  asin: 'Math.asin', acos: 'Math.acos', atan: 'Math.atan',
+  log: 'Math.log10', log10: 'Math.log10', ln: 'Math.log', log2: 'Math.log2',
+  exp: 'Math.exp', floor: 'Math.floor', ceil: 'Math.ceil', round: 'Math.round',
+  pi: 'Math.PI', tau: '(Math.PI*2)', e: 'Math.E',
+};
+
+function parseCssColor(q: string): [number, number, number] | null {
+  const hex = q.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split('').map((c) => c + c).join('') : hex[1];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  const rgb = q.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)$/i);
+  if (rgb) {
+    const [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+    return r <= 255 && g <= 255 && b <= 255 ? [r, g, b] : null;
+  }
+  const hsl = q.match(/^hsla?\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)%\s*,\s*(\d+(?:\.\d+)?)%(?:\s*,\s*[\d.]+)?\s*\)$/i);
+  if (hsl) {
+    const h = ((Number(hsl[1]) % 360) + 360) % 360;
+    const s = Math.min(100, Number(hsl[2])) / 100;
+    const l = Math.min(100, Number(hsl[3])) / 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+    return [f(0), f(8), f(4)];
+  }
+  return null;
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn), d = max - min;
+  const l = (max + min) / 2;
+  if (d === 0) return [0, 0, Math.round(l * 100)];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === rn ? ((gn - bn) / d + (gn < bn ? 6 : 0)) * 60 : max === gn ? ((bn - rn) / d + 2) * 60 : ((rn - gn) / d + 4) * 60;
+  return [Math.round(h) % 360, Math.round(s * 100), Math.round(l * 100)];
+}
+
+function intToIp(n: number): string {
+  return `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`;
+}
+
 /**
- * Instant Calculator, Unit Converter, Base Converter & Timestamp Evaluator
+ * Instant Calculator, Unit Converter, Base/Color/CIDR/Epoch/HTTP/Cron Evaluator
  */
 export function evaluateInstantComputation(rawQuery: string): InstantAnswerPayload | null {
   const q = rawQuery.trim();
   const lower = q.toLowerCase();
 
-  // 1. Percentage: "18% of 450"
+  // 1. Percentage: "18% of 450" or "45 is what % of 180"
   const pctMatch = lower.match(/^(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)$/i);
   if (pctMatch) {
     const pct = parseFloat(pctMatch[1]);
@@ -398,9 +522,22 @@ export function evaluateInstantComputation(rawQuery: string): InstantAnswerPaylo
       citations: [],
     };
   }
+  const whatPct = lower.match(/^(\d+(?:\.\d+)?)\s+is\s+what\s+(?:%|percent(?:age)?)\s+of\s+(\d+(?:\.\d+)?)$/i);
+  if (whatPct && parseFloat(whatPct[2]) !== 0) {
+    const part = parseFloat(whatPct[1]), whole = parseFloat(whatPct[2]);
+    const pct = (part / whole) * 100;
+    return {
+      kind: 'computation',
+      title: `${pct.toLocaleString('en-US', { maximumFractionDigits: 4 })}%`,
+      subtitle: `Percentage (${part} of ${whole})`,
+      directAnswer: `(${part} ÷ ${whole}) × 100 = ${pct.toLocaleString('en-US', { maximumFractionDigits: 4 })}%`,
+      confidence: 'verified',
+      citations: [],
+    };
+  }
 
-  // 2. Base conversion: "255 in hex", "0xff in decimal", "42 in binary"
-  const baseMatch = lower.match(/^(0x[0-9a-f]+|0b[01]+|\d+)\s+(?:in|to|as)\s+(hex|hexadecimal|bin|binary|dec|decimal|oct|octal)$/i);
+  // 2. Base conversion: "255 in hex", "0xff in decimal", "42 in binary", "0o755 in binary"
+  const baseMatch = lower.match(/^(0x[0-9a-f]+|0b[01]+|0o[0-7]+|\d+)\s+(?:in|to|as)\s+(hex|hexadecimal|bin|binary|dec|decimal|oct|octal)$/i);
   if (baseMatch) {
     const rawNum = baseMatch[1];
     const target = baseMatch[2];
@@ -408,144 +545,235 @@ export function evaluateInstantComputation(rawQuery: string): InstantAnswerPaylo
       ? parseInt(rawNum.slice(2), 16)
       : rawNum.startsWith('0b')
       ? parseInt(rawNum.slice(2), 2)
+      : rawNum.startsWith('0o')
+      ? parseInt(rawNum.slice(2), 8)
       : parseInt(rawNum, 10);
-    if (!Number.isNaN(parsed)) {
-      let formatted = '';
-      if (target.startsWith('hex')) formatted = `0x${parsed.toString(16).toUpperCase()}`;
-      else if (target.startsWith('bin')) formatted = `0b${parsed.toString(2)}`;
-      else if (target.startsWith('oct')) formatted = `0o${parsed.toString(8)}`;
-      else formatted = parsed.toString(10);
-
+    if (!Number.isNaN(parsed) && Number.isSafeInteger(parsed)) {
+      const formatted = target.startsWith('hex')
+        ? `0x${parsed.toString(16).toUpperCase()}`
+        : target.startsWith('bin')
+        ? `0b${parsed.toString(2)}`
+        : target.startsWith('oct')
+        ? `0o${parsed.toString(8)}`
+        : parsed.toString(10);
       return {
         kind: 'computation',
         title: formatted,
         subtitle: `Base Conversion (${rawNum} → ${target})`,
-        directAnswer: `Decimal: ${parsed.toLocaleString()} · Hex: 0x${parsed.toString(16).toUpperCase()} · Binary: 0b${parsed.toString(2)}`,
+        directAnswer: `Decimal: ${parsed.toLocaleString()} · Hex: 0x${parsed.toString(16).toUpperCase()} · Octal: 0o${parsed.toString(8)} · Binary: 0b${parsed.toString(2)}`,
         confidence: 'verified',
         citations: [],
       };
     }
   }
 
-  // 3. Temperature & Unit conversions: "72f in c", "100c in f", "100 km in miles", "4096 mb in gb"
-  const unitMatch = lower.match(
-    /^(-?\d+(?:\.\d+)?)\s*(c|celsius|f|fahrenheit|km|kilometers?|mi|miles?|kg|kilograms?|lbs?|pounds?|b|bytes?|kb|mb|gb|tb)\s+(?:in|to|as)\s+(c|celsius|f|fahrenheit|km|kilometers?|mi|miles?|kg|kilograms?|lbs?|pounds?|b|bytes?|kb|mb|gb|tb)$/i
-  );
+  // 3. Temperature & Physical / Digital Unit conversions
+  const unitMatch = lower.match(/^(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+(?:in|to|as)\s+([a-z]+)$/i);
   if (unitMatch) {
     const val = parseFloat(unitMatch[1]);
     const from = unitMatch[2].toLowerCase();
     const to = unitMatch[3].toLowerCase();
-
-    const byteUnits: Record<string, number> = {
-      b: 1,
-      byte: 1,
-      bytes: 1,
-      kb: 1024,
-      mb: 1024 ** 2,
-      gb: 1024 ** 3,
-      tb: 1024 ** 4,
-    };
-
-    if (from in byteUnits && to in byteUnits) {
-      const resVal = (val * byteUnits[from]) / byteUnits[to];
+    const tempKey = (u: string) => (u === 'c' || u === 'celsius' ? 'C' : u === 'f' || u === 'fahrenheit' ? 'F' : u === 'k' || u === 'kelvin' ? 'K' : null);
+    const tf = tempKey(from), tt = tempKey(to);
+    if (tf && tt && tf !== tt) {
+      const c = tf === 'C' ? val : tf === 'F' ? ((val - 32) * 5) / 9 : val - 273.15;
+      const out = tt === 'C' ? c : tt === 'F' ? (c * 9) / 5 + 32 : c + 273.15;
+      const sym = tt === 'K' ? 'K' : `°${tt}`;
+      const fromSym = tf === 'K' ? 'K' : `°${tf}`;
       return {
         kind: 'computation',
-        title: `${resVal.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${to.toUpperCase()}`,
-        subtitle: `Binary Storage Conversion (1024-base)`,
-        directAnswer: `${val.toLocaleString()} ${from.toUpperCase()} = ${resVal.toLocaleString('en-US', {
-          maximumFractionDigits: 6,
-        })} ${to.toUpperCase()} (${(val * byteUnits[from]).toLocaleString()} bytes)`,
+        title: `${out.toFixed(2)} ${sym}`,
+        subtitle: `${val} ${fromSym} to ${tt === 'C' ? 'Celsius' : tt === 'F' ? 'Fahrenheit' : 'Kelvin'}`,
+        directAnswer: `${val} ${fromSym} = ${out.toFixed(2)} ${sym} (${(c + 273.15).toFixed(2)} K)`,
         confidence: 'verified',
         citations: [],
       };
     }
-
-    if ((from === 'f' || from === 'fahrenheit') && (to === 'c' || to === 'celsius')) {
-      const c = ((val - 32) * 5) / 9;
+    const uf = UNIT_TABLE[from], ut = UNIT_TABLE[to];
+    if (uf && ut && uf[0] === ut[0]) {
+      const base = val * uf[1];
+      const resVal = base / ut[1];
+      const digits = uf[0] === 'byte' ? 6 : 3;
+      const formatted = uf[0] === 'byte'
+        ? resVal.toLocaleString('en-US', { maximumFractionDigits: digits })
+        : Number.isInteger(resVal)
+        ? String(resVal)
+        : resVal.toFixed(digits);
       return {
         kind: 'computation',
-        title: `${c.toFixed(2)} °C`,
-        subtitle: `${val} °F to Celsius`,
-        directAnswer: `(${val}°F − 32) × 5/9 = ${c.toFixed(2)}°C`,
-        confidence: 'verified',
-        citations: [],
-      };
-    }
-    if ((from === 'c' || from === 'celsius') && (to === 'f' || to === 'fahrenheit')) {
-      const f = (val * 9) / 5 + 32;
-      return {
-        kind: 'computation',
-        title: `${f.toFixed(2)} °F`,
-        subtitle: `${val} °C to Fahrenheit`,
-        directAnswer: `(${val}°C × 9/5) + 32 = ${f.toFixed(2)}°F`,
-        confidence: 'verified',
-        citations: [],
-      };
-    }
-    if (from.startsWith('km') && to.startsWith('mi')) {
-      const mi = val * 0.621371;
-      return {
-        kind: 'computation',
-        title: `${mi.toFixed(3)} miles`,
-        subtitle: `${val} km to miles`,
-        directAnswer: `${val} km × 0.621371 = ${mi.toFixed(3)} miles`,
-        confidence: 'verified',
-        citations: [],
-      };
-    }
-    if (from.startsWith('mi') && to.startsWith('km')) {
-      const km = val * 1.60934;
-      return {
-        kind: 'computation',
-        title: `${km.toFixed(3)} km`,
-        subtitle: `${val} miles to kilometers`,
-        directAnswer: `${val} miles × 1.60934 = ${km.toFixed(3)} km`,
-        confidence: 'verified',
-        citations: [],
-      };
-    }
-    if (from.startsWith('lb') && to.startsWith('kg')) {
-      const kg = val * 0.45359237;
-      return {
-        kind: 'computation',
-        title: `${kg.toFixed(3)} kg`,
-        subtitle: `${val} lbs to kilograms`,
-        directAnswer: `${val} lbs × 0.453592 = ${kg.toFixed(3)} kg`,
-        confidence: 'verified',
-        citations: [],
-      };
-    }
-    if (from.startsWith('kg') && to.startsWith('lb')) {
-      const lbs = val / 0.45359237;
-      return {
-        kind: 'computation',
-        title: `${lbs.toFixed(3)} lbs`,
-        subtitle: `${val} kg to pounds`,
-        directAnswer: `${val} kg ÷ 0.453592 = ${lbs.toFixed(3)} lbs`,
+        title: `${formatted} ${ut[2]}`,
+        subtitle: `${val} ${uf[2]} to ${ut[2]}`,
+        directAnswer: uf[0] === 'byte'
+          ? `${val.toLocaleString()} ${uf[2]} = ${formatted} ${ut[2]} (${Math.round(base).toLocaleString()} bytes)`
+          : `${val} ${uf[2]} = ${formatted} ${ut[2]}`,
         confidence: 'verified',
         citations: [],
       };
     }
   }
 
-  // 4. Pure mathematical expression: e.g. "256 * 1024", "2^32", "(1920 * 1080) / 1000"
-  if (/^[0-9+\-*/^().%\s]+$/.test(q) && /[+\-*/^%]/.test(q) && /\d/.test(q) && !/^\d{4}-\d{2}-\d{2}$/.test(q)) {
-    try {
-      const jsExpr = q.replace(/\^/g, '**');
-      // Safe evaluation of validated numeric expression
-      const result = Function(`"use strict"; return (${jsExpr});`)();
-      if (typeof result === 'number' && Number.isFinite(result)) {
-        return {
-          kind: 'computation',
-          title: result.toLocaleString('en-US', { maximumFractionDigits: 10 }),
-          subtitle: `Instant Math Evaluation (${q})`,
-          directAnswer: `${q} = ${result.toLocaleString('en-US', { maximumFractionDigits: 10 })}`,
-          confidence: 'verified',
-          citations: [],
-        };
+  // 4. CSS Color Converter (#hex, rgb(), hsl()) + WCAG contrast ratios
+  const rgb = parseCssColor(q);
+  if (rgb) {
+    const [r, g, b] = rgb;
+    const hex = `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+    const [h, s, l] = rgbToHsl(r, g, b);
+    const lin = (c: number) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const onWhite = (1.05 / (lum + 0.05)).toFixed(2);
+    const onBlack = ((lum + 0.05) / 0.05).toFixed(2);
+    return {
+      kind: 'computation',
+      title: hex,
+      subtitle: `Color · rgb(${r}, ${g}, ${b}) · hsl(${h}, ${s}%, ${l}%)`,
+      directAnswer: `HEX ${hex} · RGB rgb(${r}, ${g}, ${b}) · HSL hsl(${h}, ${s}%, ${l}%)`,
+      swatchColor: hex,
+      keyFacts: [
+        { label: 'Contrast on white', value: `${onWhite}:1${Number(onWhite) >= 4.5 ? ' (AA)' : ''}` },
+        { label: 'Contrast on black', value: `${onBlack}:1${Number(onBlack) >= 4.5 ? ' (AA)' : ''}` },
+        { label: 'Relative luminance', value: `${(lum * 100).toFixed(1)}%` },
+      ],
+      confidence: 'verified',
+      citations: [],
+    };
+  }
+
+  // 5. IPv4 CIDR Subnet Calculator: "10.0.0.0/22" or "cidr 192.168.1.0/24"
+  const cidrMatch = lower.match(/^(?:cidr\s+|subnet\s+)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (cidrMatch) {
+    const octs = cidrMatch.slice(1, 5).map(Number);
+    const prefix = Number(cidrMatch[5]);
+    if (octs.every((o) => o >= 0 && o <= 255) && prefix >= 0 && prefix <= 32) {
+      const ip = ((octs[0] << 24) | (octs[1] << 16) | (octs[2] << 8) | octs[3]) >>> 0;
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      const net = (ip & mask) >>> 0;
+      const bcast = (net | (~mask >>> 0)) >>> 0;
+      const total = 2 ** (32 - prefix);
+      const usable = prefix >= 31 ? total : Math.max(0, total - 2);
+      const first = prefix >= 31 ? net : (net + 1) >>> 0;
+      const last = prefix >= 31 ? bcast : (bcast - 1) >>> 0;
+      return {
+        kind: 'computation',
+        title: `${intToIp(net)}/${prefix}`,
+        subtitle: `IPv4 CIDR · ${usable.toLocaleString('en-US')} usable hosts`,
+        directAnswer: `Range ${intToIp(first)} – ${intToIp(last)} · Netmask ${intToIp(mask)} · Broadcast ${intToIp(bcast)}`,
+        keyFacts: [
+          { label: 'Network', value: intToIp(net) },
+          { label: 'Netmask', value: intToIp(mask) },
+          { label: 'Broadcast', value: intToIp(bcast) },
+          { label: 'Total IPs', value: total.toLocaleString('en-US') },
+        ],
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 6. Unix Epoch / ISO Timestamp Converter: "1700000000", "epoch 1700000000", "unix 2026-11-15T12:00:00Z"
+  const epochMatch = lower.match(/^(?:(?:unix|epoch|timestamp)\s+)?(1\d{9}|1\d{12})$/);
+  if (epochMatch) {
+    const raw = Number(epochMatch[1]);
+    const ms = epochMatch[1].length === 10 ? raw * 1000 : raw;
+    const iso = new Date(ms).toISOString();
+    return {
+      kind: 'computation',
+      title: iso,
+      subtitle: `Unix Timestamp (${epochMatch[1].length === 10 ? 'seconds' : 'milliseconds'})`,
+      directAnswer: `${iso} · Seconds: ${Math.floor(ms / 1000)} · Milliseconds: ${ms}`,
+      confidence: 'verified',
+      citations: [],
+    };
+  }
+  const toUnix = q.match(/^(?:unix|epoch|timestamp)\s+(\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?)$/i);
+  if (toUnix) {
+    const rawDate = toUnix[1].includes('T') || toUnix[1].includes(' ') ? toUnix[1] : `${toUnix[1]}T00:00:00Z`;
+    const ms = Date.parse(rawDate);
+    if (Number.isFinite(ms)) {
+      const secs = Math.floor(ms / 1000);
+      return {
+        kind: 'computation',
+        title: `${secs}`,
+        subtitle: `Unix Epoch Seconds (${new Date(ms).toISOString()})`,
+        directAnswer: `Seconds: ${secs} · Milliseconds: ${ms} · UTC: ${new Date(ms).toISOString()}`,
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 7. HTTP Status Code Quick Reference: "http 418", "status 503", "http status 429"
+  const httpMatch = lower.match(/^(?:http(?:\s+status)?|status(?:\s+code)?)\s+([1-5]\d{2})$/);
+  if (httpMatch) {
+    const code = Number(httpMatch[1]);
+    const info = HTTP_STATUS_INFO[code];
+    if (info) {
+      return {
+        kind: 'computation',
+        title: `${code} ${info[0]}`,
+        subtitle: `HTTP ${Math.floor(code / 100)}xx Status Code`,
+        directAnswer: info[1],
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 8. Cron Expression Explainer: "cron */15 9-17 * * 1-5" or bare "*/15 9-17 * * 1-5"
+  const cronMatch = q.match(/^(?:(cron)\s+)?([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)$/i);
+  if (cronMatch && (cronMatch[1] || q.includes('*'))) {
+    const [, , min, hr, dom, mon, dow] = cronMatch;
+    const valid = [min, hr, dom, mon, dow].every((f) => /^(?:\*(?:\/\d+)?|\d+(?:-\d+)?(?:\/\d+)?(?:,\d+(?:-\d+)?)*)$/.test(f));
+    if (valid) {
+      const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const fmtDow = dow.replace(/\b([0-7])\b/g, (d) => DAYS[Number(d)] || d);
+      const minDesc = min === '*' ? 'every minute' : min.startsWith('*/') ? `every ${min.slice(2)} minutes` : `at minute ${min}`;
+      const hrDesc = hr === '*' ? 'of every hour' : hr.startsWith('*/') ? `every ${hr.slice(2)} hours` : `during hour ${hr}`;
+      const dayDesc = dom === '*' && dow === '*' ? 'every day' : dow !== '*' ? `on ${fmtDow}` : `on day ${dom} of month`;
+      const monDesc = mon === '*' ? '' : ` in month ${mon}`;
+      return {
+        kind: 'computation',
+        title: `Runs ${minDesc} ${hrDesc}, ${dayDesc}${monDesc}`,
+        subtitle: `Cron Schedule (${min} ${hr} ${dom} ${mon} ${dow})`,
+        directAnswer: `Minute: ${min} · Hour: ${hr} · Day of month: ${dom} · Month: ${mon} · Day of week: ${fmtDow}`,
+        confidence: 'verified',
+        citations: [],
+      };
+    }
+  }
+
+  // 9. Scientific & Pure Mathematical Expression: "256 * 1024", "2^32", "sqrt(144) + log2(65536)", "1 << 16"
+  if (
+    /^[0-9a-zA-Z+\-*/^().%<>&|\s]+$/.test(q) &&
+    (/[+\-*/^%<>|&]/.test(q) || /^(?:sqrt|cbrt|abs|sin|cos|tan|asin|acos|atan|log|log10|ln|log2|exp|floor|ceil|round)\s*\(/i.test(q)) &&
+    (/\d/.test(q) || /\b(?:pi|tau)\b/i.test(q)) &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(q) &&
+    !/^[a-zA-Z\s-]+$/.test(q)
+  ) {
+    const idents = q.match(/[a-zA-Z_]\w*/g) ?? [];
+    // Allow scientific functions/constants and hex/binary literals (0xff, 0b1010, 1e6) while rejecting arbitrary identifiers.
+    const safeIdents = idents.every((id) => id.toLowerCase() in MATH_FUNCS || /^(?:0x[0-9a-f]+|0b[01]+|e\d+)$/i.test(id));
+    if (safeIdents) {
+      try {
+        const jsExpr = q
+          .replace(/\^/g, '**')
+          .replace(/\b([a-zA-Z_]\w*)\b/g, (m) => MATH_FUNCS[m.toLowerCase()] ?? m);
+        const result = Function(`"use strict"; return (${jsExpr});`)();
+        if (typeof result === 'number' && Number.isFinite(result)) {
+          return {
+            kind: 'computation',
+            title: result.toLocaleString('en-US', { maximumFractionDigits: 10 }),
+            subtitle: `Instant Math Evaluation (${q})`,
+            directAnswer: `${q} = ${result.toLocaleString('en-US', { maximumFractionDigits: 10 })}`,
+            confidence: 'verified',
+            citations: [],
+          };
+        }
+      } catch {
+        // ignore invalid math
       }
-    } catch {
-      // ignore invalid math
     }
   }
 
@@ -567,7 +795,7 @@ export interface RelevanceEvaluation {
  * Ensures off-topic results that only matched stopwords or tangential words are scored near 0.
  */
 // Words that change little about what a page is about ("the *last* commit", "*best* keyboard").
-const MODIFIER_WORDS = new Set([
+const MODIFIER_WORDS = /* @__PURE__ */ new Set([
   'last', 'latest', 'first', 'new', 'newest', 'old', 'older', 'best', 'good', 'better', 'easy', 'easiest',
   'simple', 'quick', 'quickly', 'proper', 'properly', 'correct', 'correctly', 'right', 'way', 'ways', 'top',
 ]);
@@ -591,7 +819,7 @@ const DEVERBAL_AL = /^(?:renew|remov|approv|arriv|surviv|reviv|retriev|propos|di
 const NEGATED_SPAN =
   /\b(?:without|with\s+no|no|lacks?|lacking)\s+(?:(?!\b(?:when|while|if|after|before|by|for|in|on|at|to|from|with|because|which|that|who|where|but|yet|though|although)\b)[\p{L}\p{M}\p{N}'-]+(?:\s+(?:or|and|nor)\s+|\s+|$)){1,5}/gu;
 
-const SPELLING_TWINS = (() => {
+const SPELLING_TWINS = /* @__PURE__ */ (() => {
   const map = new Map<string, string>();
   const link = (a: string, b: string) => { map.set(a, b); map.set(b, a); };
   for (const [uk, us] of 'tyre:tire,tyres:tires,aluminium:aluminum,grey:gray,greyscale:grayscale'.split(',').map((p) => p.split(':'))) link(uk, us);
@@ -611,7 +839,7 @@ const SPELLING_TWINS = (() => {
   return map;
 })();
 // Noun-only UK/US homograph twins ("tire" is also an unrelated verb meaning exhausted).
-const NO_VERB_TWINS = new Set(['tire', 'tires']);
+const NO_VERB_TWINS = /* @__PURE__ */ new Set(['tire', 'tires']);
 
 export function spellingTwin(word: string): string | undefined {
   return SPELLING_TWINS.get(word.toLowerCase());
@@ -756,7 +984,10 @@ export function computeQueryRelevance(
   const anchorHit = (a: string) => fullMatches(a) || synonymMatch(a, fullMatches);
   const anchors = analysis.anchorTokens.filter((a) => !MODIFIER_WORDS.has(a));
   const matchedAnchor =
-    anchors.length === 0 || anchorHit(anchors[0]) || (coverageRatio > 0.5 && anchors.slice(1, 3).some(anchorHit));
+    anchors.length === 0 ||
+    anchorHit(anchors[0]) ||
+    (coverageRatio >= 0.5 && anchors.slice(1, 3).some(anchorHit)) ||
+    (titleMatchedCount >= 2 && anchors.slice(0, 3).some(anchorHit));
 
   if (matchedCoreCount === 0) {
     return {
@@ -860,7 +1091,7 @@ export function computeQueryRelevance(
     score = Math.min(score, 14);
   } else if (totalCoreCount >= 2 && matchedCoreCount === 1 && titleMatchedCount === 0) {
     score = Math.min(score, 20);
-  } else if (totalCoreCount >= 3 && coverageRatio < 0.5) {
+  } else if (totalCoreCount >= 3 && coverageRatio < 0.5 && titleMatchedCount < 2) {
     score = Math.min(score, 22);
   }
 

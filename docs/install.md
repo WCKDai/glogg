@@ -291,6 +291,6 @@ Then load `dist-extension/` as an unpacked extension: `chrome://extensions` → 
 
 ```bash
 curl -s http://localhost:4173/api/health
-# {"status":"ok","service":"glogg-engine","version":"0.4.0","connectors":20}
+# {"status":"ok","service":"glogg-engine","version":"0.5.0","connectors":25}
 npm run cli -- search "sqlite wal mode"
 ```

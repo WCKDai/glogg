@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   isSearchLens,
+  isSearchTimeRange,
   botWall,
   cleanAndAutopsyHtml,
   CURATED_INDIE_INDEX,
@@ -41,9 +42,12 @@ import {
   addUserSource,
   deepStatus,
   ensureSeeded,
+  exportUserOpml,
   getDeepStore,
+  importUserOpml,
   pauseCrawl,
   randomDeep,
+  removeUserSource,
   resumeDeepCrawl,
   startCrawl,
 } from './deep/index.js';
@@ -107,6 +111,7 @@ export function checkSearchConfig(input: unknown): { config: Partial<SearchFilte
   }
   if (c.endpoints !== undefined && (typeof c.endpoints !== 'object' || c.endpoints === null || Array.isArray(c.endpoints))) return { error: 'config.endpoints must be an object' };
   if (!isSearchLens(c.lens)) delete c.lens;
+  if (!isSearchTimeRange(c.timeRange)) delete c.timeRange;
   return { config: c as Partial<SearchFilterConfig> };
 }
 
@@ -429,12 +434,14 @@ export async function createGloggServer() {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
       const uncensored = req.query.uncensored === 'true';
       const lens = isSearchLens(req.query.lens) ? req.query.lens : 'all';
+      const timeRange = isSearchTimeRange(req.query.time) ? req.query.time : undefined;
       if (!q.trim()) {
         res.status(400).json({ error: 'Query parameter q is required' });
         return;
       }
       if (mode === 'public' && q.length > 1024) { res.status(400).json({ error: 'Query must be at most 1024 characters' }); return; }
-      const response = await executeFederatedSearch(q, mode === 'public' ? serviceSearchConfig({ uncensoredMode: uncensored, lens }) : publicSearchConfig({ uncensoredMode: uncensored, lens }));
+      const base = { uncensoredMode: uncensored, lens, ...(timeRange ? { timeRange } : {}) };
+      const response = await executeFederatedSearch(q, mode === 'public' ? serviceSearchConfig(base) : publicSearchConfig(base));
       res.json(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
@@ -535,9 +542,52 @@ export async function createGloggServer() {
       return;
     }
     try {
-      res.json({ source: await addUserSource(url, undefined, { nsfw: req.body?.nsfw === true }) });
+      res.json({ source: await addUserSource(url, undefined, { nsfw: req.body?.nsfw === true, indexNow: req.body?.indexNow === true }) });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Could not add that source' });
+    }
+  });
+
+  app.delete('/api/deep/sources/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'Valid source id is required' });
+      return;
+    }
+    try {
+      const removed = await removeUserSource(id);
+      if (!removed) {
+        res.status(404).json({ error: 'User-added source not found' });
+        return;
+      }
+      res.json({ removed: true });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not remove source' });
+    }
+  });
+
+  app.get('/api/deep/opml', async (req, res) => {
+    try {
+      const scope = req.query.scope === 'all' ? 'all' : 'user';
+      const xml = await exportUserOpml({ scope, nsfw: req.query.nsfw === 'true' });
+      res.setHeader('Content-Type', 'text/x-opml; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="glogg-feeds.opml"');
+      res.send(xml);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not export OPML' });
+    }
+  });
+
+  app.post('/api/deep/opml', async (req, res) => {
+    const xml = typeof req.body?.xml === 'string' ? req.body.xml : '';
+    if (!xml.trim()) {
+      res.status(400).json({ error: 'xml is required' });
+      return;
+    }
+    try {
+      res.json(await importUserOpml(xml, { nsfw: req.body?.nsfw === true }));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not import OPML' });
     }
   });
 

@@ -34,4 +34,4 @@ export const SEARCH_SOURCES: SearchSourceInfo[] = [
   { key: 'forums', name: 'Old-web forums', about: 'In the Wild West scope or 18+ mode' },
 ];
 
-export const SEARCH_SOURCE_NAMES: Record<string, string> = Object.fromEntries(SEARCH_SOURCES.map((s) => [s.key, s.name]));
+export const SEARCH_SOURCE_NAMES: Record<string, string> = /* @__PURE__ */ Object.fromEntries(SEARCH_SOURCES.map((s) => [s.key, s.name]));

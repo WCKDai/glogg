@@ -23,6 +23,14 @@ export function isSearchLens(v: unknown): v is SearchLensId {
   return typeof v === 'string' && (SEARCH_LENS_IDS as readonly string[]).includes(v);
 }
 
+export type SearchTimeRange = 'any' | 'day' | 'week' | 'month' | 'year';
+
+export const SEARCH_TIME_RANGES: readonly SearchTimeRange[] = ['any', 'day', 'week', 'month', 'year'];
+
+export function isSearchTimeRange(v: unknown): v is SearchTimeRange {
+  return typeof v === 'string' && (SEARCH_TIME_RANGES as readonly string[]).includes(v);
+}
+
 export type SourceConnectorId =
   | 'wikimedia'
   | 'marginalia'
@@ -180,6 +188,7 @@ export interface InstantAnswerPayload {
   directAnswer: string;
   confidence: 'verified' | 'high' | 'synthesized';
   codeBlock?: string;
+  swatchColor?: string;
   keyFacts?: { label: string; value: string }[];
   takeaways?: { text: string; citationIndex: number }[];
   primarySourceUrl?: string;
@@ -256,6 +265,7 @@ export interface DownloadManagerReport {
 
 export interface SearchFilterConfig {
   lens: SearchLensId;
+  timeRange?: SearchTimeRange;
   maxPerDomain: number;
   slopThreshold: number;
   preLlmOnly: boolean;

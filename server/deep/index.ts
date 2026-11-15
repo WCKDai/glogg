@@ -6,12 +6,21 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { analyzeQueryIntent } from '../../src/core/index.js';
+import { analyzeQueryIntent, parseQueryOperators } from '../../src/core/index.js';
 import type { RawSearchResult, SourceConnectorId } from '../../src/core/index.js';
 import { isBlockedSource } from './blocklist.js';
 import { CRAWLER_UA, DeepCrawler } from './crawler.js';
-import { discoverFeeds, isDiscourse, parseChanCatalog, parseDiscourseDirectory } from './parse.js';
-import type { DeepKind } from './parse.js';
+import {
+  discoverFeeds,
+  exportOpml,
+  isDiscourse,
+  parseChanCatalog,
+  parseDiscourseDirectory,
+  parseFeed,
+  parseJsonFeed,
+  parseOpml,
+} from './parse.js';
+import type { DeepKind, DeepPost } from './parse.js';
 import {
   builtinSources,
   hostOf,
@@ -232,23 +241,36 @@ export async function resumeDeepCrawl(): Promise<void> {
 
 function words(query: string): string[] {
   const analysis = analyzeQueryIntent(query);
-  return analysis.coreKeywords.length ? analysis.coreKeywords : query.split(/\s+/);
+  return analysis.coreKeywords.length ? analysis.coreKeywords : query.split(/\s+/).filter(Boolean);
 }
 
-export async function searchDeep(query: string, opts: { nsfw?: boolean; kinds?: DeepKind[]; limit?: number } = {}): Promise<RawSearchResult[]> {
+export async function searchDeep(
+  query: string,
+  opts: { nsfw?: boolean; kinds?: DeepKind[]; limit?: number; sinceMs?: number } = {}
+): Promise<RawSearchResult[]> {
   if (!store && !fs.existsSync(deepDbPath())) return [];
   const s = await getDeepStore();
   if (!s) return [];
-  return s.search(words(query), opts).map((h) => ({
-    id: `deep-${h.url}`,
-    title: h.title,
-    url: h.url,
-    snippet: h.snippet,
-    source: DEEP_SOURCE_IDS[h.kind as Exclude<DeepKind, 'site'>] ?? 'deep-blogs',
-    publishedAt: h.published ? new Date(h.published).toISOString() : undefined,
-    isNsfw: h.nsfw,
-    tags: [h.site],
-  }));
+  const ops = parseQueryOperators(query);
+  const terms = ops.text ? words(ops.text) : [];
+  return s
+    .search(terms, {
+      ...opts,
+      phrases: ops.phrases,
+      without: ops.without,
+      sites: ops.sites,
+      notSites: ops.notSites,
+    })
+    .map((h) => ({
+      id: `deep-${h.url}`,
+      title: h.title,
+      url: h.url,
+      snippet: h.snippet,
+      source: DEEP_SOURCE_IDS[h.kind as Exclude<DeepKind, 'site'>] ?? 'deep-blogs',
+      publishedAt: h.published ? new Date(h.published).toISOString() : undefined,
+      isNsfw: h.nsfw,
+      tags: [h.site],
+    }));
 }
 
 export async function randomDeep(opts: { nsfw?: boolean; kinds?: DeepKind[] } = {}) {
@@ -260,12 +282,36 @@ export async function randomDeep(opts: { nsfw?: boolean; kinds?: DeepKind[] } = 
   return site ? { kind: 'site' as const, url: `https://${site.site}/`, title: site.title || site.site, site: site.site } : null;
 }
 
+function parseImmediatePosts(row: SourceRow, text: string, json?: unknown): { title?: string; posts: DeepPost[] } {
+  if (row.kind === 'board' && json !== undefined) {
+    const pattern = row.thread_url || `${row.url.replace(/\/catalog\.json(\?.*)?$/, '')}/res/{no}.html`;
+    return { posts: parseChanCatalog(json, (no) => pattern.replace('{no}', String(no))) };
+  }
+  if (/^\s*\{/.test(text) && text.includes('jsonfeed.org')) {
+    try {
+      const parsed = parseJsonFeed(JSON.parse(text), row.url);
+      return { title: parsed.title, posts: parsed.posts };
+    } catch {
+      return { posts: [] };
+    }
+  }
+  if (/<(rss|feed|rdf:RDF)[\s>]/i.test(text.slice(0, 4000))) {
+    const parsed = parseFeed(text, row.url);
+    return { title: parsed.title, posts: parsed.posts };
+  }
+  return { posts: [] };
+}
+
 /**
  * Adds any URL: a feed, a Discourse forum, an imageboard catalog, or a page
  * whose feed can be discovered. `nsfw` keeps it behind the 18+ switch.
- * Returns the stored source.
+ * When `indexNow` is true, posts from the fetched feed or catalog are indexed immediately.
  */
-export async function addUserSource(raw: string, fetchImpl: typeof fetch = (input, init) => publicFetch(input as string, init), opts: { nsfw?: boolean } = {}): Promise<SourceRow> {
+export async function addUserSource(
+  raw: string,
+  fetchImpl: typeof fetch = (input, init) => publicFetch(input as string, init),
+  opts: { nsfw?: boolean; indexNow?: boolean } = {}
+): Promise<SourceRow> {
   const s = await getDeepStore();
   if (!s) throw new Error(unavailable);
   let url: URL;
@@ -285,6 +331,7 @@ export async function addUserSource(raw: string, fetchImpl: typeof fetch = (inpu
   const site = hostOf(page);
   const nsfw = Boolean(opts.nsfw);
   let input: SourceInput | null = null;
+  let feedAlreadyFetched = false;
 
   let json: unknown;
   if (/^\s*[[{]/.test(text) && !text.includes('jsonfeed.org')) {
@@ -298,9 +345,11 @@ export async function addUserSource(raw: string, fetchImpl: typeof fetch = (inpu
     const base = page.replace(/\/catalog\.json(\?.*)?$/, '');
     const threadUrl = site === 'a.4cdn.org' ? `${base.replace('a.4cdn.org', 'boards.4chan.org')}/thread/{no}` : `${base}/res/{no}.html`;
     input = { url: page, kind: 'board', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.board, threadUrl };
+    feedAlreadyFetched = true;
   } else if (/<(rss|feed|rdf:RDF)[\s>]/i.test(text.slice(0, 4000)) || (/^\s*\{/.test(text) && text.includes('jsonfeed.org'))) {
     const kind = /xmlns:discourse=/.test(text) ? 'forum' : 'blog';
     input = { url: page, kind, site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN[kind] };
+    feedAlreadyFetched = true;
   } else if (isDiscourse(text)) {
     input = { url: `${new URL(page).origin}/latest.rss`, kind: 'forum', site, origin: 'user', nsfw, intervalMin: INTERVAL_MIN.forum };
   } else if (json === undefined) {
@@ -312,6 +361,85 @@ export async function addUserSource(raw: string, fetchImpl: typeof fetch = (inpu
   if (isBlockedSource(input)) throw blocked;
   s.addSources([input]);
   const row = s.getSourceByUrl(input.url)!;
+  if (opts.indexNow) {
+    let bodyText = feedAlreadyFetched ? text : '';
+    let bodyJson = feedAlreadyFetched ? json : undefined;
+    if (!feedAlreadyFetched) {
+      try {
+        const feedRes = await fetchImpl(input.url, { headers: { 'User-Agent': CRAWLER_UA }, redirect: 'follow', signal: AbortSignal.timeout(10_000) });
+        if (feedRes.ok) {
+          bodyText = (await feedRes.text()).slice(0, 1_500_000);
+          if (/^\s*[[{]/.test(bodyText) && !bodyText.includes('jsonfeed.org')) {
+            try {
+              bodyJson = JSON.parse(bodyText);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch {
+        // leave queued for next crawl
+      }
+    }
+    if (bodyText) {
+      const parsed = parseImmediatePosts(row, bodyText, bodyJson);
+      if (parsed.posts.length > 0) {
+        const now = Date.now();
+        s.savePosts(row, parsed.posts, now);
+        s.updateSource(row.id, {
+          fetched_at: now,
+          next_at: now + row.interval_min * 60_000,
+          status: 'ok',
+          error: null,
+          fails: 0,
+          ...(parsed.title && !row.title ? { title: parsed.title } : {}),
+        });
+        return s.getSource(row.id)!;
+      }
+    }
+  }
   s.updateSource(row.id, { next_at: 0 });
   return { ...row, next_at: 0 };
 }
+
+/** Removes a user-added source and all of its indexed posts. */
+export async function removeUserSource(id: number): Promise<boolean> {
+  const s = await getDeepStore();
+  if (!s) throw new Error(unavailable);
+  return s.removeSource(id, 'user');
+}
+
+/** Imports feed subscriptions from an OPML 1.x/2.0 document without contacting the network. */
+export async function importUserOpml(xml: string, opts: { nsfw?: boolean } = {}): Promise<{ added: number; parsed: number }> {
+  const s = await getDeepStore();
+  if (!s) throw new Error(unavailable);
+  const outlines = parseOpml(xml);
+  if (outlines.length === 0) throw new Error('No valid RSS/Atom feed URLs found in OPML.');
+  const inputs: SourceInput[] = [];
+  for (const item of outlines.slice(0, 1000)) {
+    const site = hostOf(item.htmlUrl || item.xmlUrl);
+    if (!site) continue;
+    const isForum = /forum|discourse|lemmy|reddit/i.test(`${item.category || ''} ${item.xmlUrl}`);
+    const kind: DeepKind = isForum ? 'forum' : 'blog';
+    inputs.push({
+      url: item.xmlUrl,
+      kind,
+      site,
+      origin: 'user',
+      title: item.title,
+      nsfw: Boolean(opts.nsfw),
+      intervalMin: INTERVAL_MIN[kind],
+    });
+  }
+  const added = s.addSources(inputs);
+  return { added, parsed: outlines.length };
+}
+
+/** Exports deep-index feeds (`user` or `all`) as OPML 2.0 XML. */
+export async function exportUserOpml(opts: { scope?: 'user' | 'all'; nsfw?: boolean } = {}): Promise<string> {
+  const s = await getDeepStore();
+  if (!s) throw new Error(unavailable);
+  const rows = s.exportableSources({ origin: opts.scope === 'all' ? undefined : 'user', nsfw: opts.nsfw });
+  return exportOpml(rows, opts.scope === 'all' ? 'glogg Deep Index — All Feeds' : 'glogg Deep Index — My Feeds');
+}
+
