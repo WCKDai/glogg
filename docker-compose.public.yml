@@ -19,6 +19,7 @@ services:
       GLOGG_MAX_READERS: ${GLOGG_MAX_READERS:-16}
       GLOGG_SHUTDOWN_MS: "15000"
       GLOGG_PUBLIC_OPENLIBRARY: ${GLOGG_PUBLIC_OPENLIBRARY:-0}
+      GLOGG_TELEMETRY_TOKEN: ${GLOGG_TELEMETRY_TOKEN:-}
       SEARXNG_URL: http://searxng:8080
     volumes:
       - public-data:/data
@@ -38,6 +39,8 @@ services:
   searxng:
     build: ./infra/searxng
     restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID]
     security_opt: [no-new-privileges:true]

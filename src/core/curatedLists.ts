@@ -107,6 +107,7 @@ export const MONOCULTURE_MEGA_DOMAINS: string[] = [
   'facebook.com',
   'instagram.com',
   'tiktok.com',
+  'snapchat.com',
   'x.com',
   'twitter.com',
   'linkedin.com',

@@ -6,8 +6,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    modulePreload: { polyfill: false },
     minify: 'terser',
-    terserOptions: { compress: { passes: 2 } },
+    terserOptions: {
+      module: true,
+      compress: { passes: 3, ecma: 2022, pure_getters: true },
+      mangle: { toplevel: true },
+      format: { comments: false, ecma: 2022 },
+    },
   },
   test: {
     environment: 'node',

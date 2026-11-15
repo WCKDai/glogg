@@ -35,7 +35,7 @@ export const publicServiceGuard: RequestHandler = (req, res, next) => {
 /** Public requests cannot select endpoints, inherit private keys, or enable private indexers. */
 export function serviceSearchConfig(config: Partial<SearchFilterConfig>, env = process.env): Partial<SearchFilterConfig> {
   const safe: Partial<SearchFilterConfig> = {};
-  const fields = ['lens', 'blockedDomains', 'boostedDomains', 'loweredDomains', 'pinnedDomains', 'blockedPhrases', 'maxPerDomain', 'slopThreshold', 'preLlmOnly', 'obscureWebOnly', 'stripSponsored', 'uncensoredMode'] as const;
+  const fields = ['lens', 'timeRange', 'blockedDomains', 'boostedDomains', 'loweredDomains', 'pinnedDomains', 'blockedPhrases', 'maxPerDomain', 'slopThreshold', 'preLlmOnly', 'obscureWebOnly', 'stripSponsored', 'uncensoredMode'] as const;
   for (const key of fields) if (config[key] !== undefined) Object.assign(safe, { [key]: config[key] });
   safe.disabledSources = [...new Set([...(config.disabledSources ?? []), 'p2p', ...(env.GLOGG_PUBLIC_OPENLIBRARY === '1' ? [] : ['openlibrary'])])];
   safe.endpoints = { ...(env.SEARXNG_URL ? { searxngUrl: env.SEARXNG_URL } : {}) };

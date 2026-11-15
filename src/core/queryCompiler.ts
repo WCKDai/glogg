@@ -24,7 +24,7 @@ export function compileSearchQuery(
   const preLlm = Boolean(config?.preLlmOnly || lens === 'pre-llm');
 
   const cleanedTokens = trimmed
-    .replace(/[^\w\s+"'.:/-]/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}\s+"'.:/-]/gu, ' ')
     .split(/\s+/)
     .filter(Boolean);
 
@@ -55,7 +55,7 @@ export function compileSearchQuery(
       break;
     case 'raw-news':
       positiveOperators.push(
-        '(site:reuters.com OR site:apnews.com OR site:bellingcat.com OR site:propublica.org OR site:gdeltproject.org)'
+        '(site:reuters.com OR site:apnews.com OR site:bbc.com OR site:npr.org OR site:bellingcat.com OR site:propublica.org OR site:arstechnica.com OR site:phys.org OR site:gdeltproject.org)'
       );
       break;
     case 'small-web':

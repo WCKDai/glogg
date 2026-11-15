@@ -11,12 +11,21 @@ import type {
   ResearchEvent,
   ResearchSource,
   SearchLensId,
+  SearchTimeRange,
   ToolResult,
 } from '../core/browser.js';
 
 export type View = 'saved' | 'sources' | 'search' | 'downloads' | 'atlas' | 'services' | 'settings' | 'tools';
 export type ThemePref = 'system' | 'light' | 'dark';
 export type Mode = 'simple' | 'advanced';
+
+export const TIME_RANGES: { id: SearchTimeRange; short: string; label: string }[] = [
+  { id: 'any', short: 'Any', label: 'Any time' },
+  { id: 'day', short: '24h', label: 'Past 24h' },
+  { id: 'week', short: '7d', label: 'Past week' },
+  { id: 'month', short: '30d', label: 'Past month' },
+  { id: 'year', short: '1y', label: 'Past year' },
+];
 
 export const SCOPES: { id: SearchLensId; label: string; hint: string }[] = [
   { id: 'all', label: 'All', hint: 'Everything, ranked for signal' },

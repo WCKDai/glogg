@@ -107,13 +107,30 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 const KIND_PRIORITY = `CASE kind WHEN 'board' THEN 0 WHEN 'forum' THEN 1 WHEN 'site' THEN 2 ELSE 3 END`;
 
-/** Quoted FTS5 terms joined by AND (space) or OR. Quotes stop query-syntax injection. */
-export function ftsQuery(words: string[], mode: 'and' | 'or' = 'and'): string {
+/** Quoted FTS5 terms joined by AND (space) or OR, with optional phrases and NOT exclusions. Quotes stop query-syntax injection. */
+export function ftsQuery(
+  words: string[],
+  mode: 'and' | 'or' = 'and',
+  extra: { phrases?: string[]; without?: string[] } = {}
+): string {
+  const clean = (s: string) => s.replace(/["*^:(){}]/g, ' ').replace(/\s+/g, ' ').trim();
   const terms = words
-    .map((w) => w.replace(/["*^:(){}]/g, ' ').trim())
-    .filter((w) => w.length > 1)
+    .map(clean)
+    .filter((w) => w.length > 1 || /[^\u0000-\u007f]/.test(w))
     .map((w) => `"${w}"`);
-  return terms.join(mode === 'and' ? ' ' : ' OR ');
+  const phraseTerms = (extra.phrases ?? [])
+    .map(clean)
+    .filter((p) => p.length > 1 || /[^\u0000-\u007f]/.test(p))
+    .map((p) => `"${p}"`);
+  const negatives = (extra.without ?? [])
+    .map(clean)
+    .filter((w) => w.length > 1 || /[^\u0000-\u007f]/.test(w))
+    .map((w) => `NOT "${w}"`);
+  const needGroup = mode === 'or' && terms.length > 1 && (phraseTerms.length > 0 || negatives.length > 0);
+  const joinedTerms = terms.length ? (needGroup ? `(${terms.join(' OR ')})` : terms.join(mode === 'and' ? ' ' : ' OR ')) : '';
+  const positive = [joinedTerms, ...phraseTerms].filter(Boolean).join(' ');
+  if (!positive) return '';
+  return negatives.length ? `${positive} ${negatives.join(' ')}` : positive;
 }
 
 export class DeepStore {
@@ -180,6 +197,31 @@ export class DeepStore {
     return this.db.prepare('SELECT * FROM sources WHERE url = ?').get(url) as SourceRow | undefined;
   }
 
+  /** Removes a source and its indexed posts. When `origin` is given, only sources with that origin can be deleted. */
+  removeSource(id: number, origin?: string): boolean {
+    return this.tx(() => {
+      const row = this.getSource(id);
+      if (!row || (origin && row.origin !== origin)) return false;
+      this.db.prepare('DELETE FROM posts WHERE source_id = ?').run(id);
+      const res = this.db.prepare('DELETE FROM sources WHERE id = ?').run(id);
+      return Number(res.changes) > 0;
+    });
+  }
+
+  /** Feed sources suitable for OPML export (`origin: 'user'` by default, or all non-site feeds). */
+  exportableSources(opts: { origin?: string; nsfw?: boolean } = {}): Pick<SourceRow, 'url' | 'site' | 'title' | 'kind'>[] {
+    const where = [`kind != 'site'`];
+    const args: (string | number)[] = [];
+    if (opts.origin) {
+      where.push('origin = ?');
+      args.push(opts.origin);
+    }
+    if (!opts.nsfw) where.push('nsfw = 0');
+    return this.db
+      .prepare(`SELECT url, site, title, kind FROM sources WHERE ${where.join(' AND ')} ORDER BY kind, site, url`)
+      .all(...args) as Pick<SourceRow, 'url' | 'site' | 'title' | 'kind'>[];
+  }
+
   /**
    * Sources due for a visit, boards and forums first. `skipSites` are sites the crawler
    * can't contact right now, so one big site (thousands of Lemmy communities on one
@@ -236,23 +278,56 @@ export class DeepStore {
     });
   }
 
-  search(words: string[], opts: { limit?: number; nsfw?: boolean; kinds?: DeepKind[] } = {}): DeepHit[] {
+  search(
+    words: string[],
+    opts: {
+      limit?: number;
+      nsfw?: boolean;
+      kinds?: DeepKind[];
+      phrases?: string[];
+      without?: string[];
+      sites?: string[];
+      notSites?: string[];
+      sinceMs?: number;
+    } = {}
+  ): DeepHit[] {
     const limit = opts.limit ?? 12;
     const kinds = opts.kinds?.length ? opts.kinds : null;
+    const sites = (opts.sites ?? []).map((s) => s.toLowerCase().replace(/^www\./, '').replace(/[%_]/g, '')).filter(Boolean);
+    const notSites = (opts.notSites ?? []).map((s) => s.toLowerCase().replace(/^www\./, '').replace(/[%_]/g, '')).filter(Boolean);
+    const recentCutoff = Date.now() - 30 * 86_400_000;
     const run = (mode: 'and' | 'or') => {
-      const match = ftsQuery(words, mode);
+      const match = ftsQuery(words, mode, { phrases: opts.phrases, without: opts.without });
       if (!match) return [];
+      const extraWhere: string[] = [];
+      const extraArgs: (string | number)[] = [];
+      if (kinds) {
+        extraWhere.push(`p.kind IN (${kinds.map(() => '?').join(', ')})`);
+        extraArgs.push(...kinds);
+      }
+      if (opts.sinceMs !== undefined && Number.isFinite(opts.sinceMs)) {
+        extraWhere.push('p.published IS NOT NULL AND p.published >= ?');
+        extraArgs.push(opts.sinceMs);
+      }
+      if (sites.length) {
+        extraWhere.push(`(${sites.map(() => '(LOWER(p.site) = ? OR LOWER(p.site) LIKE ?)').join(' OR ')})`);
+        for (const s of sites) extraArgs.push(s, `%.${s}`);
+      }
+      for (const s of notSites) {
+        extraWhere.push('LOWER(p.site) != ? AND LOWER(p.site) NOT LIKE ?');
+        extraArgs.push(s, `%.${s}`);
+      }
       const rows = this.db
         .prepare(
           `SELECT p.url, p.title, p.site, p.kind, p.published, p.nsfw,
                   snippet(posts_fts, 1, '', '', '…', 28) AS snippet,
-                  bm25(posts_fts, 8.0, 1.0, 2.0) AS rank
+                  (bm25(posts_fts, 8.0, 1.0, 2.0) - CASE WHEN p.published >= ? THEN 0.35 ELSE 0 END) AS rank
            FROM posts_fts JOIN posts p ON p.id = posts_fts.rowid
            WHERE posts_fts MATCH ? AND (? = 1 OR p.nsfw = 0)
-             ${kinds ? `AND p.kind IN (${kinds.map(() => '?').join(', ')})` : ''}
+             ${extraWhere.length ? `AND ${extraWhere.join(' AND ')}` : ''}
            ORDER BY rank LIMIT ?`
         )
-        .all(match, opts.nsfw ? 1 : 0, ...(kinds || []), limit) as (Omit<DeepHit, 'nsfw'> & { nsfw: number })[];
+        .all(recentCutoff, match, opts.nsfw ? 1 : 0, ...extraArgs, limit) as (Omit<DeepHit, 'nsfw'> & { nsfw: number })[];
       return rows.map((r) => ({ ...r, nsfw: Boolean(r.nsfw) }));
     };
     try {

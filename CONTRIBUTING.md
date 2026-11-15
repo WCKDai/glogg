@@ -1,96 +1,112 @@
 # Contributing to glogg
 
-Thanks for helping. Bug reports, new sources, plugins, docs fixes and design feedback are all welcome.
+Thank you for contributing to **glogg**! Whether you are reporting a content farm, submitting an independent site to the Atlas, adding a search connector or plugin, improving ranking quality, or fixing a bug, your help is very welcome.
 
-- **Questions and problems:** check [docs/troubleshooting.md](./docs/troubleshooting.md), then [open an issue](https://github.com/WCKDai/glogg/issues/new/choose).
-- **Security problems:** privately, per [SECURITY.md](./SECURITY.md).
-- **Conduct:** [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+- **Troubleshooting first:** check [`docs/troubleshooting.md`](./docs/troubleshooting.md).
+- **Bugs, feature ideas, slop domains & Atlas sites:** [open an issue](https://github.com/WCKDai/glogg/issues/new/choose).
+- **Design questions & open-ended ideas:** start a thread in [GitHub Discussions](https://github.com/WCKDai/glogg/discussions).
+- **Security vulnerabilities:** report **privately** per [`SECURITY.md`](./SECURITY.md) — never in a public issue.
+- **Code of Conduct:** [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
-## Set up
+## Quick Setup
 
-You need Node.js 22.13+ and git. Chrome or Chromium is optional (browser tests).
+Requires **Node.js 22.13+** (uses Node's built-in `node:sqlite`) and `git`. Chrome or Chromium is optional and used only for `npm run test:e2e`.
 
 ```bash
 git clone https://github.com/WCKDai/glogg.git
 cd glogg
 npm install
-npm run dev          # http://localhost:4173, server and client reload as you edit
+npm run dev          # http://localhost:4173 — hot reloads server & React client
 ```
 
-## Where things are
+## Project Map
 
 ```text
 glogg/
 ├── src/
-│   ├── core/              Pure TypeScript shared by server, client, CLI and extension
-│   │   ├── types.ts           Domain types: results, scopes (lenses), sources
-│   │   ├── searchSources.ts   Which sources each scope asks
-│   │   ├── queryCompiler.ts   Operators (site:, -word, "phrase"), bangs, escape-hatch URLs
-│   │   ├── queryIntelligence.ts  Query intent and keywords
-│   │   ├── slopScorer.ts      Junk signals: SEO farms, affiliates, AI filler
-│   │   ├── ranker.ts          Ranking, de-duplication, per-site limits
-│   │   ├── curatedLists.ts    Known junk domains, phrases, the Atlas
-│   │   ├── pageCleaner.ts     The clean reader: strips scripts, trackers, banners
-│   │   ├── research.ts        Passage selection and citations for Research
-│   │   ├── plugins.ts         The plugin contract (manifest, fields, output blocks)
-│   │   └── p2pUtils.ts, bangs.ts, text.ts, browser.ts
-│   └── client/            React 19 + Vite app
-│       ├── App.tsx            Shell, routing, search state
-│       ├── components/        Search box, results, reader, palette, Research panel…
-│       └── views/             Atlas, Tools, Downloads, Services, Settings
+│   ├── core/              Pure TypeScript shared by server, client, CLI & MV3 extension
+│   │   ├── types.ts           Domain types: results, scopes (lenses), time ranges, answers
+│   │   ├── searchSources.ts   Source registry and scope-to-connector mapping
+│   │   ├── queryCompiler.ts   Operators (site:, -word, "phrase"), bangs & Unicode tokenizing
+│   │   ├── queryIntelligence.ts  Query intent, anchor weights & instant computations
+│   │   ├── slopScorer.ts      Anti-slop heuristics: SEO mills, affiliates, primary-source signals
+│   │   ├── ranker.ts          Scoring, deduplication, domain caps, freshness & time-range filter
+│   │   ├── freshness.ts       Timely-query detection & date-aware ranking adjustments
+│   │   ├── media.ts           Commons media normalization & license attribution helpers
+│   │   ├── curatedLists.ts    Slop/monoculture/boosted domain lists & hand-picked Atlas entries
+│   │   ├── pageCleaner.ts     Server-only clean reader HTML stripper (uses cheerio)
+│   │   ├── research.ts        Passage extraction & citation numbering for Research
+│   │   ├── plugins.ts         Plugin manifest, field & output-block types
+│   │   └── browser.ts         Client-safe barrel (excludes pageCleaner/cheerio)
+│   └── client/            React 19 + Vite single-chunk web application
+│       ├── App.tsx            Shell, URL state, streaming NDJSON search & keyboard navigation
+│       ├── components/        SearchBox, Results, ReaderSheet, CommandPalette, AdvancedRail, Media…
+│       └── views/             AtlasView, ToolsView, DownloadsView, ServicesView, SavedView, SourcesView, SettingsView
 ├── server/
-│   ├── index.ts           Express 5: API routes, OpenSearch, static assets, startup
-│   ├── federatedSearch.ts Asks every source at once, deadlines, caching, streaming
-│   ├── answerEngine.ts    Instant answers
-│   ├── research.ts, ai.ts Research and BYOK model calls
-│   ├── fediverseIndexer.ts, p2pIndexer.ts, wildWestIndexer.ts   Source connectors
-│   ├── deep/              The deep index: directories, crawler, SQLite FTS5 store, blocklist
-│   ├── plugins/           Plugin runtime and SDK
-│   ├── downloadManager.ts Send: Offcloud, aria2, Nextcloud, local, plugins
-│   ├── containerManager.ts  Docker/Podman services stack
-│   ├── auth.ts, security.ts, publicFetch.ts   Password, request guard, SSRF-safe fetch
-│   ├── lifecycle.ts, env.ts   Startup checks, clean shutdown, env parsing
-│   └── net.ts, compress.ts, favicons.ts, profile.ts
-├── plugins/               Built-in plugins, one folder each (_template is the starting point)
-├── extension/             Manifest V3 browser extension
-├── scripts/               CLI, extension build, bundle budget, services, icon generation
-├── infra/                 Optional services stack and SearXNG/Bitmagnet configs
-├── tests/                 Vitest suites; tests/e2e drives headless Chrome
-└── docs/                  Install, usage, troubleshooting, plugins, API
+│   ├── index.ts           Express 5 HTTP routes, OpenSearch, static assets & graceful startup
+│   ├── serviceMode.ts     private vs public mode capability & route policy enforcement
+│   ├── federatedSearch.ts Parallel connector fanout, grace timers, caching & NDJSON streaming
+│   ├── answerEngine.ts    Instant computations, Stack Exchange accepted answers & Wikipedia extracts
+│   ├── mediaSearch.ts     Wikimedia Commons image/video search & bounded raster image proxy
+│   ├── research.ts, ai.ts Cited Research synthesis & streaming BYOK LLM client
+│   ├── deep/              SQLite FTS5 deep index: directory parsers, OPML, polite crawler & blocklist
+│   ├── plugins/           Plugin loader, settings store (0600) & tool runner
+│   ├── auth.ts, security.ts, publicFetch.ts  Session auth, Host/CORS guard & DNS-pinned SSRF guard
+│   └── telemetry.ts, lifecycle.ts, env.ts, net.ts, compress.ts, favicons.ts
+├── plugins/               Built-in plugins (copy plugins/_template to build a new one)
+├── extension/             Standalone Manifest V3 anti-slop browser extension
+├── benchmarks/search/     31 offline judged search cases (NDCG@5, useful recall & slop rate)
+├── scripts/               glogg CLI, PWA & extension builders, bundle budget & benchmark harnesses
+├── infra/                 Optional companion Compose stack, SearXNG config & public nginx template
+├── tests/                 Hermetic Vitest unit, API, fuzz/property, speed & headless Chrome e2e suites
+└── docs/                  Install, usage, public-service, plugin SDK, troubleshooting & API docs
 ```
 
-## Common changes
+## Common Contributions
 
-**A new tool or integration.** Make it a plugin: see [docs/plugins.md](./docs/plugins.md). Copy [`plugins/_template`](./plugins/_template/index.mjs) to `plugins/<id>/index.ts`, keep keys in `settings` with `secret: true`, return output as blocks, and add an offline test to `tests/pluginTools.test.ts`.
+### 1. Adding a tool or service integration (Plugin)
+Build it as a plugin — no React or CSS changes needed! Read [`docs/plugins.md`](./docs/plugins.md), copy [`plugins/_template`](./plugins/_template/index.mjs) to `plugins/<id>/index.ts`, mark API keys with `secret: true`, return structured output blocks (`kv`, `table`, `code`, `checklist`, `actions`), and add offline fixture tests in [`tests/pluginTools.test.ts`](./tests/pluginTools.test.ts).
 
-**A new search source.** Add a connector next to the similar ones in `server/` and register it in `src/core/searchSources.ts`. It must use the shared timeout helpers, return `[]` on failure rather than throw, and report why it came back empty (refused, rate-limited, not set up) so the status bar can say so. Add a test with a fixture server in `tests/indexers.test.ts` or `tests/searchPipeline.test.ts`.
+### 2. Adding a search connector
+Add a connector alongside similar ones in `server/` and register its metadata in [`src/core/searchSources.ts`](./src/core/searchSources.ts). Connectors must:
+- Honor the caller's `AbortSignal` and shared byte/timeout budgets;
+- Never throw on upstream errors — return `[]` and record refusal/rate-limit status so the UI status bar explains what happened;
+- Decode HTML entities with `htmlToText` (`src/core/text.ts`);
+- Include offline tests using `fixtureServer` (`tests/helpers.ts`) in `tests/indexers.test.ts` or `tests/searchPipeline.test.ts`.
 
-**Junk filtering.** Known content mills go in `DEFAULT_SLOP_DOMAINS`, patterns in `SEO_LISTICLE_PATTERNS` / `AI_SLOP_PHRASES` (`src/core/curatedLists.ts`). Add or update a golden in `tests/quality.test.ts`.
+### 3. Improving ranking, anti-slop rules, or instant answers
+- Known content farms belong in `DEFAULT_SLOP_DOMAINS`, listicle/AI patterns in [`src/core/curatedLists.ts`](./src/core/curatedLists.ts), and scoring heuristics in [`src/core/slopScorer.ts`](./src/core/slopScorer.ts) / [`src/core/ranker.ts`](./src/core/ranker.ts).
+- Always run `npm run benchmark:search` to verify that `meanNDCGAt5`, `meanUsefulRecall`, and `meanSlopRate` across [`benchmarks/search/cases.json`](./benchmarks/search/cases.json) improve or hold steady, and add regression cases to [`tests/quality.test.ts`](./tests/quality.test.ts).
+- Keep server-heavy modules out of the browser bundle! Check [`src/core/browser.ts`](./src/core/browser.ts) and verify `npm run build:client && npm run check:bundle` stays within **125 KB JS / 16 KB CSS** gzipped.
 
-**The Atlas or the deep index.** Hand-picked sites go in `CURATED_INDIE_INDEX`; deep-index directories and verified boards/forums in `server/deep/sources.ts`.
+### 4. Expanding the Atlas or Deep Index
+- Hand-picked independent sites go in `CURATED_INDIE_DIRECTORY` ([`src/core/curatedLists.ts`](./src/core/curatedLists.ts)).
+- Verified open directories, forums, and imageboards go in [`server/deep/sources.ts`](./server/deep/sources.ts).
 
-## Before you open a pull request
+### 5. Changing HTTP routes or environment variables
+- [`tests/api.test.ts`](./tests/api.test.ts) enforces 1:1 parity between Express routes, [`docs/api.md`](./docs/api.md), and the contract table. Update all three together.
+- [`tests/docker.test.ts`](./tests/docker.test.ts) enforces parity between `# VAR=` entries in [`.env.example`](./.env.example) and [`docker-compose.yml`](./docker-compose.yml).
+
+## Verification Before Opening a PR
+
+Run the full local gate (identical to GitHub Actions CI):
 
 ```bash
-npm run check && npm run build && npm test && npm run test:coverage && npm run test:e2e && npm run check:bundle
+npm run check && npm run build && npm run benchmark:search && npm test && npm run test:coverage && npm run test:e2e && npm run check:bundle
 ```
 
-- `npm test` needs no network, and can't use it: a fetch to anything but this machine fails at once. Serve fixtures from a local server (`fixtureServer` in `tests/helpers.ts`) or stub `fetch`.
-- For a bug, add the test that fails first.
-- For anything that must hold for every input, add a property to `tests/properties.test.ts` (`forAll` from `tests/fuzz.ts`).
-- Coverage has a floor in `vite.config.ts`: raise it when you add tests, never lower it to pass.
-- If you touch a hot path, run `npm run test:perf` and keep it inside its budget.
-- Update `CHANGELOG.md` under **Unreleased**, and the docs if behavior or settings change. New settings go in `.env.example` and `docker-compose.yml` (a test checks they match).
+- **100% offline tests:** `tests/setup.ts` rejects any fetch outside `127.0.0.1` / `localhost`. Stub `fetch` or use `fixtureServer` from `tests/helpers.ts`.
+- **Property-based fuzzing:** invariants that must hold for arbitrary hostile input belong in [`tests/properties.test.ts`](./tests/properties.test.ts) (`forAll` in `tests/fuzz.ts`).
+- **Coverage & bundle floors:** never lower thresholds in `vite.config.ts` or budgets in `scripts/check-bundle.ts` to make a build pass.
+- **Changelog:** summarize user-visible changes under `## [Unreleased]` in [`CHANGELOG.md`](./CHANGELOG.md).
 
-Keep pull requests focused: one change, with a description of what changed and how you checked it. CI runs the same commands on every pull request.
+## Code Style & Principles
 
-## Style
-
-- TypeScript everywhere, strict mode. `npm run check` must pass.
-- Small, pure functions in `src/core`; I/O in `server/`.
-- User-facing text is plain and specific: say what happened and what to do about it.
-- No new runtime dependencies without a good reason; the client bundle has a size budget (`npm run check:bundle`).
+- **Strict TypeScript** everywhere (`npm run check` must pass with zero warnings/errors).
+- **Pure core, explicit I/O:** keep `src/core/` deterministic and free of Node/DOM globals; keep network/disk/process work in `server/`.
+- **Plain, honest copy:** tell the user specifically what happened and what action they can take; never label an unverified snippet as a verified fact.
+- **Minimal dependencies & zero telemetry:** avoid adding runtime dependencies unless essential, and never introduce third-party browser requests or analytics.
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the [MIT License](./LICENSE).
+By contributing to glogg, you agree that your contributions will be licensed under the [MIT License](./LICENSE).

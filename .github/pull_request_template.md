@@ -1,10 +1,12 @@
 ## Summary
 
-Describe the changes introduced in this pull request.
+Describe what changed, why, and any trade-offs considered.
 
-## Checklist
+## Verification
 
 - [ ] `npm run check` passes with zero TypeScript errors
-- [ ] `npm test` passes all unit & server integration tests
-- [ ] `npm run build` builds both the Vite web client (`dist/`) and Manifest V3 extension (`dist-extension/`)
-- [ ] Preserves zero-telemetry, URL tracking hygiene, and anti-slop scoring accuracy
+- [ ] `npm run build && npm run check:bundle` passes within the gzipped client budget (`<= 125 KB` JS, `<= 16 KB` CSS)
+- [ ] `npm run benchmark:search` passes all 31 offline ranking & anti-slop benchmark cases
+- [ ] `npm test` and `npm run test:coverage` pass completely offline
+- [ ] `npm run test:e2e` passes headless Chrome browser checks (if UI, routing, or server responses changed)
+- [ ] Updated `docs/api.md` (if HTTP routes changed), `.env.example` + `docker-compose.yml` (if env vars changed), and `CHANGELOG.md`

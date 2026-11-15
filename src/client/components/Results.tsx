@@ -32,6 +32,19 @@ import {
 } from '../lib.js';
 import type { DomainRule } from '../lib.js';
 
+const STOP_HL = /^(the|and|for|with|from|that|this|what|when|where|which|how|why|who|are|was|were|not|into)$/i;
+
+export function renderHighlightedSnippet(snippet: string, query?: string): React.ReactNode {
+  if (!query || !snippet) return snippet;
+  const terms = [...new Set(
+    query.replace(/(?:^|\s)-(?:\S+)/g, ' ').replace(/(?:^|\s)site:\S+/gi, ' ').replace(/["'()[\]{}*^:?~!]/g, ' ')
+      .split(/\s+/).filter((w) => w.length >= 3 && !STOP_HL.test(w))
+  )].sort((a, b) => b.length - a.length).slice(0, 6);
+  if (!terms.length) return snippet;
+  const parts = snippet.split(new RegExp(`(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi'));
+  return parts.length > 1 ? parts.map((p, i) => (i % 2 ? <mark key={i} className="hl">{p}</mark> : p)) : snippet;
+}
+
 // ── Answer ─────────────────────────────────────────────────────────────────
 export function AnswerCard({
   answer,
@@ -40,6 +53,8 @@ export function AnswerCard({
   answer: InstantAnswerPayload;
   onRead: (url: string) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const later = useLater();
   // Say what it is: a quote from the top pages is not a verified answer.
   const quoted = answer.kind === 'knowledge-synthesis';
   const label =
@@ -54,6 +69,7 @@ export function AnswerCard({
   return (
     <section className={`answer ${quoted ? 'answer-quoted' : ''}`} aria-label="Answer">
       <div className="answer-eyebrow">
+        {answer.swatchColor && <i className="answer-swatch" style={{ background: answer.swatchColor }} aria-hidden="true" />}
         <span className="answer-kind">{label}</span>
         {answer.primarySourceDomain && !quoted && <span>{answer.primarySourceDomain}</span>}
       </div>
@@ -99,11 +115,24 @@ export function AnswerCard({
             </a>
           ))}
         </div>
-        {answer.primarySourceUrl && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRead(answer.primarySourceUrl!)}>
-            <BookOpen size={13} /> Read source
+        <div className="answer-foot-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              void navigator.clipboard?.writeText(answer.directAnswer);
+              setCopied(true);
+              later(() => setCopied(false), 1400);
+            }}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
           </button>
-        )}
+          {answer.primarySourceUrl && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRead(answer.primarySourceUrl!)}>
+              <BookOpen size={13} /> Read source
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -190,6 +219,8 @@ export function ResultItem({
   onRead,
   onSend,
   onRule,
+  onSiteSearch,
+  query,
   newTab = true,
   detailed,
   index = 0,
@@ -209,6 +240,10 @@ export function ResultItem({
   onSend: (item: ScoredSearchResult, target: DownloadTargetId) => void;
   /** Pin, raise, lower or hide the result's site. */
   onRule: (domain: string, rule: DomainRule) => void;
+  /** Search only within this result's root domain. */
+  onSiteSearch?: (domain: string) => void;
+  /** Submitted search query, used to highlight matched terms in the snippet. */
+  query?: string;
   /** Open the title link in a new tab (Settings → Results). */
   newTab?: boolean;
 }) {
@@ -268,7 +303,7 @@ export function ResultItem({
         </div>
       </div>
 
-      <p className="result-snippet">{item.snippet}</p>
+      <p className="result-snippet">{renderHighlightedSnippet(item.snippet, query)}</p>
 
       {detailed && (
         <div className="result-scores" aria-label="Ranking signals">
@@ -335,6 +370,11 @@ export function ResultItem({
                     <Download size={13} />
                   </button>
                 )}
+                {onSiteSearch && !isMagnet && item.rootDomain.includes('.') && (
+                  <button type="button" role="menuitem" onClick={() => { onSiteSearch(item.rootDomain); setMoreOpen(false); }}>
+                    <span>More from {item.rootDomain}</span>
+                  </button>
+                )}
                 {DOMAIN_RULES.map((r) => (
                   <button key={r.id} type="button" role="menuitem" title={r.hint} onClick={() => { onRule(item.rootDomain, r.id); setMoreOpen(false); }}>
                     <span>
@@ -354,6 +394,19 @@ export function ResultItem({
                   <span>Copy link</span>
                   <Copy size={13} />
                 </button>
+                {onSiteSearch && !isMagnet && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(`[${item.title.replace(/[\[\]]/g, '')}](${item.url})`);
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <span>Copy Markdown</span>
+                    <Copy size={13} />
+                  </button>
+                )}
                 <a
                   role="menuitem"
                   href={`https://web.archive.org/web/*/${item.url}`}

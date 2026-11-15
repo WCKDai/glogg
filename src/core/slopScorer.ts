@@ -20,7 +20,7 @@ import {
   SlopVerdict,
 } from './types.js';
 
-const PRE_LLM_CUTOFF_TIMESTAMP = Date.parse('2022-11-30T00:00:00Z');
+const PRE_LLM_CUTOFF_TIMESTAMP = /* @__PURE__ */ Date.parse('2022-11-30T00:00:00Z');
 
 const SPONSORED_PATTERNS: { pattern: RegExp; label: string; weight: number }[] = [
   {
@@ -46,6 +46,15 @@ const SPONSORED_PATTERNS: { pattern: RegExp; label: string; weight: number }[] =
     weight: 48,
   },
 ];
+
+const TWO_LEVEL_TLDS = /* @__PURE__ */ new Set([
+  'co.uk', 'ac.uk', 'org.uk', 'gov.uk',
+  'edu.au', 'com.au', 'org.au', 'co.nz',
+  'co.jp', 'ne.jp', 'or.jp', 'ac.jp', 'go.jp',
+  'co.kr', 'co.in', 'ac.in',
+  'edu.my', 'com.my', 'com.sg', 'com.hk', 'com.tw',
+  'co.za', 'com.br', 'com.mx', 'com.ar',
+]);
 
 export function extractDomainInfo(rawUrl: string): {
   domain: string;
@@ -88,10 +97,7 @@ export function extractDomainInfo(rawUrl: string): {
       ];
       if (preserveSubdomainHosts.includes(lastTwo)) {
         rootDomain = parts.slice(-3).join('.');
-      } else if (
-        ['co.uk', 'ac.uk', 'org.uk', 'gov.uk', 'edu.au', 'com.au'].includes(lastTwo) &&
-        parts.length >= 3
-      ) {
+      } else if (TWO_LEVEL_TLDS.has(lastTwo) && parts.length >= 3) {
         rootDomain = parts.slice(-3).join('.');
       } else {
         rootDomain = lastTwo;
@@ -116,7 +122,7 @@ export function extractDomainInfo(rawUrl: string): {
 }
 
 /** Each list's entries, normalised once (a request's lists and the curated ones are reused for every result). */
-const normalisedLists = new WeakMap<string[], Set<string>>();
+const normalisedLists = /* @__PURE__ */ new WeakMap<string[], Set<string>>();
 
 function domainSet(list: string[]): Set<string> {
   let set = normalisedLists.get(list);
@@ -369,7 +375,7 @@ export function scoreSearchResult(
 
   // 5. IndieWeb / Small Web / Personal Domain detection
   let isIndieWeb = false;
-  if (matchesDomainList(domain, rootDomain, DEFAULT_BOOSTED_DOMAINS)) {
+  if (!raw.fediverse && matchesDomainList(domain, rootDomain, DEFAULT_BOOSTED_DOMAINS)) {
     isIndieWeb = true;
     humanPoints += 34;
     slopPoints = Math.max(0, slopPoints - 14);
@@ -425,12 +431,17 @@ export function scoreSearchResult(
     raw.source === 'academic-torrents';
 
   if (isPrimarySource) {
-    humanPoints += 32;
-    slopPoints = Math.max(0, slopPoints - 16);
+    // Empty-snippet archival records and 0-citation scholarly stubs get a modest provenance credit instead of overpowering full articles.
+    const thinRecord =
+      (raw.source === 'openalex' && (raw.points ?? 0) === 0 && /^Published in /i.test(raw.snippet)) ||
+      (raw.source === 'archive-deep' && raw.snippet.trim().length < 24);
+    const primaryDelta = thinRecord ? 14 : 32;
+    humanPoints += primaryDelta;
+    slopPoints = Math.max(0, slopPoints - (thinRecord ? 6 : 16));
     signals.push({
       id: 'primary-reference',
       label: 'Primary Source / Spec / Archive',
-      delta: 32,
+      delta: primaryDelta,
       category: 'primary',
     });
   }
@@ -526,6 +537,7 @@ export function scoreSearchResult(
 
   if (
     /^\/(posts|notes|essays|articles|archive|writing|log|wiki|doc|man)\//i.test(pathname) &&
+    !/^\/wiki\/(?:File|Special|Category|Talk|Template|Help):/i.test(pathname) &&
     !isBigTechMonoculture
   ) {
     humanPoints += 10;

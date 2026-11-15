@@ -11,9 +11,23 @@
  */
 import dns from 'node:dns';
 import net from 'node:net';
+import { Agent, setGlobalDispatcher } from 'undici';
+
+let poolConfigured = false;
 
 export function configureNetwork(env: Record<string, string | undefined> = process.env): void {
-  if (env.GLOGG_HAPPY_EYEBALLS === '1') return;
-  net.setDefaultAutoSelectFamily(false);
-  dns.setDefaultResultOrder('ipv4first');
+  if (env.GLOGG_HAPPY_EYEBALLS !== '1') {
+    net.setDefaultAutoSelectFamily(false);
+    dns.setDefaultResultOrder('ipv4first');
+  }
+  if (!poolConfigured && !env.HTTPS_PROXY && !env.HTTP_PROXY && !env.ALL_PROXY && !env.VITEST) {
+    poolConfigured = true;
+    setGlobalDispatcher(
+      new Agent({
+        keepAliveTimeout: 30_000,
+        keepAliveMaxTimeout: 60_000,
+        connections: 32,
+      })
+    );
+  }
 }

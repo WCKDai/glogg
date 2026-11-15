@@ -4,8 +4,24 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ## [Unreleased]
 
-### Search workspace and public service foundation
+## [0.5.0] — 2026-11-15
 
+### Deep index, OPML & query operators
+- **Operator-aware SQLite FTS5 search (`server/deep/`):** `searchDeep` now compiles `"exact phrases"`, `-excluded` terms (`FTS5 NOT`), `site:`, `-site:`, CJK single-character tokens, and recency-blended BM25 scoring with optional `sinceMs` time-range filtering directly inside SQLite.
+- **OPML 2.0 import & export (`GET /api/deep/opml`, `POST /api/deep/opml`):** bring existing RSS/Atom subscriptions from any feed reader or export your custom sources (`glogg-feeds.opml`), via Atlas → Deep index or `glogg deep opml-import` / `opml-export`.
+- **Instant source indexing & management:** added opt-in `indexNow` (`Add & index` in Atlas and `glogg deep add <url> --crawl`) to fetch and index a newly added feed immediately, plus `DELETE /api/deep/sources/:id` to remove user-added sources and their posts.
+
+### Instant computation & answer engine
+- **Workbench computation engine (`src/core/queryIntelligence.ts`):** added zero-network instant answers for scientific & bitwise math (`sqrt`, `cbrt`, `sin`, `cos`, `tan`, `log`, `ln`, `log2`, `pi`, `tau`, `<<`, `>>`), percentages (`15% of 240`), integer base conversions (`0xff in bin`), 55+ physical & binary unit conversions (`100 C in F`, `5 GiB in MB`), CSS colors (`#hex`, `rgb()`, `hsl()`) with live swatch & WCAG AA contrast ratios, IPv4 CIDR subnet ranges (`192.168.1.0/24`), Unix/ISO timestamps, HTTP status codes (`http 418`), and 5-field cron schedules (`*/15 9-17 * * 1-5`).
+- **0 ms streaming & palette preview:** instant computations now ship on the first streamed `partial` search frame as well as live inside the Command Palette (`⌘K`) and loading state.
+- **Cleaner encyclopedia & takeaway synthesis (`server/answerEngine.ts`):** parallelized DuckDuckGo zero-click lookups, boosted exact Wikipedia title matches while skipping `(disambiguation)` pages and narrow sub-articles with unqueried title qualifiers, reconstructed OpenAlex `abstract_inverted_index` abstracts, and stripped AT-URI / synthetic citation boilerplate from extractive takeaways.
+
+### Relevance, speed & workbench UX
+- **Higher precision & recall (`meanNDCGAt5` `0.923`, `meanUsefulRecall` `0.905` across 31 offline benchmark cases):** added noun vs participle anchor specificity weighting, multi-concept title bonuses, 19 two-level ccSLD root-domain rules (`.co.jp`, `.com.br`, `.ac.uk`…), MediaWiki namespace filtering (`/wiki/Special:*`), Unicode token preservation, and prevented fediverse/empty-archive score double-dipping.
+- **Faster federated streaming & warm keep-alive (`server/federatedSearch.ts`, `server/net.ts`):** tuned `GLOGG_CORE_GRACE_MS` (`280 ms`) and `GLOGG_MIN_WAIT_MS` (`650 ms`), shared `WeakMap` result scoring across `partial` and `final` NDJSON passes, and enabled warm TLS keep-alive pooling across upstream connectors.
+- **Time-range filtering & result actions (`src/client/`):** added URL-synced `?time=day|week|month|year` (`--time` in CLI) across Simple view, the Advanced rail, and Command Palette; XSS-safe query-term `<mark>` highlighting in snippets; `More from {domain}` and `Copy Markdown` actions; Answer Card copy button & color swatch; and stable keyboard selection across `partial` → `final` result updates — all within `124.8 KB` gzipped JS (`<= 125 KB` budget).
+
+### Search workspace & public service foundation
 - Hardened query matching, ranking boundaries and commercial-label phrasing across non-Latin scripts, technical tokens, silent-`e` and deverbal `-al` inflections, negated descriptions and malformed percent-encoded URLs, with offline judged ranking, controlled HTTP latency and paced live observation harnesses. Constrained horizontal scope and tab bars vertically on touch screens and hid operator crawl state on public Atlas views while keeping hand-picked and directory browsing available.
 - Added Images and Videos tabs backed by Wikimedia Commons, with credits, license/source links, image zoom and native video playback after an explicit Play action. Images use a bounded same-origin raster proxy; video bytes come directly from Commons.
 - Time-sensitive queries and News now use recent provider filters, a cache capped at 60 seconds, real fetch timestamps and date-aware ranking. Removed invented reference-page dates and label GDELT discovery times as indexed, not published. Evergreen and historical searches keep their behavior.
