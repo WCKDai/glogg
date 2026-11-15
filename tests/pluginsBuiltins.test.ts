@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CustomEndpointsConfig } from '../src/core/index.js';
 import type { PluginContext, PluginDefinition } from '../server/plugins/sdk.js';
@@ -687,7 +690,10 @@ describe('built-in OSINT and website testing plugins (osint, webtest)', () => {
     vi.spyOn(dns, 'resolveTxt').mockResolvedValueOnce([['v=spf1 +all']]).mockResolvedValue([]);
     expect((await toolOf(webtest, 'email').run({ domain: 'open.example.com' }, sparseCtx)).summary).toContain('SPF ✓');
 
-    // Plugin runtime registration & secret masking
+    // Plugin runtime registration & secret masking (isolated GLOGG_HOME so sequential runs stay clean)
+    const prevHome = process.env.GLOGG_HOME;
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glogg-plugin-cov-'));
+    process.env.GLOGG_HOME = tmpHome;
     expect(() => registerPlugin({ id: 'BAD' } as unknown as PluginDefinition)).toThrow();
     expect(() => savePluginSettings('missing-plugin', {})).toThrow(/Unknown plugin/);
     registerPlugin({
@@ -714,6 +720,9 @@ describe('built-in OSINT and website testing plugins (osint, webtest)', () => {
       expect(listPlugins().some((p) => p.id === 'cov-dummy' && p.configured)).toBe(true);
     } finally {
       unregisterPlugin('cov-dummy');
+      if (prevHome === undefined) delete process.env.GLOGG_HOME;
+      else process.env.GLOGG_HOME = prevHome;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
     }
   });
 });
