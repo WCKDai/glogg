@@ -6,6 +6,7 @@ All notable changes to **glogg** (`glogg.app`) are documented in this file.
 
 ### Search workspace and public service foundation
 
+- Hardened query matching, ranking boundaries and commercial-label phrasing across non-Latin scripts, technical tokens, silent-`e` and deverbal `-al` inflections, negated descriptions and malformed percent-encoded URLs, with offline judged ranking, controlled HTTP latency and paced live observation harnesses. Constrained horizontal scope and tab bars vertically on touch screens and hid operator crawl state on public Atlas views while keeping hand-picked and directory browsing available.
 - Added Images and Videos tabs backed by Wikimedia Commons, with credits, license/source links, image zoom and native video playback after an explicit Play action. Images use a bounded same-origin raster proxy; video bytes come directly from Commons.
 - Time-sensitive queries and News now use recent provider filters, a cache capped at 60 seconds, real fetch timestamps and date-aware ranking. Removed invented reference-page dates and label GDELT discovery times as indexed, not published. Evergreen and historical searches keep their behavior.
 - Corrected responsive spacing across settings, tool headers, service actions, download forms, menus, reader controls and phone navigation. Search now has one inset focus border rather than a misaligned second outline. Added layout, pointer and media playback regressions.

@@ -31,6 +31,17 @@ function normalizeTitleFingerprint(title: string): string {
     .join(' ');
 }
 
+function hasNavigableResultUrl(item: RawSearchResult): boolean {
+  try {
+    const url = new URL(item.url);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return Boolean(url.hostname);
+    return url.protocol === 'magnet:' && item.p2p?.protocol === 'bittorrent-dht' &&
+      !url.host && !url.pathname && Boolean(url.searchParams.get('xt'));
+  } catch {
+    return false;
+  }
+}
+
 function computeLensBonus(item: ScoredSearchResult, lens: SearchLensId): number {
   switch (lens) {
     case 'p2p-magnet':
@@ -230,7 +241,8 @@ export function diversifyAndRankResults(
   const phrases = (config.phrases ?? []).map((p) => p.toLowerCase());
   const textOf = (r: RawSearchResult) => `${r.title} ${r.snippet}`.toLowerCase();
   const onSite = (r: ScoredSearchResult, sites: string[]) => sites.some((s) => r.domain === s || r.domain.endsWith(`.${s}`) || r.rootDomain === s);
-  const scored: ScoredSearchResult[] = rawItems.map((raw) => {
+  // Both visible and hidden results contain clickable links; omit unusable schemes before scoring.
+  const scored: ScoredSearchResult[] = rawItems.filter(hasNavigableResultUrl).map((raw) => {
     const item = scoreSearchResult(raw, config, query);
     const lensBonus = computeLensBonus(item, config.lens);
     const answerBonus = analysis ? computeAnswerBonus(item, analysis) : 0;
@@ -249,6 +261,7 @@ export function diversifyAndRankResults(
   scored.sort((a, b) => b.netScore - a.netScore);
 
   const surfaced: ScoredSearchResult[] = [];
+  const eligible: ScoredSearchResult[] = [];
   const p2pResults: ScoredSearchResult[] = [];
   const filteredSlop: ScoredSearchResult[] = [];
   const seenIds = new Set<string>();
@@ -266,7 +279,8 @@ export function diversifyAndRankResults(
       ? `media:${item.media.url}`
       : item.p2p?.infoHash
       ? `btih:${item.p2p.infoHash.toLowerCase()}`
-      : item.url.replace(/\/+$/, '').toLowerCase();
+      // scoreSearchResult already canonicalizes the host; paths and queries can be case-sensitive.
+      : item.url.replace(/\/+$/, '');
 
     if (seenIds.has(dedupKey)) {
       continue;
@@ -390,6 +404,47 @@ export function diversifyAndRankResults(
       continue;
     }
 
+    eligible.push(item);
+  }
+
+  let candidates = eligible;
+  if (freshness && !mediaKind) {
+    const groups = new Map<string, ScoredSearchResult[]>();
+    const recent = new Set<ScoredSearchResult>();
+    const window = freshness.intent === 'news' ? 86_400_000 : 30 * 86_400_000;
+    for (const item of eligible) {
+      if (item.p2p || item.fediverse) continue;
+      const fingerprint = normalizeTitleFingerprint(item.title);
+      if (fingerprint.split(' ').length < 4) continue;
+      const copies = groups.get(fingerprint) ?? [];
+      copies.push(item);
+      groups.set(fingerprint, copies);
+      const age = item.publishedAt ? freshness.now - Date.parse(item.publishedAt) : NaN;
+      // Discovery time cannot prove that a copy is current reporting.
+      if (item.dateKind !== 'indexed' && age >= 0 && age < window) recent.add(item);
+    }
+
+    const preferredCopies = new Map<ScoredSearchResult, ScoredSearchResult[]>();
+    for (const copies of groups.values()) {
+      if (!copies.some((item) => recent.has(item)) || copies.every((item) => recent.has(item))) continue;
+      copies.sort((a, b) => Number(recent.has(b)) - Number(recent.has(a)) || b.netScore - a.netScore);
+      for (const item of copies) preferredCopies.set(item, copies);
+    }
+    // Try current eligible reporting first within a duplicate group, without changing its score.
+    // Keep fallbacks together: if the current copy hits a domain cap, an older copy can still fit.
+    const visited = new Set<ScoredSearchResult[]>();
+    candidates = [];
+    for (const item of eligible) {
+      const copies = preferredCopies.get(item);
+      if (!copies) candidates.push(item);
+      else if (!visited.has(copies)) {
+        candidates.push(...copies);
+        visited.add(copies);
+      }
+    }
+  }
+
+  for (const item of candidates) {
     // Check Syndicated / Scraper Title Deduplication
     const titleFp = normalizeTitleFingerprint(item.title);
     if (!mediaKind && !item.p2p && !item.fediverse && titleFp.split(' ').length >= 4 && seenTitleFingerprints.has(titleFp)) {
@@ -440,6 +495,7 @@ export function diversifyAndRankResults(
   // Final sort after diversity adjustments; domains you pinned go first.
   const pinned = (r: ScoredSearchResult) => (r.signals.some((s) => s.id === 'user-pinned-domain') ? 1 : 0);
   surfaced.sort((a, b) => pinned(b) - pinned(a) || b.netScore - a.netScore);
+  filteredSlop.sort((a, b) => b.netScore - a.netScore);
 
   // Interleave p2pResults across protocols/indexers so top rows show DHT Magnets, Archive BT, and Usenet NZB together
   const byIndexer = new Map<string, ScoredSearchResult[]>();

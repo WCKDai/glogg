@@ -25,7 +25,7 @@ const PRE_LLM_CUTOFF_TIMESTAMP = Date.parse('2022-11-30T00:00:00Z');
 const SPONSORED_PATTERNS: { pattern: RegExp; label: string; weight: number }[] = [
   {
     pattern:
-      /\b(?:sponsored\s+(?:post|content|by)|paid\s+partnership|partner\s+content|presented\s+by|promoted\s+story|advertorial)\b/i,
+      /\b(?:sponsored\s+(?:post|content|by|affiliate)|paid\s+partnership|partner\s+content|presented\s+by|promoted\s+story|advertorial)\b/i,
     label: 'Sponsored / Native Ad Content',
     weight: 60,
   },
@@ -36,7 +36,7 @@ const SPONSORED_PATTERNS: { pattern: RegExp; label: string; weight: number }[] =
   },
   {
     pattern:
-      /\b(?:we may earn a commission|affiliate disclosure|our top picks for 202[4-9]|best budget pick|best overall pick)\b/i,
+      /\b(?:we may earn (?:a )?commissions?|affiliate disclosure|our top picks for 202[4-9]|best budget pick|best overall pick)\b/i,
     label: 'Affiliate Commerce / Review Mill',
     weight: 42,
   },
