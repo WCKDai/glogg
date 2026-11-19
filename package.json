@@ -76,7 +76,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
     "@vitest/coverage-v8": "5.1.0",
-    "esbuild": "^0.25.2",
+    "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "terser": "5.51.2",
     "typescript": "^5.8.3",
